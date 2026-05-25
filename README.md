@@ -4,7 +4,7 @@
 > En Mac-app som översätter, sammanfattar, anonymiserar och förenklar juridiska texter — utan att en enda bokstav lämnar din dator.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Platform: macOS](https://img.shields.io/badge/platform-macOS%2011%2B-lightgrey.svg)](#installation)
+[![Platform: macOS](https://img.shields.io/badge/platform-macOS%2012%2B-lightgrey.svg)](#installation)
 [![Status](https://img.shields.io/badge/status-pre--MVP-orange.svg)](#status)
 
 ---
@@ -56,14 +56,44 @@ Förväntat installationsflöde när första utgåvan finns:
 
 For contributors and the curious. End-users should wait for a release rather than building from source.
 
+### Prerequisites
+
+- macOS 12 (Monterey) or later, Apple Silicon
+- [Xcode Command Line Tools](https://developer.apple.com/) — `xcode-select --install`
+- [Node 20+](https://nodejs.org/) — via `nvm` or Homebrew
+- [Rust toolchain](https://rustup.rs/) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+- The Apple Silicon Rust target — `rustup target add aarch64-apple-darwin`
+
+### Clone and run
+
 ```bash
-# Prerequisites: Node 20+, Rust toolchain, Xcode Command Line Tools
 git clone https://github.com/johanolofsson72/juradrop.git
 cd juradrop
 npm install
-npm run tauri dev          # run in development mode
-npm run tauri build        # build a .app + .dmg (unsigned without a Developer ID cert)
+npm run tauri dev          # opens the dev window
 ```
+
+### Production build
+
+```bash
+npm run tauri:build        # produces src-tauri/target/aarch64-apple-darwin/release/bundle/macos/JuraDrop.app
+```
+
+The build is unsigned at spec 001 — macOS Gatekeeper will block double-clicking the `.app`. Right-click → Open the first time to bypass. Signing, notarization, and DMG output arrive with spec 006.
+
+### Verifying the toolchain
+
+```bash
+npm test                                       # vitest (frontend)
+npm run lint                                   # eslint
+npm run typecheck                              # tsc --noEmit
+npm run test:e2e                               # playwright (stub at spec 001)
+cd src-tauri && cargo test                     # Rust unit tests
+cd src-tauri && cargo clippy -- -D warnings    # Rust lints
+cd src-tauri && cargo fmt -- --check           # Rust format check
+```
+
+Every command should exit 0 on a clean checkout.
 
 For signing and notarization configuration, see [`.claude/docs/deployment.md`](.claude/docs/deployment.md).
 

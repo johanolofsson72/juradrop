@@ -9,7 +9,7 @@ The pipeline track for each spec is triaged per `.claude/rules/specs.md`:
 
 ## Specs
 
-- [ ] 001 — tauri-bootstrap — light — scaffold Tauri 2.x + React + TypeScript + Tailwind + shadcn/ui, empty window, package.json scripts wired
+- [/] 001 — tauri-bootstrap — light — scaffold Tauri 2.x + React + TypeScript + Tailwind + shadcn/ui, empty window, package.json scripts wired
 - [ ] 002 — ollama-sidecar-poc — full — bundle Ollama binary, start/stop lifecycle from Rust, prove first-launch model pull + one inference round-trip works end-to-end
 - [ ] 003 — first-zone-sammanfatta — full — one drop zone ("Sammanfatta"), .docx in → .docx sidecar out, full state machine (idle → dragover → processing → success/error), Swedish error states
 - [ ] 004 — all-six-zones — light — extend to 2×3 grid: TillEngelska, TillSvenska, Sammanfatta, Punktlista, Anonymisera, Förenkla; per-zone system prompts in src-tauri/src/prompts/

@@ -26,3 +26,17 @@ Thumbs.db
 
 # CLAUDE.local.md (personal project settings)
 CLAUDE.local.md
+
+# Node / Vite (spec 001)
+node_modules/
+dist/
+.vite/
+*.log
+
+# Tauri / Rust (spec 001)
+src-tauri/target/
+src-tauri/gen/
+
+# Playwright (spec 001)
+playwright-report/
+test-results/

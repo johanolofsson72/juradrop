@@ -1,0 +1,191 @@
+-- allium: 3
+
+-- JuraDrop spec 001-tauri-bootstrap formal specification
+--
+-- Bootstrap has no real domain entities (drop zones, prompts, sidecar process all
+-- arrive from spec 002 onward). What CAN be formalized at this stage:
+--   1. Application + single-window lifecycle (status, visibility, appearance)
+--   2. System-appearance reactive coupling (light/dark follows OS)
+--   3. Bootstrap-level invariants: deny-by-default capability allowlist,
+--      aarch64-only release target, window min-size enforcement, zero outbound
+--      network traffic beyond Vite dev loopback
+--
+-- Companion files: spec.md (markdown), checklists/requirements.md.
+
+enum Appearance { light | dark }
+enum AppStatus { not_running | running }
+enum WindowVisibility { hidden | visible | fullscreen }
+enum BuildProfile { dev | release }
+enum TargetArchitecture { aarch64_apple_darwin | x86_64_apple_darwin | universal_apple_darwin }
+
+config {
+    min_window_width: Integer = 700
+    min_window_height: Integer = 500
+    initial_window_width: Integer = 900
+    initial_window_height: Integer = 650
+    bundle_identifier: String = `se.noisycricket.juradrop`
+    product_name: String = `JuraDrop`
+    bootstrap_target_arch: TargetArchitecture = aarch64_apple_darwin
+}
+
+-- External entities — provided by the OS / Tauri runtime / build system,
+-- not defined inside the JuraDrop codebase at this spec.
+
+external entity SystemAppearance {
+    current: Appearance
+}
+
+external entity TauriCapabilityError {
+    capability: String
+    app: Application
+}
+
+entity Application {
+    status: AppStatus
+    profile: BuildProfile
+    capabilities: Set<String>
+    window: Window? when status = running
+
+    transitions status {
+        not_running -> running
+        running -> not_running
+        terminal: not_running
+    }
+
+    invariant CapabilityAllowlistEmptyAtBootstrap { this.capabilities.count = 0 }
+}
+
+entity Window {
+    application: Application
+    title: String
+    width: Integer
+    height: Integer
+    visibility: WindowVisibility
+    appearance: Appearance
+
+    transitions visibility {
+        hidden -> visible
+        visible -> fullscreen
+        fullscreen -> visible
+        visible -> hidden
+        fullscreen -> hidden
+        terminal: hidden
+    }
+
+    invariant TitleIsJuraDrop { this.title = `JuraDrop` }
+    invariant RespectsMinWidth { this.width >= 700 }
+    invariant RespectsMinHeight { this.height >= 500 }
+}
+
+-- Lifecycle rules
+
+rule LaunchDevWindow {
+    when: DevServerInvoked(app)
+    requires: app.status = not_running
+    requires: app.profile = dev
+    ensures:
+        app.status = running
+        app.window.visibility = visible
+        app.window.width = 900
+        app.window.height = 650
+        app.window.appearance = SystemAppearance.current
+}
+
+rule LaunchProductionApp {
+    when: ProductionAppOpened(app)
+    requires: app.status = not_running
+    requires: app.profile = release
+    ensures:
+        app.status = running
+        app.window.visibility = visible
+        app.window.width = 900
+        app.window.height = 650
+        app.window.appearance = SystemAppearance.current
+}
+
+rule CloseWindowTerminatesApp {
+    when: win: Window.visibility transitions_to hidden
+    ensures: win.application.status = not_running
+}
+
+rule SystemAppearanceChanged {
+    when: SystemAppearanceChange(new_value)
+    for win in Windows where application.status = running:
+        ensures: win.appearance = new_value
+}
+
+rule ResizeBelowMinimumClamps {
+    when: ResizeRequested(window, requested_width, requested_height)
+    requires: window.visibility != fullscreen
+    ensures:
+        window.width = max(requested_width, 700)
+        window.height = max(requested_height, 500)
+}
+
+rule EnterFullscreen {
+    when: FullscreenRequested(window)
+    requires: window.visibility = visible
+    ensures: window.visibility = fullscreen
+}
+
+rule ExitFullscreen {
+    when: ExitFullscreenRequested(window)
+    requires: window.visibility = fullscreen
+    ensures: window.visibility = visible
+}
+
+rule DeniedCapabilityCallFails {
+    when: WebViewInvokesTauriApi(app, capability)
+    requires: capability not in app.capabilities
+    ensures: TauriCapabilityError.raised(capability: capability, app: app)
+}
+
+-- Global invariants
+
+invariant ClosedWindowMeansNotRunning {
+    for app in Applications where app.window?.visibility = hidden:
+        app.status = not_running
+}
+
+invariant NoOutboundNetworkAtBootstrap {
+    -- Conceptual constraint: no JuraDrop code path initiates an outbound
+    -- HTTP/WS/socket connection at this spec. Verified at impl time by
+    -- inspecting src/ and src-tauri/src/ for fetch/XHR/reqwest/tokio::net
+    -- usage. Vite dev-server loopback (127.0.0.1:1420) is excluded — see
+    -- open question below. No way to express "no production code emits
+    -- network calls" structurally in Allium without a synthetic entity;
+    -- this invariant is enforced by tests and code review.
+    true
+}
+
+invariant BootstrapTargetIsAppleSilicon {
+    -- Pinned by config.bootstrap_target_arch above. The tauri.conf.json
+    -- build targets MUST match this config value at this spec.
+    true
+}
+
+invariant SingleWindowAtBootstrap {
+    -- The product is window-IS-the-app. Multi-window is not introduced at any
+    -- spec in the current register.
+    for app in Applications where status = running:
+        app.window != null
+}
+
+-- Deferred to later specs in the register (specs/INDEX.md)
+-- Deferred items map to register rows in specs/INDEX.md.
+-- Allium's `at "..."` location-hint syntax is not recognised by the current
+-- validator grammar, so location pointers stay in comments.
+deferred Application.sidecar            -- spec 002 (ollama-sidecar-poc)
+deferred Application.drop_zones         -- spec 003 + 004
+deferred Application.input_parsers      -- spec 005 + 009
+deferred Application.signing            -- spec 006 (signing-and-ci)
+deferred Application.updater_state      -- spec 007 (auto-updater)
+deferred Application.first_run_state    -- spec 008 (first-run-wizard)
+deferred Application.settings_panel     -- spec 010 (settings-panel)
+deferred Application.error_recovery     -- spec 011 (error-recovery)
+
+-- Open questions surfaced during elicitation: all resolved by the plan phase.
+-- The original "Window.appearance binding mechanism" question was resolved in
+-- plan.md R-001: both layers, CSS prefers-color-scheme via Tailwind's
+-- darkMode: 'media' is the source of truth; no Tauri Rust event subscription
+-- is needed at this spec.

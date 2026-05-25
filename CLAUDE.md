@@ -208,5 +208,13 @@ Read these files WHEN you need them — do not load everything upfront:
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
+shell commands, and other important information, read the current plan:
+
+- Active spec: `specs/001-tauri-bootstrap/spec.md`
+- Allium spec: `specs/001-tauri-bootstrap/spec.allium`
+- Implementation plan: `specs/001-tauri-bootstrap/plan.md`
+- Research notes: `specs/001-tauri-bootstrap/research.md`
+- Data model: `specs/001-tauri-bootstrap/data-model.md`
+- Contracts: `specs/001-tauri-bootstrap/contracts/`
+- Quickstart: `specs/001-tauri-bootstrap/quickstart.md`
 <!-- SPECKIT END -->
