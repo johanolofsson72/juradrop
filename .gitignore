@@ -1,0 +1,28 @@
+# Local-LLM offload artifacts
+.claude/.local-llm-*
+.claude/local-llm-*.log
+.claude/local-llm-*.log.errors
+
+# Graphify
+graphify-out/
+.claude/graphify-*.log
+.claude/graphify-*.log.errors
+
+# Speckit
+.specify/specs/*/draft-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Env files
+.env
+.env.local
+*.env.local
+
+# CLAUDE.local.md (personal project settings)
+CLAUDE.local.md
