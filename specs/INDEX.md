@@ -9,8 +9,8 @@ The pipeline track for each spec is triaged per `.claude/rules/specs.md`:
 
 ## Specs
 
-- [/] 001 — tauri-bootstrap — light — scaffold Tauri 2.x + React + TypeScript + Tailwind + shadcn/ui, empty window, package.json scripts wired
-- [ ] 002 — ollama-sidecar-poc — full — bundle Ollama binary, start/stop lifecycle from Rust, prove first-launch model pull + one inference round-trip works end-to-end
+- [x] 001 — tauri-bootstrap — light — scaffold Tauri 2.x + React + TypeScript + Tailwind + shadcn/ui, empty window, package.json scripts wired
+- [/] 002 — ollama-sidecar-poc — full — bundle Ollama binary, start/stop lifecycle from Rust, prove first-launch model pull + one inference round-trip works end-to-end
 - [ ] 003 — first-zone-sammanfatta — full — one drop zone ("Sammanfatta"), .docx in → .docx sidecar out, full state machine (idle → dragover → processing → success/error), Swedish error states
 - [ ] 004 — all-six-zones — light — extend to 2×3 grid: TillEngelska, TillSvenska, Sammanfatta, Punktlista, Anonymisera, Förenkla; per-zone system prompts in src-tauri/src/prompts/
 - [ ] 005 — additional-input-formats — light — add .pdf (via pdf-extract), .txt, .md input parsers; mirror-input output rules
@@ -27,3 +27,4 @@ The pipeline track for each spec is triaged per `.claude/rules/specs.md`:
 Append a line every time the register is rewritten or reordered. Date + reason.
 
 - 2026-05-25 — initial register, 12 specs identified during project inception (`/project-wizard`). Phases from PROJECT-BRIEF.md decomposed into one-task-sized specs.
+- 2026-05-26 — spec 001 (tauri-bootstrap) marked done; spec 002 (ollama-sidecar-poc) started. Implementation pushed in commit fc98a68; user confirmed manual destructive-test verifications.
