@@ -84,7 +84,7 @@ specs/001-tauri-bootstrap/
 ### Source Code (repository root)
 
 ```text
-juradrop/                              # repo root (working dir name: revisorstudent — legacy, see project memory)
+juradrop/                              # repo root (renamed from `revisorstudent` on 2026-05-26 — see Git history)
 ├── package.json                       # FR-002: tauri dev/build, test, lint, typecheck, test:e2e
 ├── package-lock.json                  # committed (npm is the lockfile authority)
 ├── tsconfig.json                      # FR-003: strict + noUncheckedIndexedAccess
