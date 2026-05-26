@@ -165,6 +165,14 @@ impl OllamaSidecar {
             sleep(Duration::from_millis(200)).await;
         }
         self.set_status(SidecarStatus::Crashed);
+        // GAP-2: kill the spawned child instead of leaking it. A child that's
+        // slow to come up but eventually does would otherwise hold port 11434
+        // for the rest of the session while the app sat in Crashed.
+        if let Some(child) = self.child.write().take() {
+            if let Err(e) = child.kill() {
+                eprintln!("[juradrop] failed to kill timed-out sidecar: {e}");
+            }
+        }
         Err(SidecarError::StartupTimeout)
     }
 

@@ -11,11 +11,10 @@ use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
 pub mod sidecar;
 
 use sidecar::commands::{
-    cancel_consent, get_status, give_consent, has_sufficient_disk_for_pull, run_roundtrip_dev,
-    spawn_pull_task, AppState,
+    after_sidecar_ready, cancel_consent, get_status, give_consent, run_roundtrip_dev, AppState,
 };
 use sidecar::consent;
-use sidecar::status::{ConsentChoice, ModelStatus, UserVisibleStatus};
+use sidecar::status::UserVisibleStatus;
 
 pub fn run() {
     let app = tauri::Builder::default()
@@ -75,10 +74,18 @@ pub fn run() {
                                             state.snapshot(),
                                         );
                                     } else {
-                                        let _ = app.emit(
-                                            "juradrop://status",
-                                            state.snapshot(),
-                                        );
+                                        // GAP-4: re-run the full post-ready
+                                        // bootstrap (list_tags → model check →
+                                        // pull if needed). Without this, a
+                                        // crash mid-pull plus a successful
+                                        // retry would leave the app stuck in
+                                        // LaddarNerModell with no pull
+                                        // actually running.
+                                        after_sidecar_ready(
+                                            app.clone(),
+                                            state.inner().clone(),
+                                        )
+                                        .await;
                                     }
                                 }
                             } else {
@@ -127,45 +134,11 @@ pub fn run() {
 
                     match state.sidecar.wait_ready(Duration::from_secs(10)).await {
                         Ok(()) => {
-                            // Sidecar ready — check model presence.
-                            match state.client.list_tags().await {
-                                Ok(tags) => {
-                                    let present = tags.iter().any(|t| t == "gemma3:4b");
-                                    *state.model_status.write() = if present {
-                                        ModelStatus::Ready
-                                    } else {
-                                        ModelStatus::NotPresent
-                                    };
-                                    let _ = app_handle.emit("juradrop://status", state.snapshot());
-
-                                    // FR-020: if the model is absent on launch and the user has
-                                    // previously consented, re-trigger the pull idempotently —
-                                    // unless we don't have the disk to honour it (F2/F3).
-                                    if !present
-                                        && state.consent.read().choice == ConsentChoice::Fortsatt
-                                    {
-                                        if !has_sufficient_disk_for_pull(&app_handle) {
-                                            *state.error_override.write() =
-                                                Some(UserVisibleStatus::FelDiskFull);
-                                            let _ = app_handle
-                                                .emit("juradrop://status", state.snapshot());
-                                        } else {
-                                            *state.model_status.write() =
-                                                ModelStatus::Downloading;
-                                            *state.progress.write() = Some(0);
-                                            let _ = app_handle
-                                                .emit("juradrop://status", state.snapshot());
-                                            spawn_pull_task(
-                                                app_handle.clone(),
-                                                state.inner().clone(),
-                                            );
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("[juradrop] /api/tags failed: {e}");
-                                }
-                            }
+                            after_sidecar_ready(
+                                app_handle.clone(),
+                                state.inner().clone(),
+                            )
+                            .await;
                         }
                         Err(e) => {
                             eprintln!("[juradrop] sidecar wait_ready failed: {e}");

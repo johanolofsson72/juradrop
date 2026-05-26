@@ -40,6 +40,46 @@ pub fn has_sufficient_disk_for_pull(app: &AppHandle) -> bool {
     free_gb >= MIN_FREE_GB_FOR_PULL
 }
 
+/// Post-sidecar-ready bootstrap sequence — GAP-4 helper called by both the
+/// initial setup task AND the retry listener after a successful re-spawn.
+/// 1. Clear any stale `error_override` (GAP-1).
+/// 2. List models and flip `ModelStatus` accordingly.
+/// 3. If the model is missing and consent was previously granted, do the
+///    disk-space pre-check (T047/F2/F3) and kick the pull task.
+pub async fn after_sidecar_ready(app: AppHandle, state: AppState) {
+    // GAP-1: sidecar is reachable; whatever stale error we showed before
+    // (e.g. FelOvantat from a crash, FelKundeInteStarta from a failed
+    // initial spawn) is no longer the truth. Reset.
+    *state.error_override.write() = None;
+
+    match state.client.list_tags().await {
+        Ok(tags) => {
+            let present = tags.iter().any(|t| t == DEFAULT_MODEL);
+            *state.model_status.write() = if present {
+                ModelStatus::Ready
+            } else {
+                ModelStatus::NotPresent
+            };
+            let _ = app.emit("juradrop://status", state.snapshot());
+
+            if !present && state.consent.read().choice == ConsentChoice::Fortsatt {
+                if !has_sufficient_disk_for_pull(&app) {
+                    *state.error_override.write() = Some(UserVisibleStatus::FelDiskFull);
+                    let _ = app.emit("juradrop://status", state.snapshot());
+                } else {
+                    *state.model_status.write() = ModelStatus::Downloading;
+                    *state.progress.write() = Some(0);
+                    let _ = app.emit("juradrop://status", state.snapshot());
+                    spawn_pull_task(app, state);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("[juradrop] /api/tags failed: {e}");
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub sidecar: Arc<OllamaSidecar>,
@@ -169,6 +209,13 @@ pub fn get_status(state: tauri::State<'_, AppState>) -> AppStatus {
 
 #[tauri::command]
 pub async fn give_consent(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    // GAP-3: idempotency guard. Tauri `invoke()` is async; rapid double-click
+    // on Fortsätt could fire two concurrent give_consent calls before the
+    // modal closes. If a pull is already in flight, the second call is a
+    // no-op.
+    if *state.model_status.read() == ModelStatus::Downloading {
+        return Ok(());
+    }
     let mut consent = state.consent.write().clone();
     consent.choice = ConsentChoice::Fortsatt;
     consent.asked_at = Some(Utc::now());
@@ -200,6 +247,11 @@ pub async fn cancel_consent(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    // GAP-3: idempotency — if consent is already decided (either choice),
+    // a second click is a no-op rather than re-persisting and re-emitting.
+    if state.consent.read().choice != ConsentChoice::NotAsked {
+        return Ok(());
+    }
     let mut consent = state.consent.write().clone();
     consent.choice = ConsentChoice::Avbryt;
     consent.asked_at = Some(Utc::now());
