@@ -9,12 +9,16 @@
 set -euo pipefail
 
 # Pinned version. Bump deliberately when upgrading; re-pin the hash too.
-OLLAMA_VERSION="v0.5.4"
+# Bumped from v0.5.4 → v0.24.0 because v0.5.4 cannot pull gemma3:* (the
+# manifest endpoint returns 412 "requires a newer version of Ollama").
+# Previous SHA-256 for v0.5.4 was
+# 2424d20363d1b0c7249fef40af3561c61101b1129ed7f22ba408deee0f12227f.
+OLLAMA_VERSION="v0.24.0"
 OLLAMA_ZIP_URL="https://github.com/ollama/ollama/releases/download/${OLLAMA_VERSION}/Ollama-darwin.zip"
 
 # Pinned SHA-256 of the downloaded zip. Set to empty on first run; the script
 # will print the observed hash so you can paste it here and commit.
-EXPECTED_SHA256="2424d20363d1b0c7249fef40af3561c61101b1129ed7f22ba408deee0f12227f"
+EXPECTED_SHA256="8073624ec7986f9259f14a1234f5a5818f6285767f08b18cd0fbb4d1136599b1"
 
 # Paths
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

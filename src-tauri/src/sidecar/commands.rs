@@ -2,16 +2,20 @@
 // Per spec 002 contracts/tauri-commands.md.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use parking_lot::RwLock;
 use tauri::{AppHandle, Emitter};
 
-use super::client::OllamaClient;
+use super::client::{OllamaClient, PullEvent};
 use super::consent::{self, ConsentRecord};
 use super::log_safe::Redacted;
 use super::manager::OllamaSidecar;
 use super::status::{AppStatus, ConsentChoice, ModelStatus, SidecarStatus};
+
+/// Default model the PoC bundles. Spec 002 contracts/ollama-api-usage.md.
+const DEFAULT_MODEL: &str = "gemma3:4b";
 
 #[derive(Clone)]
 pub struct AppState {
@@ -53,6 +57,64 @@ fn emit_status(app: &AppHandle, snapshot: &AppStatus) {
     let _ = app.emit("juradrop://status", snapshot);
 }
 
+/// Spawn a background task that drives `/api/pull` for the bundled model and
+/// reflects every step into shared state + Tauri events. Idempotent in the
+/// sense that the caller is responsible for not starting a second pull while
+/// one is in flight (current state: `ModelStatus::Downloading`).
+///
+/// Throttling per `contracts/tauri-events.md`: emit `juradrop://progress` only
+/// when the percent has changed by ≥ 1 OR more than 500 ms have passed since
+/// the last emit. Status events always fire on terminal transitions.
+pub fn spawn_pull_task(app: AppHandle, state: AppState) {
+    tauri::async_runtime::spawn(async move {
+        let app_inner = app.clone();
+        let state_inner = state.clone();
+        let mut last_pct: Option<u8> = None;
+        let mut last_emit: Instant = Instant::now()
+            .checked_sub(Duration::from_secs(1))
+            .unwrap_or_else(Instant::now);
+
+        let result = state
+            .client
+            .pull(DEFAULT_MODEL, |event| match event {
+                PullEvent::Progress { percent } => {
+                    *state_inner.progress.write() = Some(percent);
+                    let now = Instant::now();
+                    let changed = last_pct != Some(percent);
+                    let elapsed = now.duration_since(last_emit) > Duration::from_millis(500);
+                    if changed || elapsed {
+                        last_pct = Some(percent);
+                        last_emit = now;
+                        #[derive(serde::Serialize, Clone)]
+                        struct ProgressPayload {
+                            percent: u8,
+                        }
+                        let _ = app_inner
+                            .emit("juradrop://progress", ProgressPayload { percent });
+                    }
+                }
+                PullEvent::Completed => {
+                    *state_inner.model_status.write() = ModelStatus::Ready;
+                    *state_inner.progress.write() = None;
+                    emit_status(&app_inner, &state_inner.snapshot());
+                }
+                PullEvent::Failed(_) => {
+                    *state_inner.model_status.write() = ModelStatus::DownloadFailed;
+                    *state_inner.progress.write() = None;
+                    emit_status(&app_inner, &state_inner.snapshot());
+                }
+            })
+            .await;
+
+        if let Err(err) = result {
+            eprintln!("[juradrop] pull failed: {err}");
+            *state.model_status.write() = ModelStatus::DownloadFailed;
+            *state.progress.write() = None;
+            emit_status(&app, &state.snapshot());
+        }
+    });
+}
+
 #[tauri::command]
 pub fn get_status(state: tauri::State<'_, AppState>) -> AppStatus {
     state.snapshot()
@@ -69,12 +131,10 @@ pub async fn give_consent(app: AppHandle, state: tauri::State<'_, AppState>) -> 
         .map_err(|e| e.to_string())?;
     *state.consent.write() = consent;
     *state.model_status.write() = ModelStatus::Downloading;
+    *state.progress.write() = Some(0);
     let snapshot = state.snapshot();
     emit_status(&app, &snapshot);
-    // The actual pull stream is triggered by the lifecycle wiring in lib.rs;
-    // this command persists consent + flips the model status so the welcome
-    // card shows the progress placeholder immediately. The pull task is
-    // spawned by the caller (lib.rs setup) when it observes the transition.
+    spawn_pull_task(app.clone(), state.inner().clone());
     Ok(())
 }
 

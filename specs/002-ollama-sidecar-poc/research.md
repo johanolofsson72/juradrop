@@ -2,14 +2,17 @@
 
 ## R-001 — Where does the bundled Ollama binary come from, and which version?
 
-**Decision**: Pin to **Ollama v0.5.4** (a stable release ≥ the version that ships `gemma3:4b` quantized weights). Fetch via `scripts/fetch-ollama.sh`, which:
-1. Downloads `Ollama-darwin.zip` from `https://github.com/ollama/ollama/releases/download/v0.5.4/Ollama-darwin.zip` over HTTPS.
+**Decision**: Pin to **Ollama v0.24.0**. Fetch via `scripts/fetch-ollama.sh`, which:
+1. Downloads `Ollama-darwin.zip` from `https://github.com/ollama/ollama/releases/download/v0.24.0/Ollama-darwin.zip` over HTTPS.
 2. Extracts the inner `Ollama.app/Contents/Resources/ollama` server binary.
 3. Verifies SHA-256 against a pinned hash committed in `scripts/fetch-ollama.sh`.
 4. Places the binary at `src-tauri/binaries/ollama-aarch64-apple-darwin` (Tauri's sidecar naming convention).
 5. Runs `chmod +x` on the binary.
 
 **Rationale**: Building Ollama from Go source would be reproducible but adds a Go toolchain prerequisite that contradicts spec 001's "Node + Rust only" stack. The upstream release is signed by the Ollama project; we re-sign at spec 006 under our Developer ID. The hash pin gives supply-chain integrity at this spec without needing a vendored Go build.
+
+**Version history**:
+- Originally pinned to v0.5.4 during initial spec drafting. v0.5.4 returned HTTP 412 on `POST /api/pull` for `gemma3:*` with body `"requires a newer version of Ollama"`, blocking model pull. Bumped to v0.24.0 (2026-05-26) which supports the full current model catalogue including gemma3.
 
 **Alternatives considered**:
 - *Build from source* — reproducible, adds Go toolchain to prerequisites. Rejected to keep dev setup small.

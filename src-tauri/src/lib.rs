@@ -10,7 +10,9 @@ use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
 pub mod sidecar;
 
-use sidecar::commands::{cancel_consent, get_status, give_consent, run_roundtrip_dev, AppState};
+use sidecar::commands::{
+    cancel_consent, get_status, give_consent, run_roundtrip_dev, spawn_pull_task, AppState,
+};
 use sidecar::consent;
 use sidecar::status::{ConsentChoice, ModelStatus};
 
@@ -32,7 +34,7 @@ pub fn run() {
             // "Startar AI..." (UserVisibleStatus::Startar) which matches the
             // initial NotStarted -> Starting transition.
             let app_handle = app.handle().clone();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 // Load consent first so the modal-vs-no-modal decision is
                 // ready by the time the sidecar reaches ready state.
                 match consent::load(&app_handle).await {
@@ -67,15 +69,16 @@ pub fn run() {
                                     };
                                     let _ = app_handle.emit("juradrop://status", state.snapshot());
 
-                                    // If model already absent and consent was previously given,
-                                    // re-call /api/pull per FR-020 (idempotent). Not implemented
-                                    // in this initial commit — the pull stream wiring lands in
-                                    // a follow-up task; see specs/002-.../tasks.md T026, T030.
+                                    // FR-020: if the model is absent on launch and the user has
+                                    // previously consented, re-trigger the pull idempotently.
                                     if !present
                                         && state.consent.read().choice == ConsentChoice::Fortsatt
                                     {
-                                        // Placeholder: spec 002 T026 will implement pull_stream.
-                                        eprintln!("[juradrop] TODO: re-call /api/pull (T026)");
+                                        *state.model_status.write() = ModelStatus::Downloading;
+                                        *state.progress.write() = Some(0);
+                                        let _ = app_handle
+                                            .emit("juradrop://status", state.snapshot());
+                                        spawn_pull_task(app_handle.clone(), state.inner().clone());
                                     }
                                 }
                                 Err(e) => {

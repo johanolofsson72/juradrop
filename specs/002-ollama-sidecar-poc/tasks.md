@@ -19,7 +19,7 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 
 **Purpose**: Fetch the bundled binary, install new dependencies, update build config.
 
-- [ ] T001 Write `scripts/fetch-ollama.sh` per research.md R-001: downloads `Ollama-darwin.zip` v0.5.4 from GitHub releases, extracts `Ollama.app/Contents/Resources/ollama`, verifies SHA-256 against a pinned hash, places at `src-tauri/binaries/ollama-aarch64-apple-darwin`, chmod +x. Include curl, unzip, shasum -a 256 verification. Exit non-zero on hash mismatch.
+- [ ] T001 Write `scripts/fetch-ollama.sh` per research.md R-001: downloads `Ollama-darwin.zip` v0.24.0 from GitHub releases, extracts `Ollama.app/Contents/Resources/ollama`, verifies SHA-256 against a pinned hash, places at `src-tauri/binaries/ollama-aarch64-apple-darwin`, chmod +x. Include curl, unzip, shasum -a 256 verification. Exit non-zero on hash mismatch.
 - [ ] T002 Add the pinned Ollama SHA-256 hash to `scripts/fetch-ollama.sh` (run the script once locally to determine the hash, then bake it in).
 - [ ] T003 Run `bash scripts/fetch-ollama.sh` and confirm `src-tauri/binaries/ollama-aarch64-apple-darwin` exists and is executable.
 - [ ] T004 [P] Add Rust dependencies to `src-tauri/Cargo.toml`: `reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }`, `tauri-plugin-shell = "2"`, `chrono = { version = "0.4", features = ["serde"] }`, `parking_lot = "0.12"`, `futures = "0.3"`, `tokio` (verify already pulled in transitively; add explicit `features = ["macros", "rt-multi-thread", "process", "io-util"]` if not).
