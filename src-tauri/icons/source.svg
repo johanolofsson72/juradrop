@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    JuraDrop app icon — scales of justice (våg) on a deep-indigo squircle.
+    Designed to survive macOS icon downscaling to 32x32.
+    Source of truth — re-render via:
+      rsvg-convert -w 1024 -h 1024 source.svg > source-1024.png
+      npx @tauri-apps/cli icon source-1024.png
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#1e3a8a"/>
+      <stop offset="1" stop-color="#312e81"/>
+    </linearGradient>
+  </defs>
+
+  <!-- macOS Big Sur squircle (~22.5% corner radius) -->
+  <rect x="0" y="0" width="1024" height="1024" rx="230" ry="230" fill="url(#bg)"/>
+
+  <!-- Scales of justice, centered, white -->
+  <g transform="translate(512, 540)"
+     stroke="#ffffff"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     fill="#ffffff">
+
+    <!-- Top finial -->
+    <circle cx="0" cy="-340" r="34" stroke="none"/>
+
+    <!-- Vertical post -->
+    <line x1="0" y1="-308" x2="0" y2="220" stroke-width="42"/>
+
+    <!-- Base stem + foot -->
+    <line x1="-150" y1="248" x2="150" y2="248" stroke-width="42"/>
+    <line x1="-220" y1="298" x2="220" y2="298" stroke-width="30"/>
+
+    <!-- Horizontal cross-beam -->
+    <line x1="-300" y1="-280" x2="300" y2="-280" stroke-width="42"/>
+
+    <!-- Chains down to each pan -->
+    <line x1="-300" y1="-258" x2="-300" y2="-110" stroke-width="22" fill="none"/>
+    <line x1="300" y1="-258" x2="300" y2="-110" stroke-width="22" fill="none"/>
+
+    <!-- Left pan (bowl curve, concave up) -->
+    <path d="M -410 -110 Q -300 30 -190 -110"
+          stroke-width="34"
+          fill="none"/>
+
+    <!-- Right pan -->
+    <path d="M 190 -110 Q 300 30 410 -110"
+          stroke-width="34"
+          fill="none"/>
+  </g>
+</svg>
