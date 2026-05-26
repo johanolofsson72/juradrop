@@ -8,6 +8,7 @@
 pub mod client;
 pub mod commands;
 pub mod consent;
+pub mod disk_space;
 pub mod log_safe;
 pub mod manager;
 pub mod status;

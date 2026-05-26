@@ -138,7 +138,7 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 
 - [ ] T045 [US4] Implement the one-retry mechanism in `manager.rs` per spec.allium SidecarOneRetry: track a `retry_count: AtomicU8` on `OllamaSidecar`. On crash detection (RunEvent indicates child terminated unexpectedly while we expected `ready`): if `retry_count == 0`, attempt one re-spawn and increment the counter. If retry fails, hold `FelOvantat` status until next launch. Per US4 #2.
 - [x] T046 [US4] Map every `SidecarError` and `ClientError` variant to the matching `UserVisibleStatus` via `impl From<SidecarError> for UserVisibleStatus { ... }`. Exhaustive match — compile error if a new variant is added without mapping. Covers FR-010.
-- [ ] T047 [US4] Implement disk-space pre-check before triggering pull: in `commands.rs::give_consent`, before kicking off the pull, call `fs::statvfs` (or platform equivalent) on the app data root, assert ≥ 4 GB free, otherwise set `UserVisibleStatus = FelDiskFull` and abort. Per FR-010 / SC-006-edge.
+- [x] T047 [US4] Implement disk-space pre-check before triggering pull: in `commands.rs::give_consent`, before kicking off the pull, call `fs::statvfs` (or platform equivalent) on the app data root, assert ≥ 4 GB free, otherwise set `UserVisibleStatus = FelDiskFull` and abort. Per FR-010 / SC-006-edge.
 - [ ] T048 [US4] Implement the "bundled binary missing" pre-check: in `manager.rs::spawn`, verify `app.shell().sidecar("ollama")` returns Ok; if not, return `SidecarError::BundledBinaryMissing` → `FelKundeIntStarta`. Per FR-015.
 
 ### Tests for User Story 4

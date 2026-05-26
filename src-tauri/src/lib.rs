@@ -11,7 +11,8 @@ use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 pub mod sidecar;
 
 use sidecar::commands::{
-    cancel_consent, get_status, give_consent, run_roundtrip_dev, spawn_pull_task, AppState,
+    cancel_consent, get_status, give_consent, has_sufficient_disk_for_pull, run_roundtrip_dev,
+    spawn_pull_task, AppState,
 };
 use sidecar::consent;
 use sidecar::status::{ConsentChoice, ModelStatus, UserVisibleStatus};
@@ -71,15 +72,27 @@ pub fn run() {
                                     let _ = app_handle.emit("juradrop://status", state.snapshot());
 
                                     // FR-020: if the model is absent on launch and the user has
-                                    // previously consented, re-trigger the pull idempotently.
+                                    // previously consented, re-trigger the pull idempotently —
+                                    // unless we don't have the disk to honour it (F2/F3).
                                     if !present
                                         && state.consent.read().choice == ConsentChoice::Fortsatt
                                     {
-                                        *state.model_status.write() = ModelStatus::Downloading;
-                                        *state.progress.write() = Some(0);
-                                        let _ = app_handle
-                                            .emit("juradrop://status", state.snapshot());
-                                        spawn_pull_task(app_handle.clone(), state.inner().clone());
+                                        if !has_sufficient_disk_for_pull(&app_handle) {
+                                            *state.error_override.write() =
+                                                Some(UserVisibleStatus::FelDiskFull);
+                                            let _ = app_handle
+                                                .emit("juradrop://status", state.snapshot());
+                                        } else {
+                                            *state.model_status.write() =
+                                                ModelStatus::Downloading;
+                                            *state.progress.write() = Some(0);
+                                            let _ = app_handle
+                                                .emit("juradrop://status", state.snapshot());
+                                            spawn_pull_task(
+                                                app_handle.clone(),
+                                                state.inner().clone(),
+                                            );
+                                        }
                                     }
                                 }
                                 Err(e) => {
