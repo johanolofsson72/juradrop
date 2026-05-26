@@ -14,7 +14,7 @@ use sidecar::commands::{
     cancel_consent, get_status, give_consent, run_roundtrip_dev, spawn_pull_task, AppState,
 };
 use sidecar::consent;
-use sidecar::status::{ConsentChoice, ModelStatus};
+use sidecar::status::{ConsentChoice, ModelStatus, UserVisibleStatus};
 
 pub fn run() {
     let app = tauri::Builder::default()
@@ -51,6 +51,7 @@ pub fn run() {
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     if let Err(e) = state.sidecar.spawn(&app_handle).await {
                         eprintln!("[juradrop] sidecar spawn failed: {e}");
+                        *state.error_override.write() = Some(UserVisibleStatus::from(&e));
                         let _ = app_handle.emit("juradrop://status", state.snapshot());
                         return;
                     }
@@ -88,6 +89,7 @@ pub fn run() {
                         }
                         Err(e) => {
                             eprintln!("[juradrop] sidecar wait_ready failed: {e}");
+                            *state.error_override.write() = Some(UserVisibleStatus::from(&e));
                             let _ = app_handle.emit("juradrop://status", state.snapshot());
                         }
                     }

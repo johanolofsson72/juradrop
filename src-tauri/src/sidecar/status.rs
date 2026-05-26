@@ -4,6 +4,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::client::ClientError;
+use super::manager::SidecarError;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SidecarStatus {
@@ -55,6 +58,33 @@ pub struct AppStatus {
     pub model: ModelStatus,
     pub progress_percent: Option<u8>,
     pub consent: ConsentChoice,
+}
+
+// T046: exhaustive mapping from each sidecar/client error variant to its
+// user-visible Swedish status. The match arms must NOT use a wildcard `_`
+// — adding a new error variant should fail the build until it's mapped.
+impl From<&SidecarError> for UserVisibleStatus {
+    fn from(e: &SidecarError) -> Self {
+        match e {
+            SidecarError::BundledBinaryMissing => UserVisibleStatus::FelKundeInteStarta,
+            SidecarError::PortBusy => UserVisibleStatus::FelPortenUpptagen,
+            SidecarError::StartupTimeout => UserVisibleStatus::FelKundeInteStarta,
+            SidecarError::Crashed(_) => UserVisibleStatus::FelOvantat,
+            SidecarError::Plugin(_) => UserVisibleStatus::FelKundeInteStarta,
+        }
+    }
+}
+
+impl From<&ClientError> for UserVisibleStatus {
+    fn from(e: &ClientError) -> Self {
+        match e {
+            ClientError::Http(_) => UserVisibleStatus::FelModellnedladdningAvbroten,
+            ClientError::Json(_) => UserVisibleStatus::FelModellnedladdningAvbroten,
+            ClientError::Timeout => UserVisibleStatus::FelModellnedladdningAvbroten,
+            ClientError::EmptyResponse => UserVisibleStatus::FelModellnedladdningAvbroten,
+            ClientError::DiskFull => UserVisibleStatus::FelDiskFull,
+        }
+    }
 }
 
 impl AppStatus {
@@ -166,5 +196,68 @@ mod tests {
             ConsentChoice::NotAsked,
         );
         assert_eq!(s.visible, UserVisibleStatus::Startar);
+    }
+
+    // T046 — exhaustive SidecarError → UserVisibleStatus mapping coverage.
+    #[test]
+    fn sidecar_error_port_busy_maps_to_fel_porten_upptagen() {
+        let e = SidecarError::PortBusy;
+        assert_eq!(UserVisibleStatus::from(&e), UserVisibleStatus::FelPortenUpptagen);
+    }
+
+    #[test]
+    fn sidecar_error_bundled_binary_missing_maps_to_fel_kunde_inte_starta() {
+        let e = SidecarError::BundledBinaryMissing;
+        assert_eq!(
+            UserVisibleStatus::from(&e),
+            UserVisibleStatus::FelKundeInteStarta
+        );
+    }
+
+    #[test]
+    fn sidecar_error_startup_timeout_maps_to_fel_kunde_inte_starta() {
+        let e = SidecarError::StartupTimeout;
+        assert_eq!(
+            UserVisibleStatus::from(&e),
+            UserVisibleStatus::FelKundeInteStarta
+        );
+    }
+
+    #[test]
+    fn sidecar_error_crashed_maps_to_fel_ovantat() {
+        let e = SidecarError::Crashed(Some(137));
+        assert_eq!(UserVisibleStatus::from(&e), UserVisibleStatus::FelOvantat);
+    }
+
+    #[test]
+    fn sidecar_error_plugin_maps_to_fel_kunde_inte_starta() {
+        let e = SidecarError::Plugin("dyld error".into());
+        assert_eq!(
+            UserVisibleStatus::from(&e),
+            UserVisibleStatus::FelKundeInteStarta
+        );
+    }
+
+    // T046 — exhaustive ClientError → UserVisibleStatus mapping coverage.
+    #[test]
+    fn client_error_disk_full_maps_to_fel_disk_full() {
+        let e = ClientError::DiskFull;
+        assert_eq!(UserVisibleStatus::from(&e), UserVisibleStatus::FelDiskFull);
+    }
+
+    #[test]
+    fn client_error_network_variants_map_to_fel_modellnedladdning_avbroten() {
+        for e in [
+            ClientError::Http("offline".into()),
+            ClientError::Json("bad".into()),
+            ClientError::Timeout,
+            ClientError::EmptyResponse,
+        ] {
+            assert_eq!(
+                UserVisibleStatus::from(&e),
+                UserVisibleStatus::FelModellnedladdningAvbroten,
+                "{e:?}"
+            );
+        }
     }
 }

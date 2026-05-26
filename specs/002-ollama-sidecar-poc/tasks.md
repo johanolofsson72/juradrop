@@ -100,7 +100,7 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 - [ ] T035 [P] [US2] Write `src-tauri/tests/consent_persistence.rs`: writes a consent record, reads it back, verifies atomic-write semantics by simulating crash mid-write (write to .tmp, fail rename, ensure original is unchanged). Also tests schema-version > 1 surfaces an error. Covers FR-019, FR-019b, R-006.
 - [x] T036 [P] [US2] Write `src/__tests__/ConsentModal.test.tsx`: renders the modal when `consent === 'not_asked' && visible === 'begar_samtycke'`; clicks "Fortsätt" → asserts `giveConsent` was called; clicks "Avbryt" → asserts `cancelConsent` was called. Mocks `tauri-bridge`. Covers FC-011 (modal shown exactly once).
 - [x] T037 [P] [US2] Write `src/__tests__/status-store.test.ts`: store initial state is correct, `setStatus` updates the snapshot, the derived `statusMessage(visible)` returns the right Swedish string for each `UserVisibleStatus` value. Covers FC-005, FC-006, FC-007 (rendering paths).
-- [ ] T038 [P] [US2] Extend `src/__tests__/WelcomeCard.test.tsx`: assert the Swedish status string updates when the store mutates. Drop the old "shadcn Button" assertion since US2 removes the button.
+- [x] T038 [P] [US2] Extend `src/__tests__/WelcomeCard.test.tsx`: assert the Swedish status string updates when the store mutates. Drop the old "shadcn Button" assertion since US2 removes the button.
 
 **Checkpoint**: US2 complete = consent flow works end-to-end; modal shows exactly once per fresh install; pull completes; "AI redo" status reached.
 
@@ -137,7 +137,7 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 ### Implementation for User Story 4
 
 - [ ] T045 [US4] Implement the one-retry mechanism in `manager.rs` per spec.allium SidecarOneRetry: track a `retry_count: AtomicU8` on `OllamaSidecar`. On crash detection (RunEvent indicates child terminated unexpectedly while we expected `ready`): if `retry_count == 0`, attempt one re-spawn and increment the counter. If retry fails, hold `FelOvantat` status until next launch. Per US4 #2.
-- [ ] T046 [US4] Map every `SidecarError` and `ClientError` variant to the matching `UserVisibleStatus` via `impl From<SidecarError> for UserVisibleStatus { ... }`. Exhaustive match — compile error if a new variant is added without mapping. Covers FR-010.
+- [x] T046 [US4] Map every `SidecarError` and `ClientError` variant to the matching `UserVisibleStatus` via `impl From<SidecarError> for UserVisibleStatus { ... }`. Exhaustive match — compile error if a new variant is added without mapping. Covers FR-010.
 - [ ] T047 [US4] Implement disk-space pre-check before triggering pull: in `commands.rs::give_consent`, before kicking off the pull, call `fs::statvfs` (or platform equivalent) on the app data root, assert ≥ 4 GB free, otherwise set `UserVisibleStatus = FelDiskFull` and abort. Per FR-010 / SC-006-edge.
 - [ ] T048 [US4] Implement the "bundled binary missing" pre-check: in `manager.rs::spawn`, verify `app.shell().sidecar("ollama")` returns Ok; if not, return `SidecarError::BundledBinaryMissing` → `FelKundeIntStarta`. Per FR-015.
 
@@ -145,7 +145,7 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 
 - [ ] T049 [P] [US4] Extend `src-tauri/tests/sidecar_lifecycle.rs` with a test that renames the bundled binary to a nonexistent path, attempts spawn, asserts `SidecarError::BundledBinaryMissing` is returned within 10 s. Restore the binary after the test.
 - [ ] T050 [P] [US4] Extend `src-tauri/tests/sidecar_lifecycle.rs` with a port-busy test: bind a TCP listener on 127.0.0.1:11434 in the test, attempt spawn, assert `SidecarError::PortBusy`. Release the listener after.
-- [ ] T051 [P] [US4] Write a Vitest test `src/__tests__/error-rendering.test.tsx`: for each `UserVisibleStatus` error variant, assert the WelcomeCard renders the right Swedish string and contains no English words, no `Error:` prefix, no stack trace lines. Covers FC-007.
+- [x] T051 [P] [US4] Write a Vitest test `src/__tests__/error-rendering.test.tsx`: for each `UserVisibleStatus` error variant, assert the WelcomeCard renders the right Swedish string and contains no English words, no `Error:` prefix, no stack trace lines. Covers FC-007.
 
 **Checkpoint**: US4 complete = the six error paths all surface their Swedish strings; one-retry tested; binary-missing and port-busy tested.
 

@@ -12,7 +12,7 @@ use super::client::{OllamaClient, PullEvent};
 use super::consent::{self, ConsentRecord};
 use super::log_safe::Redacted;
 use super::manager::OllamaSidecar;
-use super::status::{AppStatus, ConsentChoice, ModelStatus, SidecarStatus};
+use super::status::{AppStatus, ConsentChoice, ModelStatus, SidecarStatus, UserVisibleStatus};
 
 /// Default model the PoC bundles. Spec 002 contracts/ollama-api-usage.md.
 const DEFAULT_MODEL: &str = "gemma3:4b";
@@ -24,6 +24,11 @@ pub struct AppState {
     pub model_status: Arc<RwLock<ModelStatus>>,
     pub progress: Arc<RwLock<Option<u8>>>,
     pub consent: Arc<RwLock<ConsentRecord>>,
+    // T046: explicit error override. When Some, snapshot()'s derive result
+    // is replaced with this — used for sidecar errors (PortBusy,
+    // BundledBinaryMissing, …) whose distinction is otherwise lost in the
+    // (sidecar, model, consent) tuple.
+    pub error_override: Arc<RwLock<Option<UserVisibleStatus>>>,
 }
 
 impl AppState {
@@ -34,16 +39,21 @@ impl AppState {
             model_status: Arc::new(RwLock::new(ModelStatus::NotPresent)),
             progress: Arc::new(RwLock::new(None)),
             consent: Arc::new(RwLock::new(ConsentRecord::default())),
+            error_override: Arc::new(RwLock::new(None)),
         }
     }
 
     pub fn snapshot(&self) -> AppStatus {
-        AppStatus::derive(
+        let mut s = AppStatus::derive(
             self.sidecar.status(),
             *self.model_status.read(),
             *self.progress.read(),
             self.consent.read().choice,
-        )
+        );
+        if let Some(override_) = *self.error_override.read() {
+            s.visible = override_;
+        }
+        s
     }
 }
 
