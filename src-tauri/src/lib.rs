@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use tauri::{Emitter, Manager, RunEvent, WindowEvent};
+use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
 
 pub mod sidecar;
 
@@ -30,11 +30,78 @@ pub fn run() {
             let state = AppState::new();
             app.manage(state.clone());
 
+            // T045 / F4 — SidecarOneRetry. The drain task in manager.rs emits
+            // `juradrop://sidecar-crashed` on unexpected exit; this listener
+            // attempts exactly one re-spawn on the first crash. Subsequent
+            // crashes hold `FelOvantat` until next launch. Reusing the same
+            // `state.sidecar.spawn(&app).await` call pattern as the initial
+            // bootstrap below — that pattern is already Send-clean here.
+            let listener_handle = app.handle().clone();
+            app.handle()
+                .listen("juradrop://sidecar-crashed", move |_event| {
+                    let app = listener_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Some(state) = app.try_state::<AppState>() {
+                            if state.sidecar.retry_count_value() == 0 {
+                                let prev = state.sidecar.increment_retry();
+                                if prev == 1 {
+                                    eprintln!(
+                                        "[juradrop] sidecar crashed; attempting one retry"
+                                    );
+                                    if let Err(e) =
+                                        state.sidecar.spawn(&app).await
+                                    {
+                                        eprintln!(
+                                            "[juradrop] retry spawn failed: {e}"
+                                        );
+                                        *state.error_override.write() =
+                                            Some(UserVisibleStatus::from(&e));
+                                        let _ = app.emit(
+                                            "juradrop://status",
+                                            state.snapshot(),
+                                        );
+                                    } else if let Err(e) = state
+                                        .sidecar
+                                        .wait_ready(Duration::from_secs(10))
+                                        .await
+                                    {
+                                        eprintln!(
+                                            "[juradrop] retry wait_ready failed: {e}"
+                                        );
+                                        *state.error_override.write() =
+                                            Some(UserVisibleStatus::from(&e));
+                                        let _ = app.emit(
+                                            "juradrop://status",
+                                            state.snapshot(),
+                                        );
+                                    } else {
+                                        let _ = app.emit(
+                                            "juradrop://status",
+                                            state.snapshot(),
+                                        );
+                                    }
+                                }
+                            } else {
+                                eprintln!(
+                                    "[juradrop] retry budget exhausted; holding Crashed"
+                                );
+                            }
+                        }
+                    });
+                });
+
             // Boot the sidecar + initial status sync in a background task so
             // the WebView mounts quickly. The welcome card initially shows
             // "Startar AI..." (UserVisibleStatus::Startar) which matches the
             // initial NotStarted -> Starting transition.
             let app_handle = app.handle().clone();
+
+            // F10 / T058 — reap any orphan sidecar from a previous run that
+            // didn't get a chance to clean up (cargo-watcher SIGTERM, kill -9,
+            // OS-level force-quit). Runs synchronously before the spawn task
+            // so the port-busy check below has a clear field.
+            sidecar::pidfile::kill_stale_if_present(&app_handle);
+
             tauri::async_runtime::spawn(async move {
                 // Load consent first so the modal-vs-no-modal decision is
                 // ready by the time the sidecar reaches ready state.
@@ -122,13 +189,16 @@ pub fn run() {
         } = event
         {
             if label == "main" {
-                // Stop the sidecar synchronously before the process exits.
+                // Stop the sidecar synchronously before the process exits,
+                // then clear the pidfile so the next launch doesn't try to
+                // reap a now-dead PID.
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     let sidecar = state.sidecar.clone();
                     tauri::async_runtime::block_on(async move {
                         let _ = sidecar.stop(Duration::from_secs(5)).await;
                     });
                 }
+                sidecar::pidfile::clear(app_handle);
                 app_handle.exit(0);
             }
         }

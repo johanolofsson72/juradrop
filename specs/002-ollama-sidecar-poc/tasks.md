@@ -136,7 +136,7 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 
 ### Implementation for User Story 4
 
-- [ ] T045 [US4] Implement the one-retry mechanism in `manager.rs` per spec.allium SidecarOneRetry: track a `retry_count: AtomicU8` on `OllamaSidecar`. On crash detection (RunEvent indicates child terminated unexpectedly while we expected `ready`): if `retry_count == 0`, attempt one re-spawn and increment the counter. If retry fails, hold `FelOvantat` status until next launch. Per US4 #2.
+- [x] T045 [US4] Implement the one-retry mechanism in `manager.rs` per spec.allium SidecarOneRetry: track a `retry_count: AtomicU8` on `OllamaSidecar`. On crash detection (RunEvent indicates child terminated unexpectedly while we expected `ready`): if `retry_count == 0`, attempt one re-spawn and increment the counter. If retry fails, hold `FelOvantat` status until next launch. Per US4 #2.
 - [x] T046 [US4] Map every `SidecarError` and `ClientError` variant to the matching `UserVisibleStatus` via `impl From<SidecarError> for UserVisibleStatus { ... }`. Exhaustive match — compile error if a new variant is added without mapping. Covers FR-010.
 - [x] T047 [US4] Implement disk-space pre-check before triggering pull: in `commands.rs::give_consent`, before kicking off the pull, call `fs::statvfs` (or platform equivalent) on the app data root, assert ≥ 4 GB free, otherwise set `UserVisibleStatus = FelDiskFull` and abort. Per FR-010 / SC-006-edge.
 - [ ] T048 [US4] Implement the "bundled binary missing" pre-check: in `manager.rs::spawn`, verify `app.shell().sidecar("ollama")` returns Ok; if not, return `SidecarError::BundledBinaryMissing` → `FelKundeIntStarta`. Per FR-015.
@@ -161,7 +161,7 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 - [x] T055 [P] Update `README.md`: add a "Spec 002 progress" line in the status section. Note that the model download is the only outbound call and consent is required.
 - [ ] T056 Execute destructive test DT-001: send malformed JSON to `/api/tags` (mock by intercepting the response) — verify graceful Swedish-error fallback. **Needs Rust integration test or mock setup**.
 - [ ] T057 Execute destructive test DT-002: send a prompt containing `<script>alert(1)</script>`, control chars `\x00\x01\x07`, emoji `🎉`, and assert the response renders safely (text, not HTML). **Needs Rust integration test**.
-- [ ] T058 Execute destructive test DT-003: close the window during sidecar startup (within first 2 s). Verify no orphan process via `pgrep -f ollama`. **Needs user verification**.
+- [x] T058 Execute destructive test DT-003: close the window during sidecar startup (within first 2 s). Verify no orphan process via `pgrep -f ollama`. **Needs user verification**.
 - [ ] T059 Execute destructive test DT-004: interrupt model download mid-pull (kill -9 the app), re-launch, verify pull resumes via `/api/pull` idempotency. **Needs Rust integration test or manual**.
 - [ ] T060 Execute destructive test DT-005: call `run_roundtrip_dev` before the model is loaded. Verify Swedish "model not loaded" error rather than corruption. **Needs Rust integration test**.
 - [ ] T061 Execute destructive test DT-006: rename binary mid-app, re-launch, verify `FelKundeIntStarta` within 10 s. Same as T049 but observed in the UI.

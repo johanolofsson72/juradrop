@@ -90,6 +90,7 @@ entity OllamaSidecar {
         ready -> stopping
         stopping -> stopped
         crashed -> stopped
+        crashed -> starting     -- T045 SidecarOneRetry: one auto-retry on first crash
         terminal: stopped
     }
 

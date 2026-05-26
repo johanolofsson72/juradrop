@@ -57,7 +57,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         Self {
-            sidecar: Arc::new(OllamaSidecar::new()),
+            sidecar: OllamaSidecar::new(),
             client: Arc::new(OllamaClient::new()),
             model_status: Arc::new(RwLock::new(ModelStatus::NotPresent)),
             progress: Arc::new(RwLock::new(None)),

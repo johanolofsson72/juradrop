@@ -2,6 +2,7 @@
 // Per spec 002 spec.allium OllamaSidecar entity + manager rules.
 
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use parking_lot::RwLock;
@@ -30,15 +31,19 @@ pub struct OllamaSidecar {
     status: RwLock<SidecarStatus>,
     child: RwLock<Option<CommandChild>>,
     retry_count: AtomicU8,
+    /// F4 / T045: weak self-reference so the drain background task can
+    /// re-spawn on first crash without holding a strong cycle.
+    self_weak: Weak<Self>,
 }
 
 impl OllamaSidecar {
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Arc<Self> {
+        Arc::new_cyclic(|weak| Self {
             status: RwLock::new(SidecarStatus::NotStarted),
             child: RwLock::new(None),
             retry_count: AtomicU8::new(0),
-        }
+            self_weak: weak.clone(),
+        })
     }
 
     pub fn status(&self) -> SidecarStatus {
@@ -79,42 +84,68 @@ impl OllamaSidecar {
             }
         })?;
 
+        // F10 / T058 — record the child PID before stashing the handle so
+        // the next launch can reap it if the parent dies before stop()
+        // runs (e.g. cargo-watcher SIGTERM during dev rebuilds).
+        super::pidfile::write(app, child.pid());
+
         *self.child.write() = Some(child);
 
         // Spawn a task to drain the sidecar's output (avoids pipe stalls) and
         // detect unexpected termination. We intentionally do NOT log the
         // output content — Ollama can include model identifiers in startup
-        // logs. Length-only counts at TRACE level would be safe but here we
-        // simply discard to be safe.
-        let status_handle = parking_lot::RwLock::new(()); // marker, no contents
+        // logs.
+        //
+        // The drain task does NOT itself attempt retry (T045): calling
+        // `sidecar.spawn()` from inside this Send-required task hits a Send
+        // constraint on the spawn future. Instead, we emit
+        // `juradrop://sidecar-crashed` and let a listener registered from
+        // lib.rs::setup handle the retry — that call site has the exact
+        // same pattern as the initial bootstrap call and is known to compile.
         let app_for_emit = app.clone();
-        let weak_status = self.status_ref();
-        tokio::spawn(async move {
+        let self_weak = self.self_weak.clone();
+        tauri::async_runtime::spawn(async move {
             while let Some(event) = rx.recv().await {
                 if let CommandEvent::Terminated(payload) = event {
-                    // Sidecar exited.
-                    if let Some(s) = weak_status.upgrade() {
-                        *s.write() = SidecarStatus::Crashed;
-                        let _ = app_for_emit.emit("juradrop://sidecar-terminated", payload.code);
+                    let Some(sidecar_arc) = self_weak.upgrade() else {
+                        break; // Manager dropped — nothing to do.
+                    };
+
+                    // Distinguish orderly shutdown from a crash: if the manager
+                    // had already entered Stopping, the exit is expected.
+                    let was_stopping =
+                        sidecar_arc.status() == SidecarStatus::Stopping;
+                    if was_stopping {
+                        sidecar_arc.set_status(SidecarStatus::Stopped);
+                        let _ = app_for_emit
+                            .emit("juradrop://sidecar-terminated", payload.code);
+                    } else {
+                        sidecar_arc.set_status(SidecarStatus::Crashed);
+                        let _ = app_for_emit
+                            .emit("juradrop://sidecar-terminated", payload.code);
+                        // Retry signal — the lib.rs listener picks this up
+                        // and decides whether to call spawn() again based
+                        // on `retry_count`.
+                        let _ = app_for_emit.emit(
+                            "juradrop://sidecar-crashed",
+                            payload.code,
+                        );
                     }
                     break;
                 }
                 // Other event variants (Stdout/Stderr) are discarded — we
                 // intentionally do not log sidecar output content.
             }
-            let _ = status_handle;
         });
 
         Ok(())
     }
 
-    /// Returns a weak reference to the status RwLock so the background task
-    /// doesn't keep the manager alive indefinitely.
-    fn status_ref(&self) -> std::sync::Weak<RwLock<SidecarStatus>> {
-        // We don't actually have an Arc here — for the bootstrap version,
-        // return a Weak that always fails to upgrade. The real shutdown path
-        // calls stop() which sets state directly. This keeps the type signature.
-        std::sync::Weak::new()
+    /// Returns the current retry counter without incrementing — for the
+    /// lib.rs listener to gate at-most-one retry. The listener calls
+    /// `increment_retry()` to actually consume one retry attempt.
+    pub fn retry_count_value(&self) -> u8 {
+        self.retry_count.load(Ordering::Relaxed)
     }
 
     /// Poll /api/tags until 2xx or timeout.
@@ -161,11 +192,8 @@ impl OllamaSidecar {
     }
 }
 
-impl Default for OllamaSidecar {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// No `Default` impl — `OllamaSidecar::new()` returns `Arc<Self>` (cyclic-weak
+// pattern for the drain task), and the `Default` trait can't return `Arc<Self>`.
 
 #[cfg(test)]
 mod tests {

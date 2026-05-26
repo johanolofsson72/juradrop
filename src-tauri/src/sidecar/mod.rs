@@ -11,6 +11,7 @@ pub mod consent;
 pub mod disk_space;
 pub mod log_safe;
 pub mod manager;
+pub mod pidfile;
 pub mod status;
 
 pub use status::{AppStatus, ConsentChoice, ModelStatus, SidecarStatus, UserVisibleStatus};
