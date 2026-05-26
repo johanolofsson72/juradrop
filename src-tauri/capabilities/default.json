@@ -1,7 +1,18 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Bootstrap capability set — deny-by-default. No plugins, no core APIs exposed to the WebView. Every later spec MUST opt in explicitly by adding a permission entry here or in a new scoped capability file. Per FR-019 and research.md R-002.",
+  "description": "Spec 002 — adds shell sidecar (scoped to bundled ollama binary) and event/app core permissions. No filesystem, no http, no shell beyond the bundled binary. Per FR-016 / spec 002 contracts/capabilities.md.",
   "windows": ["main"],
-  "permissions": []
+  "permissions": [
+    "core:default",
+    "core:app:default",
+    "core:event:default",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        { "name": "binaries/ollama", "sidecar": true, "args": true }
+      ]
+    },
+    "shell:allow-kill"
+  ]
 }

@@ -1,0 +1,414 @@
+-- allium: 3
+
+-- JuraDrop spec 002-ollama-sidecar-poc formal specification
+--
+-- This spec wires the LLM backbone: bundled Ollama sidecar + first-launch
+-- model pull + one end-to-end inference round-trip. It introduces the only
+-- outbound network call authorized by Constitution Principle I — the model
+-- pull from ollama.com — and gates it behind explicit user consent.
+--
+-- State machines:
+--   1. OllamaSidecar lifecycle:   not_started → starting → ready → stopping → stopped
+--                                                       └→ crashed
+--   2. ModelArtifact lifecycle:   not_present → downloading → ready
+--                                                         └→ download_failed
+--   3. Consent lifecycle:         not_asked → fortsatt | avbryt
+--   4. UserVisibleStatus:         derived from the three above
+--
+-- Companion files: spec.md (markdown), checklists/requirements.md.
+
+enum SidecarStatus {
+    not_started | starting | ready | crashed | stopping | stopped
+}
+
+enum ModelStatus {
+    not_present | downloading | ready | download_failed
+}
+
+enum ConsentChoice {
+    not_asked | fortsatt | avbryt
+}
+
+enum UserVisibleStatus {
+    startar | klar | laddar_ner_modell | begar_samtycke
+    | fel_kunde_inte_starta | fel_porten_upptagen | fel_disk_full
+    | fel_modellnedladdning_avbroten | fel_ovantat | modell_saknas_avbruten
+}
+
+config {
+    default_model_tag: String = `gemma3:4b`
+    sidecar_port: Integer = 11434
+    sidecar_host: String = `127.0.0.1`
+    ollama_registry_host: String = `ollama.com`
+    sidecar_startup_timeout_seconds: Integer = 10
+    sidecar_shutdown_timeout_seconds: Integer = 5
+    model_pull_timeout_seconds: Integer = 300
+    roundtrip_timeout_seconds: Integer = 30
+    minimum_disk_free_gb: Integer = 4
+}
+
+-- External entities — provided by the OS / Ollama / network, not by JuraDrop.
+
+external entity OllamaApi {
+    -- The Ollama HTTP server running as a child process. Endpoints used:
+    -- /api/tags (list local models), /api/pull (download), /api/generate (inference).
+    reachable: Boolean
+    bound_host: String
+    bound_port: Integer
+}
+
+external entity OllamaRegistry {
+    -- The remote model registry. Default ollama.com. Only contacted via
+    -- /api/pull, only after explicit user consent (FR-019).
+    host: String
+}
+
+external entity BundledBinary {
+    -- The Ollama executable shipped inside the JuraDrop .app bundle.
+    path: String
+    executable: Boolean
+}
+
+external entity FileSystem {
+    free_disk_gb: Integer
+}
+
+-- Internal entities.
+
+entity OllamaSidecar {
+    status: SidecarStatus
+    pid: Integer? when status = ready | starting | stopping
+    port: Integer
+    host: String
+    bundled_binary: BundledBinary
+
+    transitions status {
+        not_started -> starting
+        starting -> ready
+        starting -> crashed
+        ready -> crashed
+        ready -> stopping
+        stopping -> stopped
+        crashed -> stopped
+        terminal: stopped
+    }
+
+    invariant LoopbackOnly {
+        this.host = `127.0.0.1` or this.host = `::1`
+    }
+
+    invariant PortMatchesConfig {
+        this.port = 11434
+    }
+}
+
+entity ModelArtifact {
+    tag: String
+    status: ModelStatus
+    progress_percent: Integer? when status = downloading
+
+    transitions status {
+        not_present -> downloading
+        downloading -> ready
+        downloading -> download_failed
+        download_failed -> downloading
+        not_present -> downloading
+        ready -> not_present
+        terminal: ready
+    }
+
+    invariant TagIsDefault {
+        this.tag = `gemma3:4b`
+    }
+
+    invariant ProgressBounded {
+        this.progress_percent = null or
+        (this.progress_percent >= 0 and this.progress_percent <= 100)
+    }
+}
+
+entity FirstLaunchConsent {
+    -- Tracks whether the user has been shown the FR-019 modal and what they
+    -- chose. Persisted across app launches in macOS app-support storage so
+    -- the modal shows exactly once per fresh install.
+    choice: ConsentChoice
+    asked_at: Timestamp? when choice != not_asked
+
+    transitions choice {
+        not_asked -> fortsatt
+        not_asked -> avbryt
+        terminal: fortsatt, avbryt
+    }
+}
+
+entity AppStatus {
+    -- Derived user-visible status. Computed from OllamaSidecar.status,
+    -- ModelArtifact.status, and FirstLaunchConsent.choice.
+    visible: UserVisibleStatus
+    sidecar: OllamaSidecar
+    model: ModelArtifact
+    consent: FirstLaunchConsent
+}
+
+-- Rules: lifecycle and behavior
+
+rule LaunchApp {
+    when: AppLaunched(app)
+    requires: app.sidecar.status = not_started
+    ensures:
+        app.sidecar.status = starting
+        app.visible = startar
+}
+
+rule SidecarReady {
+    when: sidecar: OllamaSidecar.status transitions_to ready
+    requires: sidecar.host = `127.0.0.1` or sidecar.host = `::1`
+    ensures:
+        OllamaApi.reachable = true
+        OllamaApi.bound_host = sidecar.host
+        OllamaApi.bound_port = sidecar.port
+}
+
+rule SidecarStartupTimeout {
+    when: SidecarStartupExceeded(sidecar)
+    requires: sidecar.status = starting
+    ensures:
+        sidecar.status = crashed
+        AppStatus.visible = fel_kunde_inte_starta
+}
+
+rule BundledBinaryMissing {
+    when: AppLaunched(app)
+    requires: app.sidecar.bundled_binary.executable = false
+    ensures:
+        app.sidecar.status = crashed
+        app.visible = fel_kunde_inte_starta
+}
+
+rule PortAlreadyBound {
+    when: SidecarStartAttempted(sidecar)
+    requires: PortInUse(sidecar.port)
+    ensures:
+        sidecar.status = crashed
+        AppStatus.visible = fel_porten_upptagen
+}
+
+rule CheckModelPresent {
+    when: sidecar: OllamaSidecar.status transitions_to ready
+    requires: ModelListed(sidecar, ModelArtifact.tag)
+    ensures:
+        ModelArtifact.status = ready
+        AppStatus.visible = klar
+}
+
+rule CheckModelAbsent {
+    when: sidecar: OllamaSidecar.status transitions_to ready
+    requires: not ModelListed(sidecar, ModelArtifact.tag)
+    requires: FirstLaunchConsent.choice = not_asked
+    ensures:
+        AppStatus.visible = begar_samtycke
+}
+
+rule UserConsentsToPull {
+    when: ConsentButtonClicked(choice: fortsatt)
+    requires: FirstLaunchConsent.choice = not_asked
+    requires: ModelArtifact.status = not_present
+    ensures:
+        FirstLaunchConsent.choice = fortsatt
+        FirstLaunchConsent.asked_at = now
+        ModelArtifact.status = downloading
+        AppStatus.visible = laddar_ner_modell
+}
+
+rule UserCancelsPull {
+    when: ConsentButtonClicked(choice: avbryt)
+    requires: FirstLaunchConsent.choice = not_asked
+    ensures:
+        FirstLaunchConsent.choice = avbryt
+        FirstLaunchConsent.asked_at = now
+        AppStatus.visible = modell_saknas_avbruten
+}
+
+rule ModelPullProgress {
+    when: PullProgress(percent)
+    requires: ModelArtifact.status = downloading
+    requires: percent >= 0 and percent <= 100
+    ensures:
+        ModelArtifact.progress_percent = percent
+        AppStatus.visible = laddar_ner_modell
+}
+
+rule ModelPullCompleted {
+    when: model: ModelArtifact.status transitions_to ready
+    requires: OllamaSidecar.status = ready
+    ensures:
+        AppStatus.visible = klar
+}
+
+rule ModelPullFailedDisk {
+    when: PullFailed(reason: disk_full)
+    requires: ModelArtifact.status = downloading
+    ensures:
+        ModelArtifact.status = download_failed
+        AppStatus.visible = fel_disk_full
+}
+
+rule ModelPullFailedNetwork {
+    when: PullFailed(reason: network)
+    requires: ModelArtifact.status = downloading
+    ensures:
+        ModelArtifact.status = download_failed
+        AppStatus.visible = fel_modellnedladdning_avbroten
+}
+
+rule ResumeInterruptedPull {
+    when: AppLaunched(app)
+    requires: ModelArtifact.status = download_failed
+    requires: FirstLaunchConsent.choice = fortsatt
+    ensures:
+        -- Per FR-020: just call /api/pull again. Ollama is idempotent.
+        ModelArtifact.status = downloading
+        AppStatus.visible = laddar_ner_modell
+}
+
+rule SidecarCrashed {
+    when: sidecar: OllamaSidecar.status transitions_to crashed
+    requires: sidecar.status != crashed
+    ensures:
+        AppStatus.visible = fel_ovantat
+}
+
+rule SidecarOneRetry {
+    when: SidecarCrashDetected(sidecar)
+    requires: sidecar.status = crashed
+    requires: not RetryAlreadyAttempted(sidecar)
+    ensures:
+        sidecar.status = starting
+        RetryAttempted(sidecar)
+}
+
+rule AppQuit {
+    when: AppQuitting(app)
+    requires: app.sidecar.status in {ready, starting, crashed}
+    ensures:
+        app.sidecar.status = stopping
+}
+
+rule SidecarStopped {
+    when: sidecar: OllamaSidecar.status transitions_to stopped
+    ensures:
+        OllamaApi.reachable = false
+        sidecar.pid = null
+}
+
+rule SidecarShutdownTimeout {
+    when: SidecarShutdownExceeded(sidecar)
+    requires: sidecar.status = stopping
+    ensures:
+        -- Force-kill on timeout per FR-003.
+        sidecar.status = stopped
+}
+
+rule RunRoundTripTest {
+    -- Developer-only test (dev profile or `#[ignore]`-marked Rust integration
+    -- test). Sends a hardcoded prompt and asserts a non-empty response.
+    when: RoundTripInvoked(prompt)
+    requires: OllamaSidecar.status = ready
+    requires: ModelArtifact.status = ready
+    requires: BuildProfile = dev or TestHarness = active
+    ensures:
+        InferenceResponse.created(prompt: prompt, model: ModelArtifact.tag, non_empty: true)
+        ContentLogged(prompt) = false
+        ContentLogged(InferenceResponse) = false
+}
+
+external entity InferenceResponse {
+    prompt: String
+    model: String
+    non_empty: Boolean
+}
+
+-- Global invariants
+
+invariant LoopbackOnlyBinding {
+    for sidecar in OllamaSidecars where status = ready:
+        sidecar.host = `127.0.0.1` or sidecar.host = `::1`
+}
+
+invariant NoZombieSidecarAfterQuit {
+    for app in Apps where status = not_running:
+        app.sidecar.status = stopped or app.sidecar.status = not_started
+}
+
+invariant OnlyOllamaRegistryOutbound {
+    -- The only outbound (non-loopback) network destination introduced by this
+    -- spec is the Ollama registry (default ollama.com) during /api/pull. Any
+    -- other outbound call violates Constitution Principle I.
+    for call in OutboundNetworkCalls where call.destination != `127.0.0.1`:
+        call.destination_host = `ollama.com`
+        call.purpose = model_pull
+}
+
+invariant ConsentModalShownExactlyOnce {
+    for consent in FirstLaunchConsents:
+        consent.asked_at = null or consent.choice != not_asked
+}
+
+invariant PullOnlyAfterConsent {
+    for model in ModelArtifacts where status = downloading:
+        FirstLaunchConsent.choice = fortsatt
+}
+
+invariant NoPromptOrResponseInLogs {
+    -- FR-012: round-trip test MUST NOT log prompt or response content.
+    -- Generalizes to all inference paths: at no point may prompt or response
+    -- bytes appear in logs, telemetry, or crash reports.
+    for log_event in LogEvents:
+        log_event.contains_prompt = false
+        log_event.contains_response = false
+}
+
+invariant CapabilityAllowlistMinimal {
+    -- FR-016: only the strictly required permissions are granted.
+    -- Spec 001 had {} (empty). Spec 002 adds exactly these and nothing more.
+    AllowedCapabilities = {
+        sidecar_spawn_ollama,
+        http_loopback,
+        http_ollama_registry
+    }
+}
+
+-- Surfaces (user-facing)
+
+surface WelcomeCardStatus {
+    facing viewer: LawStudent
+    context status: AppStatus
+    exposes:
+        status.visible
+    -- The welcome card from spec 001 now embeds a Swedish status string.
+    -- Spec 003 will replace the card with the 2×3 drop-zone grid; the status
+    -- moves to a header bar at that point.
+}
+
+surface FirstOutboundConsentModal {
+    facing viewer: LawStudent
+    provides:
+        ConsentButtonClicked(choice: fortsatt) when FirstLaunchConsent.choice = not_asked
+        ConsentButtonClicked(choice: avbryt) when FirstLaunchConsent.choice = not_asked
+    -- Modal text per FR-019:
+    --   Title: "Ladda ner AI-modell"
+    --   Body:  "JuraDrop hämtar nu en AI-modell (~3 GB) från ollama.com. Det är
+    --          enda gången något skickas utanför din Mac."
+    --   Buttons: "Fortsätt", "Avbryt"
+}
+
+-- Deferred items
+deferred AppStatus.sidecar_streaming   -- spec 003 (first-zone-sammanfatta) introduces streaming
+deferred AppStatus.drop_zones          -- spec 003 + 004
+deferred AppStatus.model_selection     -- spec 010 (settings-panel)
+deferred AppStatus.signed_binary       -- spec 006 (signing-and-ci)
+deferred AppStatus.universal_binary    -- spec 006
+deferred AppStatus.advanced_recovery   -- spec 011 (error-recovery) — beyond the one-retry of SidecarOneRetry
+deferred AppStatus.first_run_wizard    -- spec 008 (first-run-wizard) — proper UI for the consent + download flow
+
+-- Open questions surfaced during elicitation (none — clarify phase resolved all four).

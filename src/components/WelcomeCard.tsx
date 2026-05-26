@@ -1,18 +1,21 @@
-import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { useStatusStore, statusMessage } from '@/lib/status-store';
 
-// Placeholder welcome card for spec 001-tauri-bootstrap.
-// Renders the title "JuraDrop", the Swedish subtitle, and one disabled shadcn
-// Button — enough to verify React + Tailwind + shadcn/ui all render. The real
-// 2×3 drop-zone grid arrives in specs 003 and 004.
+// Spec 002 welcome card — title + Swedish subtitle from spec 001, plus a
+// live status string driven by the zustand store wired to Tauri events.
+// The disabled "Kom igång" button from spec 001 is removed because the
+// status string is now the meaningful content (not a placeholder).
 export function WelcomeCard() {
+  const status = useStatusStore((s) => s.status);
+  const message = statusMessage(status);
+  const isError = status.visible.startsWith('fel_') || status.visible === 'modell_saknas_avbruten';
+
   return (
     <Card className="w-full max-w-md">
       <CardHeader className="space-y-2">
@@ -22,15 +25,18 @@ export function WelcomeCard() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <p className="text-sm text-muted-foreground">
-          Det här fönstret är en första genomgång. Riktiga droppzoner kommer i nästa version.
+        <p
+          aria-live="polite"
+          aria-atomic="true"
+          className={
+            isError
+              ? 'text-sm text-destructive'
+              : 'text-sm text-muted-foreground transition-colors'
+          }
+        >
+          {message}
         </p>
       </CardContent>
-      <CardFooter>
-        <Button type="button" disabled aria-disabled="true">
-          Kom igång
-        </Button>
-      </CardFooter>
     </Card>
   );
 }

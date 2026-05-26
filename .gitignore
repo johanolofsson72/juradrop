@@ -40,3 +40,6 @@ src-tauri/gen/
 # Playwright (spec 001)
 playwright-report/
 test-results/
+
+# Ollama sidecar binary (spec 002 — fetched via scripts/fetch-ollama.sh)
+src-tauri/binaries/ollama-*

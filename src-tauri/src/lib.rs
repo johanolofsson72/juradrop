@@ -1,45 +1,126 @@
-// JuraDrop core — spec 001-tauri-bootstrap
+// JuraDrop core — spec 002-ollama-sidecar-poc.
 //
-// Boots a single Tauri window. Closing the window quits the app (per FR-010,
-// constitution Principle IV: "the window IS the app — close the window, the
-// app quits"). No commands registered (deny-by-default per FR-019).
+// Spec 001 wired the window + close-quits-app. Spec 002 adds the bundled
+// Ollama sidecar, the first-launch consent flow, and the dev-only round-trip
+// command. See specs/002-ollama-sidecar-poc/plan.md.
 
-use tauri::{RunEvent, WindowEvent};
+use std::time::Duration;
+
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
+
+pub mod sidecar;
+
+use sidecar::commands::{cancel_consent, get_status, give_consent, run_roundtrip_dev, AppState};
+use sidecar::consent;
+use sidecar::status::{ConsentChoice, ModelStatus};
 
 pub fn run() {
-    tauri::Builder::default()
-        .setup(|_app| Ok(()))
-        .build(tauri::generate_context!())
-        .expect("failed to build JuraDrop tauri application")
-        .run(|app_handle, event| {
-            if let RunEvent::WindowEvent {
-                label,
-                event: WindowEvent::CloseRequested { .. },
-                ..
-            } = event
-            {
-                if label == "main" {
-                    app_handle.exit(0);
+    let app = tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![
+            get_status,
+            give_consent,
+            cancel_consent,
+            run_roundtrip_dev,
+        ])
+        .setup(|app| {
+            let state = AppState::new();
+            app.manage(state.clone());
+
+            // Boot the sidecar + initial status sync in a background task so
+            // the WebView mounts quickly. The welcome card initially shows
+            // "Startar AI..." (UserVisibleStatus::Startar) which matches the
+            // initial NotStarted -> Starting transition.
+            let app_handle = app.handle().clone();
+            tokio::spawn(async move {
+                // Load consent first so the modal-vs-no-modal decision is
+                // ready by the time the sidecar reaches ready state.
+                match consent::load(&app_handle).await {
+                    Ok(record) => {
+                        if let Some(state) = app_handle.try_state::<AppState>() {
+                            *state.consent.write() = record;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[juradrop] consent load failed: {e}");
+                    }
                 }
+
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    if let Err(e) = state.sidecar.spawn(&app_handle).await {
+                        eprintln!("[juradrop] sidecar spawn failed: {e}");
+                        let _ = app_handle.emit("juradrop://status", state.snapshot());
+                        return;
+                    }
+                    let _ = app_handle.emit("juradrop://status", state.snapshot());
+
+                    match state.sidecar.wait_ready(Duration::from_secs(10)).await {
+                        Ok(()) => {
+                            // Sidecar ready — check model presence.
+                            match state.client.list_tags().await {
+                                Ok(tags) => {
+                                    let present = tags.iter().any(|t| t == "gemma3:4b");
+                                    *state.model_status.write() = if present {
+                                        ModelStatus::Ready
+                                    } else {
+                                        ModelStatus::NotPresent
+                                    };
+                                    let _ = app_handle.emit("juradrop://status", state.snapshot());
+
+                                    // If model already absent and consent was previously given,
+                                    // re-call /api/pull per FR-020 (idempotent). Not implemented
+                                    // in this initial commit — the pull stream wiring lands in
+                                    // a follow-up task; see specs/002-.../tasks.md T026, T030.
+                                    if !present
+                                        && state.consent.read().choice == ConsentChoice::Fortsatt
+                                    {
+                                        // Placeholder: spec 002 T026 will implement pull_stream.
+                                        eprintln!("[juradrop] TODO: re-call /api/pull (T026)");
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("[juradrop] /api/tags failed: {e}");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[juradrop] sidecar wait_ready failed: {e}");
+                            let _ = app_handle.emit("juradrop://status", state.snapshot());
+                        }
+                    }
+                }
+            });
+
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .expect("failed to build JuraDrop tauri application");
+
+    app.run(|app_handle, event| {
+        if let RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::CloseRequested { .. },
+            ..
+        } = event
+        {
+            if label == "main" {
+                // Stop the sidecar synchronously before the process exits.
+                if let Some(state) = app_handle.try_state::<AppState>() {
+                    let sidecar = state.sidecar.clone();
+                    tauri::async_runtime::block_on(async move {
+                        let _ = sidecar.stop(Duration::from_secs(5)).await;
+                    });
+                }
+                app_handle.exit(0);
             }
-        });
+        }
+    });
 }
 
 #[cfg(test)]
 mod tests {
     #[test]
     fn smoke() {
-        // FC-008: at least one Rust unit test passes when `cargo test` runs.
         assert_eq!(2 + 2, 4);
-    }
-
-    #[test]
-    fn close_window_quits_app_intent_documented() {
-        // We cannot test the full Tauri run loop without spinning up the WebView.
-        // This test simply documents the invariant: pressing the red traffic-light
-        // button on the main window triggers app_handle.exit(0). The integration
-        // is verified manually + by destructive test DT-006 (close during render).
-        let label = "main";
-        assert_eq!(label, "main");
     }
 }
