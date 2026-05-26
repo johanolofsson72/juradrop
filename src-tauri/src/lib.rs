@@ -184,4 +184,78 @@ mod tests {
     fn smoke() {
         assert_eq!(2 + 2, 4);
     }
+
+    // GAP-9: `CapabilityAllowlistMinimal` invariant — the Tauri capabilities
+    // file must contain exactly the spec.allium permissions and NOTHING
+    // ELSE. A future PR that adds `fs:allow-read` or `http:*` silently
+    // broadens our surface and breaks Principle I; this test catches it
+    // at PR time.
+    #[test]
+    fn capabilities_allowlist_is_minimal_per_spec() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let path = std::path::Path::new(manifest).join("capabilities/default.json");
+        let json = std::fs::read_to_string(&path)
+            .expect("capabilities/default.json must exist");
+        let cap: serde_json::Value = serde_json::from_str(&json)
+            .expect("capabilities/default.json must be valid JSON");
+
+        let perms = cap
+            .get("permissions")
+            .and_then(|v| v.as_array())
+            .expect("permissions array missing");
+
+        // String permissions, sorted for deterministic comparison.
+        let mut string_perms: Vec<&str> =
+            perms.iter().filter_map(|v| v.as_str()).collect();
+        string_perms.sort();
+
+        // Exactly these four core permissions — nothing more, nothing less.
+        assert_eq!(
+            string_perms,
+            vec![
+                "core:app:default",
+                "core:default",
+                "core:event:default",
+                "shell:allow-kill",
+            ],
+            "capabilities allowlist drifted from spec.allium CapabilityAllowlistMinimal"
+        );
+
+        // Plus exactly one scoped object permission: shell:allow-spawn
+        // limited to the bundled ollama binary. No other scoped permissions
+        // are allowed.
+        let object_perms: Vec<&serde_json::Value> =
+            perms.iter().filter(|v| v.is_object()).collect();
+        assert_eq!(
+            object_perms.len(),
+            1,
+            "expected exactly one scoped permission (shell:allow-spawn for ollama)"
+        );
+        let spawn = object_perms[0];
+        assert_eq!(
+            spawn.get("identifier").and_then(|v| v.as_str()),
+            Some("shell:allow-spawn"),
+            "scoped permission must be shell:allow-spawn"
+        );
+        let allow = spawn
+            .get("allow")
+            .and_then(|v| v.as_array())
+            .expect("shell:allow-spawn must have an allow array");
+        assert_eq!(
+            allow.len(),
+            1,
+            "shell:allow-spawn allow list must be a single entry (ollama only)"
+        );
+        let entry = &allow[0];
+        assert_eq!(
+            entry.get("name").and_then(|v| v.as_str()),
+            Some("binaries/ollama"),
+            "only the bundled ollama sidecar may be spawned"
+        );
+        assert_eq!(
+            entry.get("sidecar").and_then(|v| v.as_bool()),
+            Some(true),
+            "ollama must be configured as a sidecar (not an arbitrary command)"
+        );
+    }
 }

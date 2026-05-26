@@ -15,8 +15,17 @@ use super::log_safe::Redacted;
 use super::manager::OllamaSidecar;
 use super::status::{AppStatus, ConsentChoice, ModelStatus, SidecarStatus, UserVisibleStatus};
 
-/// Default model the PoC bundles. Spec 002 contracts/ollama-api-usage.md.
-const DEFAULT_MODEL: &str = "gemma3:4b";
+/// Default model the PoC bundles. Spec 002 contracts/ollama-api-usage.md +
+/// spec.allium `ModelArtifact::TagIsDefault` invariant.
+pub(crate) const DEFAULT_MODEL: &str = "gemma3:4b";
+
+/// GAP-8: extract the PullOnlyAfterConsent gate into a named, testable
+/// function. The runtime path in `after_sidecar_ready` calls this rather
+/// than inlining the condition — keeps the invariant easy to audit and
+/// catches consent-gate regressions at unit-test time.
+pub fn should_trigger_pull(model_present: bool, consent: ConsentChoice) -> bool {
+    !model_present && consent == ConsentChoice::Fortsatt
+}
 
 /// Total pull-stream ceiling — F1 / spec.allium `model_pull_timeout_seconds: 300`.
 /// Wraps the whole `OllamaClient::pull` call; on elapse, the in-flight HTTP
@@ -62,7 +71,7 @@ pub async fn after_sidecar_ready(app: AppHandle, state: AppState) {
             };
             let _ = app.emit("juradrop://status", state.snapshot());
 
-            if !present && state.consent.read().choice == ConsentChoice::Fortsatt {
+            if should_trigger_pull(present, state.consent.read().choice) {
                 if !has_sufficient_disk_for_pull(&app) {
                     *state.error_override.write() = Some(UserVisibleStatus::FelDiskFull);
                     let _ = app.emit("juradrop://status", state.snapshot());
@@ -287,4 +296,47 @@ pub async fn run_roundtrip_dev(state: tauri::State<'_, AppState>) -> Result<u64,
 #[cfg(not(debug_assertions))]
 pub async fn run_roundtrip_dev(_state: tauri::State<'_, AppState>) -> Result<u64, String> {
     Err("not available in release build".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // GAP-7: `TagIsDefault` invariant — DEFAULT_MODEL must equal the
+    // spec.allium value `gemma3:4b`. Catches a typo'd constant at PR time.
+    #[test]
+    fn default_model_matches_spec_allium() {
+        assert_eq!(
+            DEFAULT_MODEL, "gemma3:4b",
+            "DEFAULT_MODEL must equal spec.allium ModelArtifact.TagIsDefault"
+        );
+    }
+
+    // GAP-8: `PullOnlyAfterConsent` invariant — every (model_present, consent)
+    // combination produces the right pull-trigger decision. The pull MUST
+    // fire iff the model is missing AND consent was explicitly granted.
+    #[test]
+    fn pull_only_triggers_when_model_missing_and_consent_fortsatt() {
+        assert!(should_trigger_pull(false, ConsentChoice::Fortsatt));
+    }
+
+    #[test]
+    fn pull_does_not_trigger_when_model_present() {
+        // No matter the consent state, present means no pull.
+        for c in [
+            ConsentChoice::NotAsked,
+            ConsentChoice::Fortsatt,
+            ConsentChoice::Avbryt,
+        ] {
+            assert!(!should_trigger_pull(true, c), "{c:?} + present");
+        }
+    }
+
+    #[test]
+    fn pull_does_not_trigger_without_explicit_consent() {
+        // The whole reason this gate exists — no outbound network call
+        // before explicit user opt-in.
+        assert!(!should_trigger_pull(false, ConsentChoice::NotAsked));
+        assert!(!should_trigger_pull(false, ConsentChoice::Avbryt));
+    }
 }
