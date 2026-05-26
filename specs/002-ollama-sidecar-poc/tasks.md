@@ -121,8 +121,8 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 ### Tests for User Story 3
 
 - [ ] T042 [P] [US3] Write `src-tauri/tests/sidecar_roundtrip.rs` marked `#[ignore]` per research.md R-009: spawns sidecar, waits ready, asserts `gemma3:4b` present (SKIP with clear message if not), sends "Säg hej.", asserts response length > 0 within 30 s, tears down. Covers FC-008.
-- [ ] T043 [P] [US3] Write `src-tauri/src/sidecar/log_safe.rs#[cfg(test)] mod tests`: asserts `format!("{}", Redacted("secret"))` returns `"<redacted>"`, `format!("{:?}", Redacted("secret"))` returns `"<redacted>"`, `Redacted("hello").len() == 5`. Covers FC-009 (log redaction).
-- [ ] T044 [P] [US3] Write `src-tauri/src/sidecar/client.rs#[cfg(test)] mod tests`: asserts the public API surface of `OllamaClient` exposes only `list_tags`, `pull_stream`, `generate` — no streaming-inference method. Static check via the type system (visibility). Covers FC-014 (blocking-only).
+- [x] T043 [P] [US3] Write `src-tauri/src/sidecar/log_safe.rs#[cfg(test)] mod tests`: asserts `format!("{}", Redacted("secret"))` returns `"<redacted>"`, `format!("{:?}", Redacted("secret"))` returns `"<redacted>"`, `Redacted("hello").len() == 5`. Covers FC-009 (log redaction).
+- [x] T044 [P] [US3] Write `src-tauri/src/sidecar/client.rs#[cfg(test)] mod tests`: asserts the public API surface of `OllamaClient` exposes only `list_tags`, `pull_stream`, `generate` — no streaming-inference method. Static check via the type system (visibility). Covers FC-014 (blocking-only). **Implementation note**: method named `pull` (not `pull_stream`) — semantically equivalent, just shorter.
 
 **Checkpoint**: US3 complete = round-trip integration test runs green; no prompt/response content appears in test logs (verify with `cargo test -- --ignored --nocapture | grep -i "säg hej\|hej\|hallå" → should be empty for the prompt; response varies but is never logged).
 

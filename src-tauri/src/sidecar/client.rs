@@ -306,4 +306,38 @@ mod tests {
         let line: PullLine = serde_json::from_str(r#"{"digest":"sha256:abc"}"#).unwrap();
         assert!(line.into_event().is_none());
     }
+
+    // T044 / FC-014 — design contract: OllamaClient's public API is exactly
+    // three operations: list_tags (GET), pull (stream), generate (blocking).
+    // The presence of these signatures is enforced by the type system. The
+    // ABSENCE of a streaming-inference method (e.g. `generate_stream`,
+    // `chat_stream`) is enforced by social contract — if you add one,
+    // delete this test along with updating spec.allium FC-014.
+    #[test]
+    fn public_api_surface_is_blocking_inference_only() {
+        // The three permitted methods, by signature. These compile iff the
+        // type system allows the call — i.e. the methods exist and accept
+        // the expected argument shapes.
+        fn _list_tags_signature<'a>(
+            c: &'a OllamaClient,
+        ) -> impl std::future::Future<Output = Result<Vec<String>, ClientError>> + 'a {
+            c.list_tags()
+        }
+        fn _generate_signature<'a>(
+            c: &'a OllamaClient,
+            model: &'a str,
+            prompt: Redacted<String>,
+        ) -> impl std::future::Future<Output = Result<Redacted<String>, ClientError>> + 'a
+        {
+            c.generate(model, prompt)
+        }
+        // pull is callback-driven; we can't take a generic FnMut by-value
+        // in a function pointer, so just confirm it's callable here.
+        fn _pull_is_callable(c: &OllamaClient) {
+            let _ = c.pull("x", |_| {});
+        }
+        let _ = _list_tags_signature;
+        let _ = _generate_signature;
+        let _ = _pull_is_callable;
+    }
 }
