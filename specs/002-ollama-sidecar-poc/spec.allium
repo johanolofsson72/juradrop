@@ -89,13 +89,16 @@ entity OllamaSidecar {
         ready -> crashed
         ready -> stopping
         stopping -> stopped
-        crashed -> stopped
+        crashed -> stopping     -- F8: stop() can wind down a crashed sidecar
         crashed -> starting     -- T045 SidecarOneRetry: one auto-retry on first crash
         terminal: stopped
     }
 
+    -- F11: code binds IPv4 127.0.0.1 only via OLLAMA_HOST. IPv6 ::1 is
+    -- intentionally NOT bound — narrower attack surface and matches the
+    -- live-runtime lsof audit (T054).
     invariant LoopbackOnly {
-        this.host = `127.0.0.1` or this.host = `::1`
+        this.host = `127.0.0.1`
     }
 
     invariant PortMatchesConfig {
@@ -144,11 +147,17 @@ entity FirstLaunchConsent {
 
 entity AppStatus {
     -- Derived user-visible status. Computed from OllamaSidecar.status,
-    -- ModelArtifact.status, and FirstLaunchConsent.choice.
+    -- ModelArtifact.status, and FirstLaunchConsent.choice — but the
+    -- derive() result is overridden by `error_override` when it is set,
+    -- which preserves sidecar/client error-variant identity (PortBusy,
+    -- BundledBinaryMissing, DiskFull, …) that the three-state tuple
+    -- otherwise loses. Wired via `impl From<&SidecarError>` and
+    -- `impl From<&ClientError>` (T046).
     visible: UserVisibleStatus
     sidecar: OllamaSidecar
     model: ModelArtifact
     consent: FirstLaunchConsent
+    error_override: UserVisibleStatus?     -- F6 / T046: precedence over derive()
 }
 
 -- Rules: lifecycle and behavior

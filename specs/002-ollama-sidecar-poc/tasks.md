@@ -70,7 +70,7 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 ### Tests for User Story 1
 
 - [ ] T023 [P] [US1] Write `src-tauri/tests/sidecar_lifecycle.rs`: spawn the sidecar via the manager API, assert `wait_ready` returns `Ok(())` within 10 s, then stop and assert the child PID exits within 5 s (use `nix::sys::wait` or polling `/api/tags` returns connection-refused). Covers FC-001, FC-002.
-- [ ] T024 [P] [US1] Write `src-tauri/src/sidecar/manager.rs#[cfg(test)] mod tests`: unit-test the `SidecarStatus` transition graph — valid transitions succeed, invalid transitions (e.g., `ready → starting`) return errors.
+- [~] T024 [P] [US1] ~~Write `src-tauri/src/sidecar/manager.rs#[cfg(test)] mod tests`: unit-test the `SidecarStatus` transition graph — valid transitions succeed, invalid transitions (e.g., `ready → starting`) return errors.~~ **Dropped per F9 allium-distill decision (2026-05-26)**: `set_status` doesn't validate transitions because the transition graph isn't actually load-bearing for any rule — invalid transitions can't happen via the current code paths and adding runtime validation would catch nothing real. The spec.allium graph remains a design document.
 
 **Checkpoint**: US1 complete = sidecar spawns + stops cleanly in tests. App launch via `npm run tauri dev` also spawns sidecar (verifiable in Activity Monitor).
 
@@ -139,7 +139,7 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 - [x] T045 [US4] Implement the one-retry mechanism in `manager.rs` per spec.allium SidecarOneRetry: track a `retry_count: AtomicU8` on `OllamaSidecar`. On crash detection (RunEvent indicates child terminated unexpectedly while we expected `ready`): if `retry_count == 0`, attempt one re-spawn and increment the counter. If retry fails, hold `FelOvantat` status until next launch. Per US4 #2.
 - [x] T046 [US4] Map every `SidecarError` and `ClientError` variant to the matching `UserVisibleStatus` via `impl From<SidecarError> for UserVisibleStatus { ... }`. Exhaustive match — compile error if a new variant is added without mapping. Covers FR-010.
 - [x] T047 [US4] Implement disk-space pre-check before triggering pull: in `commands.rs::give_consent`, before kicking off the pull, call `fs::statvfs` (or platform equivalent) on the app data root, assert ≥ 4 GB free, otherwise set `UserVisibleStatus = FelDiskFull` and abort. Per FR-010 / SC-006-edge.
-- [ ] T048 [US4] Implement the "bundled binary missing" pre-check: in `manager.rs::spawn`, verify `app.shell().sidecar("ollama")` returns Ok; if not, return `SidecarError::BundledBinaryMissing` → `FelKundeIntStarta`. Per FR-015.
+- [x] T048 [US4] Implement the "bundled binary missing" pre-check: in `manager.rs::spawn`, verify `app.shell().sidecar("ollama")` returns Ok; if not, return `SidecarError::BundledBinaryMissing` → `FelKundeIntStarta`. Per FR-015. **Covered by spawn-time detection per F7 allium-distill decision (2026-05-26)**: `app.shell().sidecar("ollama")` returns an error if the binary is missing, the error is mapped to `BundledBinaryMissing` (manager.rs heuristic on "No such file" / "not found"), and the T046 `From<&SidecarError>` impl surfaces it as `fel_kunde_inte_starta`. An explicit pre-check duplicates the spawn's own work with no user-visible difference.
 
 ### Tests for User Story 4
 
