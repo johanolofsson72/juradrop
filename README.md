@@ -37,7 +37,7 @@ JuraDrop löser det med arkitektur, inte löften:
 
 ## Status
 
-Pre-MVP. Inget byggt än — bara projektets grundvalar (constitution, design system, deployment-plan, spec register). Se [`specs/INDEX.md`](specs/INDEX.md) för planerade specifikationer.
+Pre-MVP. Spec 001 (Tauri-bootstrap) är klar. Spec 002 (lokal Ollama-sidecar) körs end-to-end i utvecklingsläge: appen startar den buntade Ollama-binären på `127.0.0.1:11434`, frågar dig om lov, hämtar modellen `gemma3:4b` (~3 GB) och visar svenska statusmeddelanden under tiden. **Modellnedladdningen är det enda nätverksanrop appen gör utanför din Mac, och bara efter att du klickat Fortsätt.** Se [`specs/INDEX.md`](specs/INDEX.md) för planerade specifikationer.
 
 Första signerade och notariserade DMG släpps under `Releases` när spec 006 är klar.
 

@@ -154,11 +154,11 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 ## Phase 7: Polish & Cross-Cutting Concerns
 
 - [x] T052 [P] Run the `humanizer` skill on every Swedish string introduced in this spec — modal title/body/buttons, all `statusMessage(visible)` mappings, error variants. Adjust any flagged AI-tinged phrasing. Per FR-017 + CLAUDE.md BLOCKING REQUIREMENT.
-- [ ] T053 [P] Outbound network audit (strict). Two-part check:
+- [x] T053 [P] Outbound network audit (strict). Two-part check:
   - (a) `grep -RInE "\bfetch\(|XMLHttpRequest|new WebSocket\(|reqwest::|tokio::net::|hyper::Client|isahc::" src/ src-tauri/src/` — only matches MUST be `reqwest::` inside `src-tauri/src/sidecar/client.rs` (or the new client module). Any other hit fails the audit.
   - (b) `grep -RInE 'https?://[^"]*' src/ src-tauri/src/` — every non-loopback URL literal MUST be either `http://127.0.0.1:11434` or `https://ollama.com…` (or a documented redirect target). Any other hostname fails the audit. The CI step in spec 006 will codify this as a build-time grep with exit-nonzero behavior; spec 002 documents it as a manual checklist item.
-- [ ] T054 [P] Live-runtime network audit: with the app running and the model present, run `lsof -p $(pgrep -f juradrop | head -1) -i -n -P 2>/dev/null | grep -E '(ESTABLISHED|LISTEN)'` and confirm only 127.0.0.1:* entries. During a pull, `ollama.com` (and its CDN redirects) may appear; record them in `quickstart.md` if they vary from the spec.
-- [ ] T055 [P] Update `README.md`: add a "Spec 002 progress" line in the status section. Note that the model download is the only outbound call and consent is required.
+- [x] T054 [P] Live-runtime network audit: with the app running and the model present, run `lsof -p $(pgrep -f juradrop | head -1) -i -n -P 2>/dev/null | grep -E '(ESTABLISHED|LISTEN)'` and confirm only 127.0.0.1:* entries. During a pull, `ollama.com` (and its CDN redirects) may appear; record them in `quickstart.md` if they vary from the spec.
+- [x] T055 [P] Update `README.md`: add a "Spec 002 progress" line in the status section. Note that the model download is the only outbound call and consent is required.
 - [ ] T056 Execute destructive test DT-001: send malformed JSON to `/api/tags` (mock by intercepting the response) — verify graceful Swedish-error fallback. **Needs Rust integration test or mock setup**.
 - [ ] T057 Execute destructive test DT-002: send a prompt containing `<script>alert(1)</script>`, control chars `\x00\x01\x07`, emoji `🎉`, and assert the response renders safely (text, not HTML). **Needs Rust integration test**.
 - [ ] T058 Execute destructive test DT-003: close the window during sidecar startup (within first 2 s). Verify no orphan process via `pgrep -f ollama`. **Needs user verification**.
