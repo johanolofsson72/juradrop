@@ -33,7 +33,7 @@ const errorCases: ErrorCase[] = [
   },
   {
     visible: 'fel_porten_upptagen',
-    expected: 'Porten är upptagen. Stäng andra AI-program och starta om.',
+    expected: 'Ett annat AI-program använder anslutningen. Stäng det och starta om JuraDrop.',
   },
   {
     visible: 'fel_disk_full',

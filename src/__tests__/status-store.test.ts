@@ -71,16 +71,16 @@ describe('statusMessage()', () => {
   // a Swedish string without leaking English or technical jargon to the UI.
   const cases: Array<{ visible: UserVisibleStatus; expected: string | RegExp }> = [
     { visible: 'startar', expected: 'Startar AI...' },
-    { visible: 'klar', expected: 'AI redo' },
+    { visible: 'klar', expected: 'AI är redo' },
     { visible: 'laddar_ner_modell', expected: 'Laddar ner AI-modell...' },
-    { visible: 'begar_samtycke', expected: 'Väntar på ditt godkännande för nedladdning.' },
+    { visible: 'begar_samtycke', expected: 'Väntar på att du godkänner nedladdningen.' },
     {
       visible: 'fel_kunde_inte_starta',
       expected: 'AI-motorn kunde inte starta. Starta om JuraDrop.',
     },
     {
       visible: 'fel_porten_upptagen',
-      expected: 'Porten är upptagen. Stäng andra AI-program och starta om.',
+      expected: 'Ett annat AI-program använder anslutningen. Stäng det och starta om JuraDrop.',
     },
     {
       visible: 'fel_disk_full',

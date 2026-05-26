@@ -39,7 +39,7 @@ export function statusMessage(status: AppStatus): string {
     case 'startar':
       return 'Startar AI...';
     case 'klar':
-      return 'AI redo';
+      return 'AI är redo';
     case 'laddar_ner_modell': {
       const pct = status.progress_percent;
       if (pct === null || pct === undefined) {
@@ -48,11 +48,11 @@ export function statusMessage(status: AppStatus): string {
       return `Laddar ner AI-modell... ${pct}%`;
     }
     case 'begar_samtycke':
-      return 'Väntar på ditt godkännande för nedladdning.';
+      return 'Väntar på att du godkänner nedladdningen.';
     case 'fel_kunde_inte_starta':
       return 'AI-motorn kunde inte starta. Starta om JuraDrop.';
     case 'fel_porten_upptagen':
-      return 'Porten är upptagen. Stäng andra AI-program och starta om.';
+      return 'Ett annat AI-program använder anslutningen. Stäng det och starta om JuraDrop.';
     case 'fel_disk_full':
       return 'Inte tillräckligt med diskutrymme. Frigör minst 4 GB.';
     case 'fel_modellnedladdning_avbroten':

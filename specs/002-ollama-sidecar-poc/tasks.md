@@ -153,7 +153,7 @@ description: "Task list for spec 002 — Ollama Sidecar PoC"
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T052 [P] Run the `humanizer` skill on every Swedish string introduced in this spec — modal title/body/buttons, all `statusMessage(visible)` mappings, error variants. Adjust any flagged AI-tinged phrasing. Per FR-017 + CLAUDE.md BLOCKING REQUIREMENT.
+- [x] T052 [P] Run the `humanizer` skill on every Swedish string introduced in this spec — modal title/body/buttons, all `statusMessage(visible)` mappings, error variants. Adjust any flagged AI-tinged phrasing. Per FR-017 + CLAUDE.md BLOCKING REQUIREMENT.
 - [ ] T053 [P] Outbound network audit (strict). Two-part check:
   - (a) `grep -RInE "\bfetch\(|XMLHttpRequest|new WebSocket\(|reqwest::|tokio::net::|hyper::Client|isahc::" src/ src-tauri/src/` — only matches MUST be `reqwest::` inside `src-tauri/src/sidecar/client.rs` (or the new client module). Any other hit fails the audit.
   - (b) `grep -RInE 'https?://[^"]*' src/ src-tauri/src/` — every non-loopback URL literal MUST be either `http://127.0.0.1:11434` or `https://ollama.com…` (or a documented redirect target). Any other hostname fails the audit. The CI step in spec 006 will codify this as a build-time grep with exit-nonzero behavior; spec 002 documents it as a manual checklist item.

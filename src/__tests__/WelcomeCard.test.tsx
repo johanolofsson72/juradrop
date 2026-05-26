@@ -37,10 +37,10 @@ describe('WelcomeCard', () => {
     expect(screen.getByText('Startar AI...')).toBeInTheDocument();
   });
 
-  it('shows "AI redo" when ready', () => {
+  it('shows "AI är redo" when ready', () => {
     setStore({ visible: 'klar', sidecar: 'ready', model: 'ready', consent: 'fortsatt' });
     render(<WelcomeCard />);
-    expect(screen.getByText('AI redo')).toBeInTheDocument();
+    expect(screen.getByText('AI är redo')).toBeInTheDocument();
   });
 
   it('shows the download progress including percent', () => {
