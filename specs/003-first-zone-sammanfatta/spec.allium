@@ -50,11 +50,17 @@ value SwedishCopy {
     invariant NonEmpty        { text.length > 0 }
 }
 
-value SidecarFilename {
-    stem: String              -- source file's stem (without extension)
-    timestamp_suffix: String? -- "YYYY-MM-DD-HHMMSS" in local time, set only on collision
-    full_name: String         -- "<stem>.sammanfatta.docx" or with timestamp
-}
+-- Note: an earlier draft of this spec modelled the sidecar filename
+-- as a `value SidecarFilename { stem, timestamp_suffix, full_name }`
+-- struct. The Rust implementation expresses the same shape as three
+-- functions on `Path` (`canonical_for`, `with_collision_suffix`,
+-- `resolve_target` in src-tauri/src/zones/sidecar_path.rs). Both
+-- produce the same canonical name `<stem>.sammanfatta.docx` and the
+-- same timestamped variant `<stem>.sammanfatta.YYYY-MM-DD-HHMMSS.docx`.
+-- The struct was dropped during /tla drift reconciliation on
+-- 2026-05-27 — Rust's `Path` API + standalone functions is the
+-- idiomatic shape and the round-trip through Path-functions makes the
+-- naming logic compile-time-verified.
 
 -- ============================================================
 -- Entities

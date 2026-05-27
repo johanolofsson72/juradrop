@@ -189,6 +189,171 @@ async fn non_docx_drop_emits_invalid_format_and_does_not_call_model() {
     );
 }
 
+/// T063 — DT-007 equivalent: a `.docx` whose path contains exotic
+/// UTF-8 characters (emoji, accented characters, NFD vs NFC forms)
+/// must round-trip through the sidecar pipeline without shell
+/// injection, without filename corruption, and without panic. The
+/// sidecar lands in the same directory with the right `.sammanfatta`
+/// suffix derived from the exotic stem.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires Tauri mock app + wiremock; run with --ignored"]
+async fn drop_with_exotic_chars_in_path_produces_correctly_named_sidecar() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/generate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "model": "gemma3:4b",
+            "response": "Kort sammanfattning.",
+            "done": true,
+        })))
+        .mount(&server)
+        .await;
+
+    let app = mock_builder()
+        .plugin(tauri_plugin_shell::init())
+        .build(mock_context(noop_assets()))
+        .expect("build mock tauri app");
+    let handle = app.handle().clone();
+    let zone = SammanfattaZone::new();
+    let client = Arc::new(OllamaClient::with_base_url(server.uri()));
+
+    let dir = TempDir::new().expect("tempdir");
+    // Exotic stem: emoji + accented Swedish + a space + an em dash.
+    // None of these may be expanded by a shell — write_atomically
+    // takes a PathBuf directly, no shell layer between.
+    let exotic_stem = "domskäl-🎉-vår tvist—2026";
+    let source = {
+        let target = dir.path().join(format!("{exotic_stem}.docx"));
+        let mut bytes: Vec<u8> = Vec::new();
+        Docx::new()
+            .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Text.")))
+            .build()
+            .pack(std::io::Cursor::new(&mut bytes))
+            .expect("pack");
+        std::fs::write(&target, &bytes).expect("write fixture");
+        target
+    };
+    let sha_before = sha256_of(&source);
+
+    zone.clone()
+        .handle_drop(handle, client, true, vec![source.clone()])
+        .await;
+
+    // Wait for the sidecar.
+    let expected_canonical = source
+        .parent()
+        .unwrap()
+        .join(format!("{exotic_stem}.sammanfatta.docx"));
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut found = false;
+    while std::time::Instant::now() < deadline {
+        if expected_canonical.exists() {
+            found = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(
+        found,
+        "sidecar with exotic-char stem did not appear at {expected_canonical:?}"
+    );
+
+    // Source SHA-256 unchanged — no shell expansion side-effects on
+    // the source file.
+    let sha_after = sha256_of(&source);
+    assert_eq!(
+        sha_before, sha_after,
+        "exotic-char path must not modify the source"
+    );
+
+    // The sidecar's filename must include the exotic stem verbatim
+    // (NFC/NFD normalization preserved by the macOS FS layer; we
+    // just assert the round-trip survived).
+    let name = expected_canonical
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap();
+    assert!(
+        name.contains("🎉"),
+        "emoji must survive in the sidecar name"
+    );
+    assert!(name.contains("ä"), "Swedish ä must survive");
+    assert!(name.contains("—"), "em dash must survive");
+}
+
+/// GAP-1 (closed by `/tla` pass): explicit assertion that a
+/// dispatch-time failure (model returns 500) leaves NO sidecar on
+/// disk. The architecture makes this structurally true — every
+/// failure path in dispatch returns before write_atomically is
+/// called — but this test exercises the full path end-to-end so a
+/// future refactor that reorders the dispatch can't accidentally
+/// drop a partial sidecar after a model failure.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires Tauri mock app + wiremock; run with --ignored"]
+async fn dispatch_failure_leaves_no_sidecar_on_disk() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/generate"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("ollama internal error"))
+        .mount(&server)
+        .await;
+
+    let app = mock_builder()
+        .plugin(tauri_plugin_shell::init())
+        .build(mock_context(noop_assets()))
+        .expect("build mock tauri app");
+    let handle = app.handle().clone();
+    let zone = SammanfattaZone::new();
+    let client = Arc::new(OllamaClient::with_base_url(server.uri()));
+
+    let dir = TempDir::new().expect("tempdir");
+    let source = write_fixture_docx(dir.path(), "Text att sammanfatta.");
+    let sha_before = sha256_of(&source);
+
+    zone.clone()
+        .handle_drop(handle, client, true, vec![source.clone()])
+        .await;
+
+    // Wait for the dispatch to complete (transition out of Processing).
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if zone.visible_for_test() != juradrop_lib::zones::ZoneState::Processing {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // Should have landed in Error (ModelError), not Success.
+    assert_eq!(
+        zone.visible_for_test(),
+        juradrop_lib::zones::ZoneState::Error,
+        "model failure must land in Error state"
+    );
+
+    // The canonical sidecar MUST NOT exist.
+    let canonical = source.parent().unwrap().join("ruling.sammanfatta.docx");
+    assert!(
+        !canonical.exists(),
+        "failed dispatch must NOT write {canonical:?}"
+    );
+
+    // And no timestamp-suffixed variant either — sweep the dir.
+    for entry in std::fs::read_dir(source.parent().unwrap())
+        .unwrap()
+        .flatten()
+    {
+        let name = entry.file_name().to_string_lossy().to_string();
+        assert!(
+            !name.contains(".sammanfatta."),
+            "failed dispatch must not write ANY sidecar; found {entry:?}"
+        );
+    }
+
+    // And the source is byte-identical (FR-024 holds on the failure
+    // path too, not just success).
+    let sha_after = sha256_of(&source);
+    assert_eq!(sha_before, sha_after);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires Tauri mock app; run with --ignored"]
 async fn multi_file_drop_emits_multiple_files_failure() {

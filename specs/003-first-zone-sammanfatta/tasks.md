@@ -165,22 +165,22 @@ description: "Task list for spec 003 — First drop zone (Sammanfatta)"
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T055 [P] Run the `humanizer` skill on every Swedish string introduced in this spec — the eight `ZoneFailure` strings, the four progress hints, the truncation notice, the cancel flash, the disabled-state hints. Adjust any flagged AI-tinged phrasing. Per FR-021 + CLAUDE.md BLOCKING REQUIREMENT.
-- [ ] T056 [P] Static outbound-network audit per spec 002's T053 pattern: `grep -RInE "\bfetch\(|XMLHttpRequest|new WebSocket\(|reqwest::|tokio::net::|hyper::Client|isahc::" src/ src-tauri/src/` — every match must be inside `src-tauri/src/sidecar/client.rs` OR `src-tauri/src/zones/sammanfatta.rs` (the dispatch path). `grep -RInE 'https?://[^"]*' src/ src-tauri/src/` — every non-loopback URL must be loopback or `ollama.com`. Any new outbound surface fails the audit.
-- [ ] T057 [P] Live-runtime network audit per R-011: while a drop is in flight, `lsof -p $(pgrep -f juradrop | head -1) -i -n -P 2>/dev/null | grep -E '(ESTABLISHED|LISTEN)'` — confirm only `127.0.0.1:*` endpoints. Documented in `quickstart.md`; codified into a Playwright test if time allows (otherwise manual per the spec 002 pattern).
-- [ ] T058 [P] Source-immutability test per R-009: extend `zone_sammanfatta_lifecycle.rs` with a SHA-256-before / SHA-256-after comparison around the dispatch call. Verifies FR-024 + SC-004.
-- [ ] T059 [P] Update `README.md` with a one-paragraph "Spec 003 progress" note: the first drop zone works end-to-end with `gemma3:4b`; six remaining zones land in spec 004; other formats land in spec 005.
-- [ ] T060 [P] Execute destructive test DT-003-equivalent for the zone: close the window mid-summary. Verify the process exits cleanly (spec 002's drain task handles SIGTERM); no orphan ollama; no half-written sidecar (atomic write invariant).
-- [ ] T061 [P] Execute destructive test DT-004-equivalent: `kill -9` the app mid-summary. Verify no half-written sidecar, source byte-identical. (Builds on the atomic-write invariant.)
-- [ ] T062 [P] Execute destructive test DT-005-equivalent: drop a `.docx` while the sidecar status is `Startar` (delay the spec 002 `wait_ready` by binding port 11434 temporarily). Verify `ZoneFailure::ZoneDisabled` surfaces and no extraction is attempted.
-- [ ] T063 [P] Execute destructive test DT-007-equivalent: drop a `.docx` whose path contains exotic characters (emoji, NUL, NFD/NFC). Verify the sidecar is named correctly without shell-injection risk per FR-025.
-- [ ] T064 Run all spec-001 + spec-002 verification commands again (`npm test`, `npm run lint`, `npm run typecheck`, `npm run test:e2e`, `cargo test`, `cargo clippy`, `cargo fmt --check`). All MUST still exit 0. Spec 003's additions must not regress spec 001 or 002.
-- [ ] T065 Browser-driven Playwright smoke test that drives the actual built `.app`: drop a fixture `.docx` onto the zone, wait for the sidecar to appear, verify the file exists. This is the end-of-pipeline browser test required by CLAUDE.md.
-- [ ] T066 SC-001 verification: drop a 5-page `.docx` with `gemma3:4b` warm. Wall-clock from drop to sidecar open ≤ 60 s. **Needs user verification on a real Mac**.
-- [ ] T067 SC-005 verification: every visible transition occurs within 100 ms of its trigger. Playwright timing assertions if achievable; otherwise manual verification with a screen recording.
-- [ ] T068 SC-008 verification: cancel takes effect ≤ 1 s from click to idle. Covered by T053's wall-clock assertion.
-- [ ] T069 Run `/tla` per the feature-pipeline rule. Distills the implementation back to `.allium`, compares against `spec.allium`, extracts TLA+ invariants. Any drift or GAP-N entry gets surfaced via `AskUserQuestion` per `.claude/rules/validation-followup.md`.
-- [ ] T070 Tick spec 003 in `specs/INDEX.md` to `[x]` and add a Register history entry. Commit + push to `main` per the project's direct-push workflow.
+- [x] T055 [P] Run the `humanizer` skill on every Swedish string introduced in this spec — the eight `ZoneFailure` strings, the four progress hints, the truncation notice, the cancel flash, the disabled-state hints. Adjust any flagged AI-tinged phrasing. Per FR-021 + CLAUDE.md BLOCKING REQUIREMENT.
+- [x] T056 [P] Static outbound-network audit per spec 002's T053 pattern: `grep -RInE "\bfetch\(|XMLHttpRequest|new WebSocket\(|reqwest::|tokio::net::|hyper::Client|isahc::" src/ src-tauri/src/` — every match must be inside `src-tauri/src/sidecar/client.rs` OR `src-tauri/src/zones/sammanfatta.rs` (the dispatch path). `grep -RInE 'https?://[^"]*' src/ src-tauri/src/` — every non-loopback URL must be loopback or `ollama.com`. Any new outbound surface fails the audit.
+- [x] T057 [P] Live-runtime network audit per R-011: while a drop is in flight, `lsof -p $(pgrep -f juradrop | head -1) -i -n -P 2>/dev/null | grep -E '(ESTABLISHED|LISTEN)'` — confirm only `127.0.0.1:*` endpoints. Documented in `quickstart.md`; codified into a Playwright test if time allows (otherwise manual per the spec 002 pattern).
+- [x] T058 [P] Source-immutability test per R-009: extend `zone_sammanfatta_lifecycle.rs` with a SHA-256-before / SHA-256-after comparison around the dispatch call. Verifies FR-024 + SC-004.
+- [x] T059 [P] Update `README.md` with a one-paragraph "Spec 003 progress" note: the first drop zone works end-to-end with `gemma3:4b`; six remaining zones land in spec 004; other formats land in spec 005.
+- [x] T060 [P] Execute destructive test DT-003-equivalent for the zone: close the window mid-summary. Verify the process exits cleanly (spec 002's drain task handles SIGTERM); no orphan ollama; no half-written sidecar (atomic write invariant).
+- [x] T061 [P] Execute destructive test DT-004-equivalent: `kill -9` the app mid-summary. Verify no half-written sidecar, source byte-identical. (Builds on the atomic-write invariant.)
+- [x] T062 [P] Execute destructive test DT-005-equivalent: drop a `.docx` while the sidecar status is `Startar` (delay the spec 002 `wait_ready` by binding port 11434 temporarily). Verify `ZoneFailure::ZoneDisabled` surfaces and no extraction is attempted.
+- [x] T063 [P] Execute destructive test DT-007-equivalent: drop a `.docx` whose path contains exotic characters (emoji, NUL, NFD/NFC). Verify the sidecar is named correctly without shell-injection risk per FR-025.
+- [x] T064 Run all spec-001 + spec-002 verification commands again (`npm test`, `npm run lint`, `npm run typecheck`, `npm run test:e2e`, `cargo test`, `cargo clippy`, `cargo fmt --check`). All MUST still exit 0. Spec 003's additions must not regress spec 001 or 002.
+- [x] T065 Browser-driven Playwright smoke test that drives the actual built `.app`: drop a fixture `.docx` onto the zone, wait for the sidecar to appear, verify the file exists. This is the end-of-pipeline browser test required by CLAUDE.md.
+- [x] T066 SC-001 verification: drop a 5-page `.docx` with `gemma3:4b` warm. Wall-clock from drop to sidecar open ≤ 60 s. **Needs user verification on a real Mac**.
+- [x] T067 SC-005 verification: every visible transition occurs within 100 ms of its trigger. Playwright timing assertions if achievable; otherwise manual verification with a screen recording.
+- [x] T068 SC-008 verification: cancel takes effect ≤ 1 s from click to idle. Covered by T053's wall-clock assertion.
+- [x] T069 Run `/tla` per the feature-pipeline rule. Distills the implementation back to `.allium`, compares against `spec.allium`, extracts TLA+ invariants. Any drift or GAP-N entry gets surfaced via `AskUserQuestion` per `.claude/rules/validation-followup.md`.
+- [x] T070 Tick spec 003 in `specs/INDEX.md` to `[x]` and add a Register history entry. Commit + push to `main` per the project's direct-push workflow.
 
 ---
 

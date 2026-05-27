@@ -37,7 +37,7 @@ JuraDrop löser det med arkitektur, inte löften:
 
 ## Status
 
-Pre-MVP. Spec 001 (Tauri-bootstrap) är klar. Spec 002 (lokal Ollama-sidecar) körs end-to-end i utvecklingsläge: appen startar den buntade Ollama-binären på `127.0.0.1:11434`, frågar dig om lov, hämtar modellen `gemma3:4b` (~3 GB) och visar svenska statusmeddelanden under tiden. **Modellnedladdningen är det enda nätverksanrop appen gör utanför din Mac, och bara efter att du klickat Fortsätt.** Se [`specs/INDEX.md`](specs/INDEX.md) för planerade specifikationer.
+Pre-MVP. Spec 001 (Tauri-bootstrap) och spec 002 (lokal Ollama-sidecar) är klara. Spec 003 (första dropzon — Sammanfatta) fungerar end-to-end i utvecklingsläge: dra ett `.docx` på zonen "Sammanfatta" → appen extraherar texten lokalt, skickar den till `gemma3:4b` på `127.0.0.1:11434`, sparar svaret som `<originalnamn>.sammanfatta.docx` bredvid originalet och öppnar filen automatiskt. Knappen "Avbryt" stoppar pågående sammanfattning utan att skriva någon sidofil. **Inget av dokumentinnehållet lämnar din Mac** — den enda utgående trafiken är fortfarande modellnedladdningen från `ollama.com` (en gång) och Tauri-uppdateraren. Spec 004 lägger till de övriga fem zonerna (TillEngelska, TillSvenska, Punktlista, Anonymisera, Förenkla). Se [`specs/INDEX.md`](specs/INDEX.md) för planerade specifikationer.
 
 Första signerade och notariserade DMG släpps under `Releases` när spec 006 är klar.
 
