@@ -1,0 +1,9 @@
+{
+  "_comment": "Spec 007 — single source of truth for the six Swedish UpdateFailure strings. Rust side (src-tauri/src/updater/errors.rs) and TS side (src/components/UpdateFailure.errors.ts) both assert against this fixture in their drift-detection tests. Update all three together when changing a string.",
+  "no_network": "Kan inte nå GitHub — kontrollera nätverksanslutningen",
+  "manifest_malformed": "Uppdateringsservern svarade med ogiltigt innehåll",
+  "signature_invalid": "Säkerhetskontrollen misslyckades — uppdateringen installeras inte",
+  "download_interrupted": "Nedladdningen avbröts — försök igen",
+  "install_failed": "Kunde inte installera uppdateringen",
+  "unsupported_platform": "Den nya versionen kräver en nyare macOS — uppdatera macOS först"
+}

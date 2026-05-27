@@ -465,6 +465,14 @@ impl DropZone {
         self.state.read().visible
     }
 
+    /// Spec 007 / FR-017 — public read of the current visible state.
+    /// Used by the updater's per-zone-busy predicate to decide whether
+    /// to defer a restart. Acquires a parking_lot read lock; never
+    /// blocks for long because writes are short.
+    pub fn visible_state(&self) -> ZoneState {
+        self.state.read().visible
+    }
+
     /// Test-only: cancel whatever job is currently in flight,
     /// regardless of its id. Production callers use `cancel(&str)`
     /// so they can't accidentally cancel jobs they didn't initiate.

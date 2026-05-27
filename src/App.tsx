@@ -3,7 +3,10 @@ import { WelcomeCard } from '@/components/WelcomeCard';
 import { ConsentModal } from '@/components/ConsentModal';
 import { DropZone } from '@/components/DropZone';
 import { ZONE_ORDER } from '@/components/DropZone.identity';
+import { UpdateIndicator } from '@/components/UpdateIndicator';
+import { UpdateRetryFootnote } from '@/components/UpdateRetryFootnote';
 import { useStatusStore } from '@/lib/status-store';
+import { ensureUpdateStatusSubscription } from '@/lib/update-store';
 import {
   dispatchToZone,
   getStatus,
@@ -49,6 +52,11 @@ export function App() {
         progressUnsub = fn;
       });
 
+      // Spec 007 — ensure the update-status listener is registered
+      // once per app lifetime. Idempotent; subsequent renders/HMR
+      // reloads are no-ops.
+      ensureUpdateStatusSubscription();
+
       // FR-010a — OS drop → elementFromPoint → dispatch_to_zone.
       void subscribeFileDropped(({ paths, position }) => {
         const el = document.elementFromPoint(position.x, position.y);
@@ -88,6 +96,10 @@ export function App() {
         </section>
       </div>
       <ConsentModal />
+      {/* Spec 007 — auto-updater UI. Fixed-positioned overlays, do
+          not disturb the 2×3 grid layout. */}
+      <UpdateIndicator />
+      <UpdateRetryFootnote />
     </main>
   );
 }

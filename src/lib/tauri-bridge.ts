@@ -135,3 +135,60 @@ export function subscribeFileDropped(
 ): Promise<UnlistenFn> {
   return listen<FileDroppedPayload>('juradrop://file-dropped', (event) => cb(event.payload));
 }
+
+// =====================================================================
+// Spec 007 — auto-updater types + commands + subscription.
+// =====================================================================
+
+export type UpdateFailureVariant =
+  | 'no_network'
+  | 'manifest_malformed'
+  | 'signature_invalid'
+  | 'download_interrupted'
+  | 'install_failed'
+  | 'unsupported_platform';
+
+export type UpdateStatus =
+  | { state: 'unknown' }
+  | { state: 'checking' }
+  | { state: 'up_to_date'; version: string; checked_at: string }
+  | { state: 'available'; version: string; notes: string; download_url: string }
+  | { state: 'downloading'; version: string; progress_pct: number }
+  | { state: 'ready_to_install'; version: string; deferred: boolean }
+  | { state: 'restarting'; version: string }
+  | {
+      state: 'failed';
+      failure: UpdateFailureVariant;
+      message: string;
+      checked_at: string;
+    };
+
+export async function checkForUpdatesNow(): Promise<void> {
+  await invoke<void>('check_for_updates_now');
+}
+
+export async function installUpdateNow(): Promise<void> {
+  await invoke<void>('install_update_now');
+}
+
+export async function confirmRestartInstall(): Promise<void> {
+  await invoke<void>('confirm_restart_install');
+}
+
+export async function cancelDeferredRestart(): Promise<void> {
+  await invoke<void>('cancel_deferred_restart');
+}
+
+export async function dismissUpdateIndicator(): Promise<void> {
+  await invoke<void>('dismiss_update_indicator');
+}
+
+/** Subscribe to the update-lifecycle event channel.
+ *  SC-007: `juradrop://update-status` is unique — no collision with
+ *  `juradrop://status`, `juradrop://progress`, `juradrop://file-dropped`,
+ *  or any `juradrop://zone/<slug>` channel. */
+export function subscribeUpdateStatus(
+  cb: (status: UpdateStatus) => void,
+): Promise<UnlistenFn> {
+  return listen<UpdateStatus>('juradrop://update-status', (event) => cb(event.payload));
+}

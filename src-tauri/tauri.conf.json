@@ -50,7 +50,7 @@
     },
     "updater": {
       "active": true,
-      "dialog": true,
+      "dialog": false,
       "endpoints": [
         "https://github.com/johanolofsson72/juradrop/releases/latest/download/latest.json"
       ],

@@ -10,6 +10,7 @@ use tauri::{DragDropEvent, Emitter, Listener, Manager, RunEvent, WindowEvent};
 
 pub mod prompts;
 pub mod sidecar;
+pub mod updater;
 pub mod zones;
 
 use sidecar::commands::{
@@ -18,6 +19,10 @@ use sidecar::commands::{
 };
 use sidecar::consent;
 use sidecar::status::{SidecarStatus, UserVisibleStatus};
+use updater::commands::{
+    cancel_deferred_restart, check_for_updates_now, confirm_restart_install,
+    dismiss_update_indicator, install_update_now,
+};
 
 pub fn run() {
     let app = tauri::Builder::default()
@@ -34,6 +39,12 @@ pub fn run() {
             run_roundtrip_dev,
             cancel_summary,
             dispatch_to_zone,
+            // Spec 007 — auto-updater commands.
+            check_for_updates_now,
+            install_update_now,
+            confirm_restart_install,
+            cancel_deferred_restart,
+            dismiss_update_indicator,
         ])
         .setup(|app| {
             let state = AppState::new();
