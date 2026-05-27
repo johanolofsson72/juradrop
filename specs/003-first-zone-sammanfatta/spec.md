@@ -68,6 +68,23 @@ The drop zone respects the spec 002 sidecar status. If the AI is starting (`Star
 
 ---
 
+### User Story 5 — Cancel an in-flight summarization (Priority: P2)
+
+The user changed their mind, dropped the wrong document, or doesn't want to wait for the model to finish. While the zone is in the processing state, a small Swedish "Avbryt" button is visible (inside or alongside the spinner). Clicking it aborts the in-flight model call, leaves the original `.docx` untouched, writes nothing to disk, and returns the zone to idle within ~1 s. A brief Swedish flash "Sammanfattning avbruten" precedes the return to idle.
+
+**Why this priority**: Originally deferred to spec 011 (error-recovery) but pulled into spec 003 during clarification (2026-05-27). Cancellation rounds out the visible state machine — without it, the user has no way out of a long-running summary they no longer want. Sits at P2 because the happy path (US1) and the visible state machine (US2) are still more important; cancel is a polish-of-the-flow feature.
+
+**Independent Test**: With the AI in `Klar`, drop a `.docx` → see the spinner + the "Avbryt" button → click Avbryt → confirm the zone returns to idle within 1 s, no sidecar `.docx` was written, and the original is byte-identical (matching SHA-256 before vs after the drop).
+
+**Acceptance Scenarios**:
+
+1. **Given** the zone is in processing state with an in-flight model call, **When** the user clicks "Avbryt", **Then** the model call is aborted within 1 s and the zone shows the Swedish flash "Sammanfattning avbruten" before returning to idle.
+2. **Given** a summary was cancelled, **When** the user inspects the source directory, **Then** no new `.docx` sidecar file exists (canonical or timestamp-suffixed) — cancellation guarantees no partial output is persisted.
+3. **Given** the user is dragging another `.docx` over the zone, **When** the previous job is in flight, **Then** the cancel button is the only way to free the zone (per FR-015 single-flight); dropping is rejected with the existing "Vänta tills föregående dokument är klart" copy.
+4. **Given** a cancel was issued, **When** the model completes its inference *after* the abort signal was sent, **Then** the response is discarded — no sidecar is written even if bytes arrived after the abort.
+
+---
+
 ### User Story 4 — Honest Swedish errors for input the zone can't handle (Priority: P2)
 
 When the user drops something the zone can't process — a `.pdf`, an image, two files at once, a corrupt `.docx`, a password-protected `.docx`, an empty `.docx`, or a `.docx` that exceeds the model's context — the zone shows a Swedish error string that names the cause without leaking stack traces, English, or technical jargon. The error displays for ~5 s, then the zone returns to idle.
@@ -131,6 +148,9 @@ When the user drops something the zone can't process — a `.pdf`, an image, two
 - **FR-023**: The drop zone MUST NOT initiate any outbound network call. The only outbound calls in the app remain (a) the auto-updater check and (b) the spec 002 model pull from `ollama.com`. A live-runtime `lsof` check during a drop MUST show only `127.0.0.1` connections.
 - **FR-024**: The drop zone MUST keep the source file byte-identical — no modification, no write, no atime mutation beyond what reading the file requires.
 - **FR-025**: The system MUST tolerate paths that contain spaces, accented characters, emoji, and the macOS NFD/NFC dual encodings without crashing or corrupting the sidecar filename.
+- **FR-026**: While the zone is in the processing state, the system MUST present a Swedish "Avbryt" affordance (inside or adjacent to the spinner) that, when activated, aborts the in-flight model call. The affordance MUST be reachable by both mouse click and keyboard (focusable + Enter/Space).
+- **FR-027**: Activating the cancel affordance MUST abort the inference request within 1 s of activation, MUST NOT write any sidecar `.docx` (canonical or timestamped), MUST flash the Swedish text "Sammanfattning avbruten" for ~1 s, and MUST return the zone to idle. The source file MUST remain byte-identical (SHA-256 unchanged).
+- **FR-028**: If the model response arrives *after* the cancel signal was issued, the system MUST discard the response — no sidecar is written and no success state is entered. The cancel signal is a one-way decision.
 
 ### Key Entities
 
@@ -150,6 +170,7 @@ When the user drops something the zone can't process — a `.pdf`, an image, two
 - **SC-005**: All visible state-machine transitions (idle → dragover, dragover → processing, processing → success, success → idle, processing → error, error → idle, drag-leave → idle) MUST be observable within 100 ms of the triggering event.
 - **SC-006**: Across 10 consecutive successful drops on the same source file, the sidecar collision policy MUST produce 10 distinct files on disk (no overwrites). The first file uses the canonical `<stem>.sammanfatta.docx`; subsequent files use timestamp suffixes.
 - **SC-007**: A user with VoiceOver enabled MUST hear (a) the drop zone announced as a drop target on focus, (b) the state transitions announced as they happen, (c) the disabled-with-reason announcement when the AI isn't ready.
+- **SC-008**: Cancellation MUST take effect within 1 s of activation, measured wall-clock from the click/keypress to the zone re-entering idle. No sidecar file is created — verifiable by listing the source directory before vs after the cancellation.
 
 ## Assumptions
 
@@ -160,5 +181,5 @@ When the user drops something the zone can't process — a `.pdf`, an image, two
 - Filesystem paths are case-sensitive-or-insensitive depending on the volume; the sidecar naming and collision-detection logic MUST work identically on both.
 - The drop zone is the only interactive surface in this spec. The remaining five zones (TillEngelska, TillSvenska, Punktlista, Anonymisera, Förenkla) arrive in spec 004, which extends the same state machine and reuses this spec's job pipeline.
 - The system prompt for summarization is fixed for this spec (a single, project-curated Swedish prompt). User-configurable prompts arrive in spec 010 (settings panel).
-- Cancellation mid-processing is out of scope for this spec; spec 011 (error recovery) adds explicit cancel. Until then, the user waits for the current job to finish before re-dropping.
+- Cancellation mid-processing IS in scope for this spec — pulled in from the original spec 011 deferral during clarification (2026-05-27). See US5, FR-026/027/028, SC-008.
 - The spec 002 one-retry sidecar recovery applies transparently — if the bundled Ollama crashes mid-summary, the retry happens under the hood and the user sees either a successful summary or the FR-020 "svarade inte" error.

@@ -1,0 +1,539 @@
+-- allium: 3
+
+-- Formal spec for spec 003: first drop zone (Sammanfatta).
+-- Source: specs/003-first-zone-sammanfatta/spec.md
+-- Elicited: 2026-05-27
+--
+-- Scope: one drop zone in the main window labelled "Sammanfatta",
+-- consuming .docx files and producing .docx summary sidecars via the
+-- local Ollama from spec 002. This file captures the entities, rules,
+-- and invariants the markdown spec implies but doesn't render formally.
+
+-- ============================================================
+-- External entities (defined by spec 002, referenced here)
+-- ============================================================
+
+external entity OllamaSidecar {
+    user_visible_status: starting | downloading_model | ready | error_failed_to_start
+        | error_port_busy | error_disk_full | error_unexpected
+        | error_model_download_aborted | model_missing_aborted
+}
+
+external entity OllamaClient {
+    base_url: String
+}
+
+-- ============================================================
+-- Enums
+-- ============================================================
+
+enum SummaryFailure {
+    invalid_format          -- non-.docx drop
+    multiple_files          -- 2+ files dropped at once
+    zone_busy               -- previous job still processing
+    zone_disabled           -- AI not in Klar state
+    parse_error             -- corrupt zip / malformed XML
+    password_protected      -- protected .docx
+    empty_text              -- whitespace-only extraction
+    model_error             -- timeout, empty response, transport error
+    save_error              -- filesystem rejected the sidecar write
+}
+
+-- ============================================================
+-- Value objects
+-- ============================================================
+
+value SwedishCopy {
+    text: String              -- the Swedish phrase shown to the user
+    invariant NoEnglishPrefix { not text.starts_with(`Error:`) }
+    invariant LengthBounded   { text.length <= 80 }
+    invariant NonEmpty        { text.length > 0 }
+}
+
+value SidecarFilename {
+    stem: String              -- source file's stem (without extension)
+    timestamp_suffix: String? -- "YYYY-MM-DD-HHMMSS" in local time, set only on collision
+    full_name: String         -- "<stem>.sammanfatta.docx" or with timestamp
+}
+
+-- ============================================================
+-- Entities
+-- ============================================================
+
+-- The source .docx the user dropped. Invariant: never mutated.
+entity SourceDocument {
+    path: String
+    sha256_before: String
+    sha256_after: String?     -- captured after any processing; must equal sha256_before
+    invariant ByteIdenticalAcrossProcessing {
+        sha256_after = null or sha256_after = sha256_before
+    }
+}
+
+-- The .docx artifact produced by a successful drop. Has the FR-005a
+-- fixed structure: header + optional truncation notice + blank line
+-- + model-body paragraphs.
+entity SummaryDoc {
+    path: String                              -- where it was written
+    source: SourceDocument                    -- which doc it summarizes
+    header_filename_paragraph: String         -- "Sammanfattning av '<name>'"
+    header_meta_paragraph: String             -- "Genererad ... av JuraDrop ..."
+    truncation_notice: String?                -- present iff source was truncated
+    body_paragraph_count: Integer             -- ≥ 1
+    written_atomically: Boolean               -- proved by tmp + rename pattern
+
+    invariant HeaderAlwaysPresent {
+        header_filename_paragraph.length > 0 and
+        header_meta_paragraph.length > 0
+    }
+    invariant BodyNonEmpty { body_paragraph_count >= 1 }
+    invariant AtomicWrite { written_atomically = true }
+}
+
+-- A single in-flight or terminal summarization job. The zone enforces
+-- at most one of these in `in_flight` state at any time.
+entity DropJob {
+    source: SourceDocument
+    started_at: Timestamp
+    outcome: in_flight | success | failure | cancelled
+    summary: SummaryDoc?  when outcome = success
+    failure: SummaryFailure? when outcome = failure
+    failure_message: SwedishCopy? when outcome = failure
+    truncated: Boolean    when outcome = success  -- did we hit FR-019
+    duration: Duration?   when outcome = success | failure | cancelled
+
+    transitions outcome {
+        in_flight -> success
+        in_flight -> failure
+        in_flight -> cancelled
+        terminal: success, failure, cancelled
+    }
+
+    invariant SuccessHasSummary {
+        outcome = success implies summary != null
+    }
+    invariant FailureHasReason {
+        outcome = failure implies (failure != null and failure_message != null)
+    }
+    invariant CancelledLeavesNoSidecar {
+        outcome = cancelled implies summary = null
+    }
+}
+
+-- The drop zone itself — a UI surface with state, wired to the spec
+-- 002 sidecar status and tracking at most one DropJob.
+entity DropZone {
+    title: String              -- "Sammanfatta"
+    hint: SwedishCopy
+    visible_state: idle | dragover | processing | success | error
+    current_job: DropJob? when visible_state = processing | success | error
+    disabled: Boolean
+    sidecar_status: OllamaSidecar
+
+    transitions visible_state {
+        idle -> dragover
+        dragover -> idle           -- drag-leave without drop
+        dragover -> processing     -- drop validates + starts a job
+        dragover -> error          -- drop fails immediately (bad format etc.)
+        idle -> error              -- drop on disabled zone surfaces zone_disabled
+        processing -> success
+        processing -> error
+        success -> idle            -- auto-clear within 2 s (FR-010)
+        error -> idle              -- auto-clear within 5 s (FR-011)
+    }
+
+    invariant DisabledMatchesGlobalStatus {
+        disabled = (sidecar_status.user_visible_status != ready)
+    }
+    invariant SingleFlightWhileProcessing {
+        -- FR-015: zone tracks at most one in-flight job at a time, and
+        -- when it does, visible_state is processing.
+        current_job != null and current_job.outcome = in_flight
+            implies visible_state = processing
+    }
+    invariant ProcessingHasJob {
+        visible_state in {processing, success, error} implies current_job != null
+    }
+    invariant IdleHasNoJob {
+        visible_state = idle implies current_job = null
+    }
+}
+
+-- ============================================================
+-- Config / fixed boundaries (FR-019, FR-006, FR-007)
+-- ============================================================
+
+config {
+    truncation_char_limit: Integer = 24000            -- FR-019 — UTF-8 chars, not tokens
+    success_auto_clear_seconds: Integer = 2           -- FR-010
+    error_auto_clear_seconds: Integer = 5             -- FR-011
+    state_transition_max_ms: Integer = 100            -- SC-005 / FR-009
+    happy_path_budget_seconds: Integer = 60           -- SC-001
+    error_surface_budget_seconds: Integer = 3         -- SC-002
+    sidecar_basename_suffix: String = `sammanfatta`   -- "<stem>.sammanfatta.docx"
+    default_model: String = `gemma3:4b`               -- spec 002 default
+}
+
+-- ============================================================
+-- Rules
+-- ============================================================
+
+rule DragEnter {
+    when: DragEnter(zone, files)
+    requires: zone.visible_state = idle and zone.disabled = false
+    ensures: zone.visible_state = dragover
+}
+
+rule DragLeaveWithoutDrop {
+    when: DragLeave(zone)
+    requires: zone.visible_state = dragover
+    ensures: zone.visible_state = idle
+}
+
+rule DropOnDisabledZone {
+    when: Drop(zone, files)
+    requires: zone.disabled = true
+    ensures:
+        zone.visible_state = error
+        -- The hint copy is the same Swedish string the welcome card
+        -- shows for the current OllamaSidecar.user_visible_status.
+        ZoneShowedDisabledHint(reason: zone.sidecar_status.user_visible_status)
+}
+
+rule DropMultipleFiles {
+    when: Drop(zone, files)
+    requires: zone.disabled = false and files.count >= 2
+    ensures:
+        zone.visible_state = error
+        DropJob.created(
+            source: files.first,
+            outcome: failure,
+            failure: multiple_files,
+            failure_message: SwedishCopy(text: `Ett dokument i taget`)
+        )
+}
+
+rule DropNonDocx {
+    when: Drop(zone, files)
+    requires:
+        zone.disabled = false and
+        files.count = 1 and
+        not files.first.path.ends_with(`.docx`)
+    ensures:
+        zone.visible_state = error
+        DropJob.created(
+            source: files.first,
+            outcome: failure,
+            failure: invalid_format,
+            failure_message: SwedishCopy(text: `Endast .docx i denna version`)
+        )
+}
+
+rule DropWhileBusy {
+    when: Drop(zone, files)
+    requires:
+        zone.disabled = false and
+        files.count = 1 and
+        zone.visible_state = processing
+    ensures:
+        -- Visible state stays processing; the bounce error is surfaced
+        -- as a transient toast/inline message without disturbing the
+        -- in-flight job.
+        DropRejected(
+            reason: zone_busy,
+            message: SwedishCopy(text: `Vänta tills föregående dokument är klart`)
+        )
+}
+
+rule StartSummarization {
+    when: Drop(zone, files)
+    requires:
+        zone.disabled = false and
+        files.count = 1 and
+        files.first.path.ends_with(`.docx`) and
+        zone.visible_state in {idle, dragover}
+    ensures:
+        zone.visible_state = processing
+        DropJob.created(
+            source: SourceDocument(path: files.first.path),
+            started_at: now,
+            outcome: in_flight
+        )
+}
+
+rule ExtractTextFails {
+    when: job: DropJob.outcome transitions_to failure
+    requires: job.failure = parse_error
+    ensures:
+        job.failure_message = SwedishCopy(text: `Kunde inte läsa dokumentet`)
+}
+
+rule PasswordProtectedDetected {
+    when: job: DropJob.outcome transitions_to failure
+    requires: job.failure = password_protected
+    ensures:
+        job.failure_message = SwedishCopy(text: `Dokumentet är lösenordsskyddat`)
+}
+
+rule EmptyTextDetected {
+    when: job: DropJob.outcome transitions_to failure
+    requires: job.failure = empty_text
+    ensures:
+        job.failure_message = SwedishCopy(text: `Dokumentet innehåller ingen text`)
+}
+
+rule ModelFailureSurfaced {
+    when: job: DropJob.outcome transitions_to failure
+    requires: job.failure = model_error
+    ensures:
+        job.failure_message = SwedishCopy(text: `AI-motorn svarade inte — försök igen`)
+}
+
+rule SaveFailureSurfaced {
+    when: job: DropJob.outcome transitions_to failure
+    requires: job.failure = save_error
+    ensures:
+        job.failure_message = SwedishCopy(text: `Kunde inte spara sammanfattningen`)
+}
+
+rule TruncateBeforeModelCall {
+    when: PrepareModelInput(job, extracted_text)
+    requires: extracted_text.length > truncation_char_limit
+    ensures:
+        let prefix = extracted_text.first(truncation_char_limit)
+        ModelInputPrepared(job: job, text: prefix, truncated: true)
+}
+
+rule PassThroughShortText {
+    when: PrepareModelInput(job, extracted_text)
+    requires: extracted_text.length <= truncation_char_limit
+    ensures:
+        ModelInputPrepared(job: job, text: extracted_text, truncated: false)
+}
+
+-- Successful model response with no name collision: write the
+-- sidecar at the canonical filename.
+rule WriteSummaryDocCanonical {
+    when: ModelResponded(job, response_text)
+    requires:
+        response_text.length > 0 and
+        job.truncated = false and
+        not FileExists(job.source.path.parent + `/` + job.source.path.stem + `.sammanfatta.docx`)
+    ensures:
+        SummaryDoc.created(
+            path: job.source.path.parent + `/` + job.source.path.stem + `.sammanfatta.docx`,
+            source: job.source,
+            header_filename_paragraph: `Sammanfattning av '` + job.source.path.basename + `'`,
+            header_meta_paragraph: `Genererad ` + local_now_human + ` av JuraDrop med modellen ` + default_model + `.`,
+            truncation_notice: null,
+            body_paragraph_count: response_text.split_paragraphs.count,
+            written_atomically: true
+        )
+        job.outcome = success
+}
+
+-- Same as canonical, but the source was truncated per FR-019 — the
+-- summary leads with the Swedish truncation notice.
+rule WriteSummaryDocCanonicalTruncated {
+    when: ModelResponded(job, response_text)
+    requires:
+        response_text.length > 0 and
+        job.truncated = true and
+        not FileExists(job.source.path.parent + `/` + job.source.path.stem + `.sammanfatta.docx`)
+    ensures:
+        SummaryDoc.created(
+            path: job.source.path.parent + `/` + job.source.path.stem + `.sammanfatta.docx`,
+            source: job.source,
+            header_filename_paragraph: `Sammanfattning av '` + job.source.path.basename + `'`,
+            header_meta_paragraph: `Genererad ` + local_now_human + ` av JuraDrop med modellen ` + default_model + `.`,
+            truncation_notice: `(Dokumentet förkortades innan sammanfattning — endast början är sammanfattad.)`,
+            body_paragraph_count: response_text.split_paragraphs.count,
+            written_atomically: true
+        )
+        job.outcome = success
+}
+
+-- Successful model response with a name collision: append the
+-- timestamp suffix per FR-006 and write at the new path.
+rule WriteSummaryDocWithTimestampSuffix {
+    when: ModelResponded(job, response_text)
+    requires:
+        response_text.length > 0 and
+        FileExists(job.source.path.parent + `/` + job.source.path.stem + `.sammanfatta.docx`)
+    ensures:
+        SummaryDoc.created(
+            path: job.source.path.parent + `/` + job.source.path.stem + `.sammanfatta.` + local_now_compact + `.docx`,
+            source: job.source,
+            header_filename_paragraph: `Sammanfattning av '` + job.source.path.basename + `'`,
+            header_meta_paragraph: `Genererad ` + local_now_human + ` av JuraDrop med modellen ` + default_model + `.`,
+            truncation_notice: null,
+            body_paragraph_count: response_text.split_paragraphs.count,
+            written_atomically: true
+        )
+        job.outcome = success
+}
+
+rule CancelDropJob {
+    when: CancelClicked(zone)
+    requires:
+        zone.visible_state = processing and
+        zone.current_job.outcome = in_flight
+    ensures:
+        zone.current_job.outcome = cancelled
+        InferenceAborted(job: zone.current_job)
+        zone.visible_state = success
+        -- "success" here is a brief Swedish flash "Sammanfattning avbruten"
+        -- (handled by ShowCancelledFlash below); the post-state then
+        -- auto-clears via SuccessAutoClear within 2 s per FR-027.
+}
+
+rule ShowCancelledFlash {
+    when: job: DropJob.outcome transitions_to cancelled
+    ensures:
+        ZoneFlashMessage(message: SwedishCopy(text: `Sammanfattning avbruten`))
+}
+
+rule DiscardLateModelResponseAfterCancel {
+    when: ModelResponded(job, response_text)
+    requires: job.outcome = cancelled
+    ensures:
+        -- The model finished AFTER the cancel signal was issued. The
+        -- response is discarded; no sidecar is written; the cancelled
+        -- terminal state stands.
+        ResponseDiscarded(job: job, reason: cancelled_before_write)
+}
+
+rule OpenSidecarAfterWrite {
+    when: SummaryDocWritten(summary)
+    ensures:
+        OsDefaultHandlerInvoked(path: summary.path)
+        -- FR-007 secondary: if open fails, success still stands; a
+        -- "kunde inte öppna automatiskt" hint surfaces alongside.
+}
+
+rule SuccessAutoClear {
+    when: zone: DropZone.visible_state transitions_to success
+    ensures:
+        After(success_auto_clear_seconds, zone.visible_state = idle)
+}
+
+rule ErrorAutoClear {
+    when: zone: DropZone.visible_state transitions_to error
+    ensures:
+        After(error_auto_clear_seconds, zone.visible_state = idle)
+}
+
+rule SidecarStatusBecameNotReady {
+    when: sidecar: OllamaSidecar.user_visible_status transitions_to not_ready
+    ensures:
+        for zone in DropZones where zone.sidecar_status = sidecar:
+            zone.disabled = true
+}
+
+rule SidecarStatusBecameReady {
+    when: sidecar: OllamaSidecar.user_visible_status transitions_to ready
+    ensures:
+        for zone in DropZones where zone.sidecar_status = sidecar:
+            zone.disabled = false
+}
+
+-- ============================================================
+-- Invariants (global)
+-- ============================================================
+
+invariant OnlyLoopbackOutboundDuringDrop {
+    -- FR-023, SC-003: live runtime must show only 127.0.0.1 connections
+    -- while a DropJob is in_flight. Auto-updater and the spec 002
+    -- ollama.com model pull happen outside the drop window.
+    for job in DropJobs where job.outcome = in_flight:
+        AllOutboundConnections().all(c => c.host = `127.0.0.1`)
+}
+
+invariant SourceFileImmutable {
+    -- FR-024, SC-004: every source file's SHA-256 is identical before
+    -- and after every drop, success or failure.
+    for job in DropJobs where job.outcome in {success, failure}:
+        job.source.sha256_after = job.source.sha256_before
+}
+
+invariant SidecarLandsBesideSource {
+    -- FR-005: sidecar must be in the same directory as the source.
+    for summary in SummaryDocs:
+        summary.path.parent = summary.source.path.parent
+}
+
+invariant SidecarPathsAreUnique {
+    -- FR-006: collision is resolved by timestamp suffix, never by
+    -- overwrite. Operationally: the WriteSummaryDocCanonical and
+    -- WriteSummaryDocWithTimestampSuffix rules above are mutually
+    -- exclusive on the same source path because the FileExists
+    -- precondition partitions the space.
+    SummaryDocs.all(s => SummaryDocs.where(t => t.path = s.path).count = 1)
+}
+
+invariant AtMostOneInFlightPerZone {
+    -- FR-015: per-zone single-flight.
+    for zone in DropZones:
+        DropJobs.where(j => j.outcome = in_flight).count <= 1
+}
+
+invariant AllErrorMessagesSwedish {
+    -- FR-016, FR-021: every visible error string must satisfy the
+    -- Swedish-copy invariants (no English prefix, ≤ 80 chars, non-empty).
+    for job in DropJobs where job.outcome = failure:
+        job.failure_message != null
+}
+
+invariant PromptStaysRedacted {
+    -- FR-004, Principle I: the prompt passes from extractor →
+    -- client → OllamaClient.generate as Redacted<String> end-to-end.
+    -- No code path may unwrap it for logging.
+    for job in DropJobs:
+        PromptCarriedRedacted(job) = true
+}
+
+invariant DisabledZoneDoesNotStartJobs {
+    -- FR-012: a disabled zone surfaces zone_disabled error, never a
+    -- real DropJob in_flight.
+    for zone in DropZones where zone.disabled = true:
+        zone.current_job?.outcome != in_flight
+}
+
+-- ============================================================
+-- Surfaces (UI exposure)
+-- ============================================================
+
+actor LawStudent { identified_by: `the local user` }
+
+surface SammanfattaDropZone {
+    facing viewer: LawStudent
+    context zone: DropZone
+    provides:
+        DragEnter(zone, files) when zone.disabled = false
+        Drop(zone, files) when zone.disabled = false
+    exposes:
+        zone.title
+        zone.hint
+        zone.visible_state
+        zone.disabled
+}
+
+-- ============================================================
+-- Deferred / out-of-scope (handed to later specs)
+-- ============================================================
+
+-- (DropZone.cancel_mid_processing originally deferred to spec 011; pulled
+--  into spec 003 during the clarification round on 2026-05-27 — see US5,
+--  FR-026/027/028, and the CancelDropJob / ShowCancelledFlash /
+--  DiscardLateModelResponseAfterCancel rules above.)
+deferred DropZone.queue_multiple_jobs    -- not in roadmap; the single-flight invariant is the design
+deferred SourceDocument.formats_beyond_docx -- spec 005 adds .pdf, .txt, .md
+deferred DropZone.system_prompt_user_configurable -- spec 010 (settings panel)
+deferred DropZone.additional_zones       -- spec 004 adds the other five zones
+
+-- ============================================================
+-- Open questions surfaced during elicitation
+-- ============================================================
+
+-- (No open questions — all three clarifications from spec.md were
+-- auto-picked and integrated into the spec body.)
