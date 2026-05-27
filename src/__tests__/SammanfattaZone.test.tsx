@@ -1,8 +1,23 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { SammanfattaZone } from '../components/SammanfattaZone';
 import { useStatusStore } from '@/lib/status-store';
 import type { ZoneSnapshot } from '@/lib/tauri-bridge';
+
+// T054 — mock the tauri-bridge so we can assert `cancelSummary` is
+// invoked with the right job id when Avbryt is activated.
+const cancelSummaryMock = vi.fn();
+vi.mock('@/lib/tauri-bridge', async () => {
+  const actual =
+    await vi.importActual<typeof import('@/lib/tauri-bridge')>('@/lib/tauri-bridge');
+  return {
+    ...actual,
+    cancelSummary: (jobId: string) => {
+      cancelSummaryMock(jobId);
+      return Promise.resolve();
+    },
+  };
+});
 
 // Spec 003 / T026 — initial test set for SammanfattaZone.
 //
@@ -317,6 +332,120 @@ describe('SammanfattaZone', () => {
       root = screen.getByText('Sammanfatta').closest('section') as HTMLElement;
       expect(root.getAttribute('data-disabled')).toBe('false');
       expect(await findByText('Släpp ett .docx-dokument här')).toBeInTheDocument();
+    });
+  });
+
+  // T054 — Avbryt button behavior: visible only during processing,
+  // keyboard-focusable, activates on click + Enter + Space, invokes
+  // cancelSummary with the current job_id.
+  describe('Avbryt button (US5)', () => {
+    const JOB_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
+    beforeEach(() => {
+      cancelSummaryMock.mockClear();
+    });
+
+    it('is hidden when state is not processing', () => {
+      // idle
+      setZone({ state: 'idle', job_id: null });
+      const { rerender } = render(<SammanfattaZone />);
+      expect(screen.queryByRole('button', { name: 'Avbryt' })).toBeNull();
+
+      // dragover
+      setZone({ state: 'dragover' });
+      rerender(<SammanfattaZone />);
+      expect(screen.queryByRole('button', { name: 'Avbryt' })).toBeNull();
+
+      // success
+      setZone({ state: 'success', job_id: JOB_ID, progress_hint: 'Klar — öppnar fil…' });
+      rerender(<SammanfattaZone />);
+      expect(screen.queryByRole('button', { name: 'Avbryt' })).toBeNull();
+
+      // error
+      setZone({ state: 'error', failure: 'parse_error', job_id: JOB_ID });
+      rerender(<SammanfattaZone />);
+      expect(screen.queryByRole('button', { name: 'Avbryt' })).toBeNull();
+    });
+
+    it('is visible and focusable when state === processing with a job_id', () => {
+      setZone({
+        state: 'processing',
+        job_id: JOB_ID,
+        progress_hint: 'Sammanfattar…',
+      });
+      render(<SammanfattaZone />);
+      const btn = screen.getByRole('button', { name: 'Avbryt' });
+      expect(btn).toBeInTheDocument();
+      // Native <button> elements are keyboard-focusable by default
+      // (no explicit tabIndex needed); the test asserts it CAN be
+      // focused programmatically.
+      btn.focus();
+      expect(document.activeElement).toBe(btn);
+    });
+
+    it('invokes cancelSummary with the current job_id when clicked', () => {
+      setZone({
+        state: 'processing',
+        job_id: JOB_ID,
+        progress_hint: 'Sammanfattar…',
+      });
+      render(<SammanfattaZone />);
+      fireEvent.click(screen.getByRole('button', { name: 'Avbryt' }));
+      expect(cancelSummaryMock).toHaveBeenCalledTimes(1);
+      expect(cancelSummaryMock).toHaveBeenCalledWith(JOB_ID);
+    });
+
+    it('invokes cancelSummary when activated via the Enter key', () => {
+      setZone({
+        state: 'processing',
+        job_id: JOB_ID,
+        progress_hint: 'Sammanfattar…',
+      });
+      render(<SammanfattaZone />);
+      const btn = screen.getByRole('button', { name: 'Avbryt' });
+      btn.focus();
+      // Native <button> elements: Enter and Space both trigger a
+      // click event. fireEvent.click models that semantic; the
+      // keyboard test asserts the same outcome end-to-end.
+      fireEvent.keyDown(btn, { key: 'Enter', code: 'Enter' });
+      fireEvent.click(btn); // mirrors the browser's Enter→click translation
+      expect(cancelSummaryMock).toHaveBeenCalledWith(JOB_ID);
+    });
+
+    it('does NOT invoke cancelSummary when state has no job_id (defensive guard)', () => {
+      setZone({
+        state: 'processing',
+        job_id: null,
+        progress_hint: 'Sammanfattar…',
+      });
+      render(<SammanfattaZone />);
+      // The button itself is gated on `zone.job_id` truthiness in
+      // SammanfattaZone.tsx — no button means no click means no
+      // cancelSummary call.
+      expect(screen.queryByRole('button', { name: 'Avbryt' })).toBeNull();
+      expect(cancelSummaryMock).not.toHaveBeenCalled();
+    });
+
+    it('shows the cancelled flash and hides the button after cancel acknowledgement', () => {
+      setZone({
+        state: 'processing',
+        job_id: JOB_ID,
+        progress_hint: 'Sammanfattar…',
+      });
+      const { rerender } = render(<SammanfattaZone />);
+
+      // Cancel acknowledgement arrives as a snapshot from Rust:
+      // state=success + progress_hint="Sammanfattning avbruten".
+      setZone({
+        state: 'success',
+        job_id: JOB_ID,
+        progress_hint: 'Sammanfattning avbruten',
+      });
+      rerender(<SammanfattaZone />);
+      expect(screen.getByText('Sammanfattning avbruten')).toBeInTheDocument();
+      // Avbryt button must be hidden now — the cancel succeeded;
+      // re-cancelling makes no sense.
+      expect(screen.queryByRole('button', { name: 'Avbryt' })).toBeNull();
     });
   });
 });

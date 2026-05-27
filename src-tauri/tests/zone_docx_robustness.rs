@@ -22,9 +22,7 @@ fn pack_docx(paragraphs: &[&str]) -> Vec<u8> {
         docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(*p)));
     }
     let mut buf: Vec<u8> = Vec::new();
-    docx.build()
-        .pack(Cursor::new(&mut buf))
-        .expect("pack docx");
+    docx.build().pack(Cursor::new(&mut buf)).expect("pack docx");
     buf
 }
 
@@ -34,8 +32,8 @@ fn fake_encrypted_docx() -> Vec<u8> {
     let mut buf: Vec<u8> = Vec::new();
     {
         let mut zip = zip::ZipWriter::new(Cursor::new(&mut buf));
-        let opts = zip::write::FileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+        let opts =
+            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         zip.start_file("EncryptedPackage", opts).unwrap();
         zip.write_all(&[0u8; 128]).unwrap();
         zip.finish().unwrap();
@@ -152,8 +150,8 @@ fn every_zone_failure_string_matches_the_cross_language_fixture() {
         .join("tests")
         .join("fixtures")
         .join("zone-error-strings.json");
-    let json = std::fs::read_to_string(&fixture_path)
-        .expect("zone-error-strings.json fixture must exist");
+    let json =
+        std::fs::read_to_string(&fixture_path).expect("zone-error-strings.json fixture must exist");
     let fixture: serde_json::Value =
         serde_json::from_str(&json).expect("fixture must be valid JSON");
 

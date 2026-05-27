@@ -392,16 +392,34 @@ impl SammanfattaZone {
         true
     }
 
-    // ----- Test-only accessors for the auto-clear unit tests (T035) ----
+    // ----- Test-only accessors -----
+    //
+    // Mirrors the spec 002 `OllamaSidecar::pid()` pattern: plain `pub`
+    // with a "test-only" doc note. `#[cfg(test)]` gating doesn't work
+    // for integration tests under tests/ (each integration test is
+    // its own crate; cfg(test) only fires on the lib's own test
+    // target, not on a sibling test target).
 
-    #[cfg(test)]
-    pub(crate) fn set_visible_for_test(&self, s: ZoneState) {
+    /// Test-only: force the visible state without going through a
+    /// snapshot emit. Used by `auto_clear_to_idle` unit tests (T035).
+    pub fn set_visible_for_test(&self, s: ZoneState) {
         self.state.write().visible = s;
     }
 
-    #[cfg(test)]
-    pub(crate) fn visible_for_test(&self) -> ZoneState {
+    /// Test-only: read the current visible state.
+    pub fn visible_for_test(&self) -> ZoneState {
         self.state.read().visible
+    }
+
+    /// Test-only: cancel whatever job is currently in flight,
+    /// regardless of its id. Production callers use `cancel(&str)`
+    /// so they can't accidentally cancel jobs they didn't initiate.
+    /// Used by the zone_cancel integration test (T053).
+    pub fn cancel_in_flight_for_test(&self) {
+        let st = self.state.read();
+        if let Some(ref job) = st.current_job {
+            job.cancel();
+        }
     }
 }
 

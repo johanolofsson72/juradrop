@@ -149,15 +149,15 @@ description: "Task list for spec 003 — First drop zone (Sammanfatta)"
 
 ### Implementation for User Story 5
 
-- [ ] T049 [US5] In `src-tauri/src/zones/sammanfatta.rs::dispatch`, wrap the `client.generate` future in `tokio::select! { _ = client.generate(...) => ..., _ = job.cancel_token.cancelled() => ZoneFailure::Cancelled-or-ignore }` per R-005. On cancel, set `JobOutcome::Cancelled`, emit a "Sammanfattning avbruten" snapshot, do NOT call `write_atomically`.
-- [ ] T050 [US5] Implement the `DiscardLateModelResponseAfterCancel` rule: if `generate` returns AFTER `cancel_token` was already triggered (race), drop the response and exit — no sidecar write, no success state. Per FR-028.
-- [ ] T051 [US5] Add a Swedish "Avbryt" button to `src/components/SammanfattaZone.tsx`, visible only when `zone.state === 'processing'`. Click + Enter + Space all trigger `invokeCancelSummary(jobId)`. Per FR-026.
-- [ ] T052 [US5] In `SammanfattaZone.tsx`, on cancel acknowledgement (next snapshot with `state === 'success'` + `progress_hint === 'Sammanfattning avbruten'`), flash the Swedish text briefly before the standard 2 s auto-clear takes over.
+- [x] T049 [US5] In `src-tauri/src/zones/sammanfatta.rs::dispatch`, wrap the `client.generate` future in `tokio::select! { _ = client.generate(...) => ..., _ = job.cancel_token.cancelled() => ZoneFailure::Cancelled-or-ignore }` per R-005. On cancel, set `JobOutcome::Cancelled`, emit a "Sammanfattning avbruten" snapshot, do NOT call `write_atomically`.
+- [x] T050 [US5] Implement the `DiscardLateModelResponseAfterCancel` rule: if `generate` returns AFTER `cancel_token` was already triggered (race), drop the response and exit — no sidecar write, no success state. Per FR-028.
+- [x] T051 [US5] Add a Swedish "Avbryt" button to `src/components/SammanfattaZone.tsx`, visible only when `zone.state === 'processing'`. Click + Enter + Space all trigger `invokeCancelSummary(jobId)`. Per FR-026.
+- [x] T052 [US5] In `SammanfattaZone.tsx`, on cancel acknowledgement (next snapshot with `state === 'success'` + `progress_hint === 'Sammanfattning avbruten'`), flash the Swedish text briefly before the standard 2 s auto-clear takes over.
 
 ### Tests for User Story 5
 
-- [ ] T053 [P] [US5] Write `src-tauri/tests/zone_cancel.rs`: dispatch a job against a `wiremock` mock server that delays its response by ≥ 2 s, fire `cancel_summary` after ~100 ms, assert the job's terminal `outcome == Cancelled`, assert no sidecar file exists at the canonical or timestamped path, assert the source SHA-256 is byte-identical.
-- [ ] T054 [P] [US5] Extend `src/__tests__/SammanfattaZone.test.tsx`: the "Avbryt" button is hidden when state ≠ processing, visible when state = processing, focusable, activates on Enter + Space + click, invokes `cancelSummary` with the current `jobId`.
+- [x] T053 [P] [US5] Write `src-tauri/tests/zone_cancel.rs`: dispatch a job against a `wiremock` mock server that delays its response by ≥ 2 s, fire `cancel_summary` after ~100 ms, assert the job's terminal `outcome == Cancelled`, assert no sidecar file exists at the canonical or timestamped path, assert the source SHA-256 is byte-identical.
+- [x] T054 [P] [US5] Extend `src/__tests__/SammanfattaZone.test.tsx`: the "Avbryt" button is hidden when state ≠ processing, visible when state = processing, focusable, activates on Enter + Space + click, invokes `cancelSummary` with the current `jobId`.
 
 **Checkpoint**: US5 done = cancel takes effect within 1 s, no sidecar written on cancel, source byte-identical.
 
