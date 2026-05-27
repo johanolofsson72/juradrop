@@ -68,10 +68,17 @@ describe('WelcomeCard', () => {
     ).toBeInTheDocument();
   });
 
-  it('marks the status paragraph as aria-live polite', () => {
+  // T065 / DT-010 — screen readers must announce status changes. `polite`
+  // queues the announcement behind in-progress speech; `atomic` makes the
+  // whole region the announcement unit so a percent flipping from 41% to
+  // 42% reads the full sentence, not just the digit. Both pieces are
+  // load-bearing for VoiceOver UX.
+  it('marks the status paragraph as aria-live polite and atomic for screen readers', () => {
     const { container } = render(<WelcomeCard />);
     const live = container.querySelector('[aria-live="polite"]');
     expect(live).not.toBeNull();
+    expect(live?.getAttribute('aria-atomic')).toBe('true');
+    expect(live?.textContent?.trim().length ?? 0).toBeGreaterThan(0);
   });
 
   it('uses Tailwind utility classes on the card', () => {
