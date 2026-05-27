@@ -219,6 +219,14 @@ impl OllamaSidecar {
         self.retry_count.load(Ordering::Relaxed)
     }
 
+    /// Returns the currently-spawned child's PID, or `None` if the
+    /// sidecar isn't running. Used by integration tests to verify the
+    /// process exits after `stop()` (T069 / SC-003); not load-bearing
+    /// for production code paths.
+    pub fn pid(&self) -> Option<u32> {
+        self.child.read().as_ref().map(|c| c.pid())
+    }
+
     pub fn increment_retry(&self) -> u8 {
         self.retry_count.fetch_add(1, Ordering::Relaxed) + 1
     }

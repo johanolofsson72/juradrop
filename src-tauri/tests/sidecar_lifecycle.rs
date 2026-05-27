@@ -1,8 +1,10 @@
-// Sidecar lifecycle integration tests (spec 002 / US1 + US4).
+// Sidecar lifecycle integration tests (spec 002 / US1 + US4 + Phase 7).
 //
 // T023 (FC-001 / FC-002) — happy-path spawn → wait_ready → stop.
-// T049 (US4 / FR-015)   — missing-binary spawn returns BundledBinaryMissing.
-// T050 (US4)            — busy-port spawn returns PortBusy.
+// T049 (US4 / FR-015)    — missing-binary spawn returns BundledBinaryMissing.
+// T050 (US4)             — busy-port spawn returns PortBusy.
+// T069 (SC-003)          — post-stop probe asserts the spawned PID is
+//                          actually gone, not merely the port released.
 //
 // All three tests drive the public `OllamaSidecar` API against the bundled
 // `ollama` binary that `npm run tauri dev` (or `cargo build`) has staged at
@@ -194,6 +196,67 @@ fn new_returns_arc_with_not_started_status() {
     let sidecar = OllamaSidecar::new();
     assert_eq!(sidecar.status(), SidecarStatus::NotStarted);
     assert_eq!(sidecar.retry_count(), 0);
+}
+
+/// T069 / SC-003 — the bundled Ollama process must be gone within 5 s of
+/// `stop()`, not merely the port released. T023's port-release assertion
+/// is necessary but not sufficient: a process could in theory close its
+/// listener and linger zombified. We snapshot the spawned PID and probe
+/// `libc::kill(pid, 0)` (ESRCH = gone) after stop. POSIX guarantees the
+/// kernel reaps the zombie once we read the exit status via the drain
+/// task, so a true orphan would flip this assertion.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stop_leaves_no_orphan_process() {
+    let _port_guard = PORT_11434_LOCK.lock().await;
+    if existing_ollama_responding().await {
+        eprintln!(
+            "[T069] skipping stop_leaves_no_orphan_process — port 11434 is held \
+             by another Ollama; we wouldn't be the parent of that PID. Stop the \
+             foreign instance and re-run to exercise the orphan check."
+        );
+        return;
+    }
+
+    stage_ollama_binary();
+    let app = mock_builder()
+        .plugin(tauri_plugin_shell::init())
+        .build(mock_context(noop_assets()))
+        .expect("build mock tauri app");
+    let handle = app.handle().clone();
+
+    let sidecar = OllamaSidecar::new();
+    sidecar.spawn(&handle).await.expect("spawn");
+    sidecar
+        .wait_ready(Duration::from_secs(10))
+        .await
+        .expect("wait_ready");
+
+    let pid = sidecar
+        .pid()
+        .expect("PID should be available while running") as i32;
+    sidecar
+        .stop(Duration::from_secs(5))
+        .await
+        .expect("stop should succeed");
+
+    // Probe liveness. `kill(pid, 0)` returns 0 if reachable; -1 with
+    // errno=ESRCH if dead. We don't have direct errno access without
+    // libc, so the bare-zero check is sufficient: not-zero means
+    // unreachable, which (for a child we own) means exited.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut gone = false;
+    while Instant::now() < deadline {
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        if !alive {
+            gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(
+        gone,
+        "spawned ollama PID {pid} should be gone within 5 s of stop()"
+    );
 }
 
 /// RAII helper for T049: rename the staged binary out of the way, restore
