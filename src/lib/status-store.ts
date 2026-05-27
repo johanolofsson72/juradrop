@@ -3,6 +3,7 @@ import {
   cancelConsent as bridgeCancel,
   giveConsent as bridgeGive,
   type AppStatus,
+  type ZoneSnapshot,
 } from './tauri-bridge';
 
 const initialStatus: AppStatus = {
@@ -13,19 +14,34 @@ const initialStatus: AppStatus = {
   consent: 'not_asked',
 };
 
+// Spec 003 — initial zone snapshot before any Rust-side emit lands.
+// `disabled: true` reflects the boot-time state — the zone is not
+// drop-ready until the spec 002 sidecar reaches `Klar`.
+const initialZone: ZoneSnapshot = {
+  state: 'idle',
+  disabled: true,
+  failure: null,
+  job_id: null,
+  progress_hint: null,
+};
+
 interface StatusStore {
   status: AppStatus;
+  zone: ZoneSnapshot;
   setStatus: (next: AppStatus) => void;
   setProgress: (percent: number) => void;
+  setZone: (next: ZoneSnapshot) => void;
   giveConsent: () => Promise<void>;
   cancelConsent: () => Promise<void>;
 }
 
 export const useStatusStore = create<StatusStore>((set) => ({
   status: initialStatus,
+  zone: initialZone,
   setStatus: (next) => set({ status: next }),
   setProgress: (percent) =>
     set((s) => ({ status: { ...s.status, progress_percent: percent } })),
+  setZone: (next) => set({ zone: next }),
   giveConsent: async () => {
     await bridgeGive();
   },

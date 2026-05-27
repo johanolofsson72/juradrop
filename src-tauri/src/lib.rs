@@ -9,6 +9,7 @@ use std::time::Duration;
 use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
 
 pub mod sidecar;
+pub mod zones;
 
 use sidecar::commands::{
     after_sidecar_ready, cancel_consent, get_status, give_consent, run_roundtrip_dev, AppState,

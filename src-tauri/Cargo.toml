@@ -28,6 +28,14 @@ thiserror = "1"
 # F2/F3 disk-space pre-check — already in the dependency tree transitively
 # via tokio; declaring it explicitly so the unsafe statvfs call is honest.
 libc = "0.2"
+# Spec 003 — .docx read + write for the Sammanfatta drop zone.
+docx-rs = "0.4"
+# Spec 003 — OS default-handler invocation (FR-007 / R-004).
+open = "5"
+# Spec 003 — CancellationToken for the cancel-in-flight feature (R-005 / US5).
+tokio-util = { version = "0.7", features = ["rt"] }
+# Spec 003 — UUID for DropJob.id used by cancel_summary lookup.
+uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 # T023 — integration tests in tests/ need tauri::test::mock_builder /
@@ -40,3 +48,5 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 wiremock = "0.6"
 # T035 — consent persistence integration test needs an isolated dir.
 tempfile = "3"
+# Spec 003 — source-immutability SHA-256 check in integration tests (R-009).
+sha2 = "0.10"

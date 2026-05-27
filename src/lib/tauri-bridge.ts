@@ -56,3 +56,42 @@ export function subscribeStatus(cb: (s: AppStatus) => void): Promise<UnlistenFn>
 export function subscribeProgress(cb: (percent: number) => void): Promise<UnlistenFn> {
   return listen<{ percent: number }>('juradrop://progress', (event) => cb(event.payload.percent));
 }
+
+// =====================================================================
+// Spec 003 — first drop zone (Sammanfatta).
+// =====================================================================
+
+export type ZoneState = 'idle' | 'dragover' | 'processing' | 'success' | 'error';
+
+export type JobOutcome = 'in_flight' | 'success' | 'failure' | 'cancelled';
+
+export type ZoneFailure =
+  | 'invalid_format'
+  | 'multiple_files'
+  | 'zone_busy'
+  | 'zone_disabled'
+  | 'parse_error'
+  | 'password_protected'
+  | 'empty_text'
+  | 'model_error'
+  | 'save_error';
+
+export interface ZoneSnapshot {
+  state: ZoneState;
+  disabled: boolean;
+  failure: ZoneFailure | null;
+  job_id: string | null;
+  progress_hint: string | null;
+}
+
+/** Cancel an in-flight summarization. Idempotent — silent no-op when the
+ *  passed `jobId` doesn't match the current in-flight job. */
+export async function cancelSummary(jobId: string): Promise<void> {
+  await invoke<void>('cancel_summary', { jobId });
+}
+
+/** Subscribe to drop-zone state-machine snapshots emitted on
+ *  `juradrop://sammanfatta`. Returns the unlisten function. */
+export function subscribeZone(cb: (snap: ZoneSnapshot) => void): Promise<UnlistenFn> {
+  return listen<ZoneSnapshot>('juradrop://sammanfatta', (event) => cb(event.payload));
+}
