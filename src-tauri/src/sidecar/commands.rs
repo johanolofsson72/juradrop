@@ -101,6 +101,9 @@ pub struct AppState {
     // BundledBinaryMissing, …) whose distinction is otherwise lost in the
     // (sidecar, model, consent) tuple.
     pub error_override: Arc<RwLock<Option<UserVisibleStatus>>>,
+    /// Spec 003 — first drop zone owning its single-flight job slot
+    /// and visible state machine.
+    pub sammanfatta: Arc<crate::zones::sammanfatta::SammanfattaZone>,
 }
 
 impl AppState {
@@ -112,6 +115,7 @@ impl AppState {
             progress: Arc::new(RwLock::new(None)),
             consent: Arc::new(RwLock::new(ConsentRecord::default())),
             error_override: Arc::new(RwLock::new(None)),
+            sammanfatta: crate::zones::sammanfatta::SammanfattaZone::new(),
         }
     }
 
@@ -292,6 +296,18 @@ pub async fn run_roundtrip_dev(state: tauri::State<'_, AppState>) -> Result<u64,
 #[cfg(not(debug_assertions))]
 pub async fn run_roundtrip_dev(_state: tauri::State<'_, AppState>) -> Result<u64, String> {
     Err("not available in release build".into())
+}
+
+/// Spec 003 / T020 — cancel an in-flight Sammanfatta summarization.
+/// Idempotent: silent no-op when `job_id` doesn't match the current
+/// in-flight job (per `contracts/tauri-commands.md`).
+#[tauri::command]
+pub async fn cancel_summary(
+    state: tauri::State<'_, AppState>,
+    job_id: String,
+) -> Result<(), String> {
+    state.sammanfatta.cancel(&job_id);
+    Ok(())
 }
 
 #[cfg(test)]

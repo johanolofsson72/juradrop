@@ -30,6 +30,10 @@ thiserror = "1"
 libc = "0.2"
 # Spec 003 — .docx read + write for the Sammanfatta drop zone.
 docx-rs = "0.4"
+# Spec 003 — direct zip inspection for password-protected .docx
+# detection (research.md R-002). Already a transitive dep via docx-rs;
+# declared explicitly so the encrypted-package probe is honest.
+zip = "0.6"
 # Spec 003 — OS default-handler invocation (FR-007 / R-004).
 open = "5"
 # Spec 003 — CancellationToken for the cancel-in-flight feature (R-005 / US5).

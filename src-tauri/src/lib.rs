@@ -6,16 +6,17 @@
 
 use std::time::Duration;
 
-use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
+use tauri::{DragDropEvent, Emitter, Listener, Manager, RunEvent, WindowEvent};
 
 pub mod sidecar;
 pub mod zones;
 
 use sidecar::commands::{
-    after_sidecar_ready, cancel_consent, get_status, give_consent, run_roundtrip_dev, AppState,
+    after_sidecar_ready, cancel_consent, cancel_summary, get_status, give_consent,
+    run_roundtrip_dev, AppState,
 };
 use sidecar::consent;
-use sidecar::status::UserVisibleStatus;
+use sidecar::status::{SidecarStatus, UserVisibleStatus};
 
 pub fn run() {
     let app = tauri::Builder::default()
@@ -25,6 +26,7 @@ pub fn run() {
             give_consent,
             cancel_consent,
             run_roundtrip_dev,
+            cancel_summary,
         ])
         .setup(|app| {
             let state = AppState::new();
@@ -131,6 +133,17 @@ pub fn run() {
         .expect("failed to build JuraDrop tauri application");
 
     app.run(|app_handle, event| {
+        // Spec 003 — drag-and-drop entry point. WindowEvent::DragDrop
+        // is the OS-level, sandbox-safe path that carries the actual
+        // file path (HTML5 drag-and-drop only gives sandboxed blobs).
+        if let RunEvent::WindowEvent {
+            event: WindowEvent::DragDrop(drag),
+            ..
+        } = &event
+        {
+            handle_drag_drop_event(app_handle, drag.clone());
+        }
+
         if let RunEvent::WindowEvent {
             label,
             event: WindowEvent::CloseRequested { .. },
@@ -152,6 +165,49 @@ pub fn run() {
             }
         }
     });
+}
+
+/// Spec 003 / T018 — translate Tauri's `DragDropEvent` into zone-snapshot
+/// emits or the dispatch pipeline call. Runs on the synchronous event
+/// thread; any async work is spun out via `tauri::async_runtime::spawn`.
+fn handle_drag_drop_event(app: &tauri::AppHandle, drag: DragDropEvent) {
+    use zones::snapshot::{ZoneSnapshot, ZoneState};
+
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let sidecar_ready = matches!(state.sidecar.status(), SidecarStatus::Ready);
+
+    match drag {
+        DragDropEvent::Enter { .. } => {
+            let _ = app.emit(
+                "juradrop://sammanfatta",
+                ZoneSnapshot {
+                    state: ZoneState::Dragover,
+                    disabled: !sidecar_ready,
+                    failure: None,
+                    job_id: None,
+                    progress_hint: None,
+                },
+            );
+        }
+        DragDropEvent::Leave => {
+            // Drag left the window without dropping — return to idle.
+            let _ = app.emit("juradrop://sammanfatta", ZoneSnapshot::idle(!sidecar_ready));
+        }
+        DragDropEvent::Drop { paths, .. } => {
+            let zone = state.sammanfatta.clone();
+            let client = state.client.clone();
+            let app_clone = app.clone();
+            tauri::async_runtime::spawn(async move {
+                zone.handle_drop(app_clone, client, sidecar_ready, paths)
+                    .await;
+            });
+        }
+        // Mouse position updates over the zone — not load-bearing for the
+        // state machine, ignore.
+        _ => {}
+    }
 }
 
 #[cfg(test)]
