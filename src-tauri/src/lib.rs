@@ -22,6 +22,11 @@ use sidecar::status::{SidecarStatus, UserVisibleStatus};
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        // Spec 006 — auto-updater plugin. Reads its endpoint + pubkey
+        // from tauri.conf.json's plugins.updater block. Verifies the
+        // .sig signature against the embedded pubkey before installing
+        // any downloaded update (FR-015).
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_status,
             give_consent,

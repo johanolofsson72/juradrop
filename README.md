@@ -39,18 +39,19 @@ JuraDrop löser det med arkitektur, inte löften:
 
 Pre-MVP. Spec 001 (Tauri-bootstrap), spec 002 (lokal Ollama-sidecar), spec 003 (första dropzon), spec 004 (alla sex zoner) och spec 005 (fler indataformat) är klara. Huvudfönstret visar ett 2×3-rutnät av sex tematiska dropzoner: **Sammanfatta**, **Till engelska**, **Till svenska**, **Punktlista**, **Anonymisera** och **Förenkla**. Varje zon tar nu emot fyra format: `.docx`, `.pdf`, `.txt` och `.md`. Resultatfilen följer indataformatet (`.txt` in → `.txt` ut, `.md` in → `.md` ut bevarar Markdown-strukturen). Eftersom `.pdf`-utskrift kräver typsnittsbäddning och sidlayout som ligger utanför ramen sparas PDF-resultatet som `.docx`. Appen extraherar texten lokalt, skickar den till `gemma3:4b` på `127.0.0.1:11434` med en zon-specifik svensk systemprompt, och sparar resultatet som `<originalnamn>.<zon>.<format>` bredvid originalet. Krypterade PDF:er och bildbaserade PDF:er utan textlager (skannade dokument) ger tydliga svenska felmeddelanden istället för att tyst misslyckas. Anonymisera- och Förenkla-filerna får en svensk varningstext om AI-modellens begränsningar. **Inget av dokumentinnehållet lämnar din Mac** — den enda utgående trafiken är fortfarande modellnedladdningen från `ollama.com` (en gång) och Tauri-uppdateraren. Se [`specs/INDEX.md`](specs/INDEX.md) för planerade specifikationer.
 
-Första signerade och notariserade DMG släpps under `Releases` när spec 006 är klar.
+Releasekedjan är automatiserad: en `git push --tags` på `vX.Y.Z` triggar GitHub Actions, som bygger en universal `.app`, signerar med Developer ID, notariserar via Apple och laddar upp en signerad DMG som ett utkast under [Releases](https://github.com/johanolofsson72/juradrop/releases). Utkastet publiceras manuellt efter en smoke-test på en ren Mac. Inbyggd Tauri-uppdaterare hämtar nya versioner med signaturverifiering.
 
 ## Installation
 
-> JuraDrop är ännu inte släppt. När v0.1 finns kommer instruktionerna här.
+> JuraDrop v0.1 är under utveckling. När första signerade DMG:n publicerats finns den under [Releases](https://github.com/johanolofsson72/juradrop/releases/latest).
 
-Förväntat installationsflöde när första utgåvan finns:
+Installationsflöde när första utgåvan finns:
 
-1. Hämta `JuraDrop_x.y.z_universal.dmg` från [Releases](https://github.com/johanolofsson72/juradrop/releases).
-2. Öppna DMG-filen, dra `JuraDrop.app` till `Program`.
-3. Starta appen. Vid första start laddas en AI-modell (~2 GB) ner.
-4. Klart — dra ett dokument till en zon.
+1. Hämta `JuraDrop_x.y.z_universal.dmg` från [Releases](https://github.com/johanolofsson72/juradrop/releases/latest).
+2. Öppna DMG-filen genom att dubbelklicka — ingen Gatekeeper-varning eftersom appen är signerad och notariserad av Apple.
+3. Dra `JuraDrop.app` till `Program`.
+4. Starta appen från Program. Vid första start laddas en AI-modell (~2 GB) ner från `ollama.com`.
+5. Klart — dra ett dokument till en zon. Framtida uppdateringar erbjuds automatiskt vid nästa start.
 
 ## Build from source
 

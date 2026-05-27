@@ -1,0 +1,140 @@
+# Spec 006 — JuraDrop release workflow.
+#
+# Triggers on tag pushes matching v*.*.*. Runs the full quality-gate
+# sweep on macos-latest, then invokes tauri-action to build, sign,
+# notarize, and upload artifacts to a DRAFT GitHub Release. The
+# developer publishes the draft manually after smoke-testing.
+#
+# Required secrets (set under Settings → Secrets and variables → Actions):
+#   APPLE_CERTIFICATE             — base64 of the Developer ID .p12
+#   APPLE_CERTIFICATE_PASSWORD    — password set when exporting the .p12
+#   APPLE_SIGNING_IDENTITY        — e.g. "Developer ID Application: Name (TEAMID)"
+#   APPLE_ID                      — your Apple ID email
+#   APPLE_PASSWORD                — app-specific password for notarytool
+#   APPLE_TEAM_ID                 — 10-character Apple Team ID
+#   TAURI_SIGNING_PRIVATE_KEY     — contents of ~/.tauri/juradrop-updater.key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD — password protecting the Tauri key
+#
+# See .claude/docs/deployment.md for the complete release runbook.
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build, sign, notarize, draft release
+    runs-on: macos-latest
+    # FR-018 — single job; no matrix → no fail-fast strategy needed.
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          # Full history so tag annotations + version detection work.
+          fetch-depth: 0
+
+      - name: Install Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      # FR-004 — pull the bundled Ollama sidecar so the release-time
+      # bundle matches the dev-build bundle byte-for-byte. Pinned SHA
+      # check inside the script catches supply-chain tampering.
+      - name: Fetch Ollama sidecar binary
+        run: bash scripts/fetch-ollama.sh
+
+      # ============================================================
+      # FR-003 — Quality gates. Every gate must pass BEFORE the
+      # signing + notarization step. Apple notarytool calls are
+      # expensive (5–10 min); failing fast here saves ~17 min per
+      # broken release attempt.
+      # ============================================================
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Vitest unit tests
+        run: npm test -- --run
+
+      - name: cargo fmt
+        run: cd src-tauri && cargo fmt -- --check
+
+      - name: Clippy strict
+        run: cd src-tauri && cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cd src-tauri && cargo test
+
+      # ============================================================
+      # FR-005 + FR-006 + FR-007 — Build, sign, notarize, draft release.
+      # tauri-action's signing + notarization happens automatically
+      # when these env vars are set. Universal binary (Apple Silicon
+      # + Intel) is produced via the --target universal-apple-darwin
+      # flag.
+      # ============================================================
+
+      - name: Build, sign, notarize, draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # Apple Developer signing
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Apple notarytool credentials
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Tauri updater signing (separate keypair, NOT the Apple cert)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # GITHUB_TOKEN provides the contents:write permission needed
+          # to create the draft release + upload assets (FR-018a).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # FR-007 — release draft (not auto-published). The developer
+          # smoke-tests the DMG then clicks "Publish release" manually.
+          tagName: ${{ github.ref_name }}
+          releaseName: '${{ github.ref_name }}'
+          releaseBody: |
+            See [`CHANGELOG.md`](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for changes.
+
+            **Verify the download:**
+            - Built on `macos-latest` via the spec 006 release workflow.
+            - Signed with Developer ID Application, notarized by Apple, stapled.
+            - The `.sig` file is the Tauri updater signature — auto-verified by the updater plugin in v0.1.0+ installs.
+
+            **Install:**
+            1. Download `JuraDrop_${{ github.ref_name }}_universal.dmg`.
+            2. Double-click the DMG to mount it.
+            3. Drag `JuraDrop.app` into `Applications`.
+            4. Launch `JuraDrop` from Applications.
+          # FR-007 — release stays as a draft until manually published.
+          releaseDraft: true
+          # FR-005 — universal binary covering Apple Silicon + Intel.
+          args: '--target universal-apple-darwin'

@@ -29,7 +29,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": ["app", "dmg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -39,12 +39,22 @@
     ],
     "externalBin": ["binaries/ollama"],
     "macOS": {
-      "minimumSystemVersion": "12.0"
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": null,
+      "providerShortName": null
     }
   },
   "plugins": {
     "shell": {
       "open": false
+    },
+    "updater": {
+      "active": true,
+      "dialog": true,
+      "endpoints": [
+        "https://github.com/johanolofsson72/juradrop/releases/latest/download/latest.json"
+      ],
+      "pubkey": "REPLACE_WITH_TAURI_PUBLIC_KEY_BEFORE_FIRST_RELEASE"
     }
   }
 }
