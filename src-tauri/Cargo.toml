@@ -38,3 +38,5 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # T056 / T057 / T060 — mock HTTP server for client robustness tests.
 # Binds to a random port; test-time only, never linked into the app.
 wiremock = "0.6"
+# T035 — consent persistence integration test needs an isolated dir.
+tempfile = "3"

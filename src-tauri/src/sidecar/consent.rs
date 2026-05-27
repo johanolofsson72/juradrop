@@ -2,7 +2,7 @@
 // Per spec 002 FR-019 + contracts/consent-store.md + research.md R-006.
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -53,7 +53,19 @@ fn consent_file_path(app: &AppHandle) -> Result<PathBuf, ConsentError> {
 
 pub async fn load(app: &AppHandle) -> Result<ConsentRecord, ConsentError> {
     let path = consent_file_path(app)?;
-    let bytes = match fs::read(&path).await {
+    load_at(&path).await
+}
+
+pub async fn save(app: &AppHandle, record: &ConsentRecord) -> Result<(), ConsentError> {
+    let path = consent_file_path(app)?;
+    save_at(&path, record).await
+}
+
+/// Path-taking variant of `load()` — used by integration tests so they
+/// can point at a tempdir without standing up a Tauri app. Production
+/// code goes through `load()`.
+pub async fn load_at(path: &Path) -> Result<ConsentRecord, ConsentError> {
+    let bytes = match fs::read(path).await {
         Ok(b) => b,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(ConsentRecord::default()),
         Err(e) => return Err(ConsentError::Io(e)),
@@ -67,8 +79,10 @@ pub async fn load(app: &AppHandle) -> Result<ConsentRecord, ConsentError> {
     Ok(record)
 }
 
-pub async fn save(app: &AppHandle, record: &ConsentRecord) -> Result<(), ConsentError> {
-    let path = consent_file_path(app)?;
+/// Path-taking variant of `save()` — preserves the write-tmp-then-rename
+/// atomic-write semantics so a crash between the write and the rename
+/// leaves the canonical file untouched. Used by integration tests.
+pub async fn save_at(path: &Path, record: &ConsentRecord) -> Result<(), ConsentError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).await?;
     }
@@ -78,7 +92,7 @@ pub async fn save(app: &AppHandle, record: &ConsentRecord) -> Result<(), Consent
     tmp.write_all(&json).await?;
     tmp.sync_all().await?;
     drop(tmp);
-    fs::rename(&tmp_path, &path).await?;
+    fs::rename(&tmp_path, path).await?;
     Ok(())
 }
 
