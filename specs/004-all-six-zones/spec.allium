@@ -1,0 +1,387 @@
+-- allium: 3
+
+-- Formal spec for spec 004: all six drop zones (2×3 grid).
+-- Source: specs/004-all-six-zones/spec.md
+-- Elicited: 2026-05-27
+--
+-- This file EXTENDS specs/003-first-zone-sammanfatta/spec.allium by
+-- parameterising the DropZone entity over a `ZoneId` discriminator.
+-- The visible-state machine, the DropJob outcome graph, every error
+-- variant, the atomic-write invariants, the source-immutability
+-- invariant — all unchanged from spec 003. What changes here is
+-- cardinality (1 zone → 6) plus the per-zone identity carriers
+-- (slug, title, suffix, header template, system prompt, optional
+-- disclaimer paragraph).
+
+-- ============================================================
+-- External entities (defined by spec 002 + 003, referenced here)
+-- ============================================================
+
+external entity OllamaSidecar {
+    user_visible_status: starting | downloading_model | ready | error_failed_to_start
+        | error_port_busy | error_disk_full | error_unexpected
+        | error_model_download_aborted | model_missing_aborted
+}
+
+external entity OllamaClient {
+    base_url: String
+}
+
+external entity DropJob {
+    -- Defined fully in specs/003-first-zone-sammanfatta/spec.allium.
+    -- Reused unchanged: id, source_path, started_at, outcome (in_flight
+    -- | success | failure | cancelled), truncated, cancel_token,
+    -- failure (SummaryFailure?), failure_message (SwedishCopy?).
+    id: String
+    outcome: in_flight | success | failure | cancelled
+}
+
+external entity SummaryDoc {
+    -- Defined fully in spec 003. Carries header_filename_paragraph
+    -- (per FR-009 — now per-zone), header_meta_paragraph (unchanged),
+    -- optional truncation_notice (unchanged), optional disclaimer
+    -- (new in spec 004 for Anonymise + Förenkla), body paragraphs.
+    path: String
+    body_paragraph_count: Integer
+    written_atomically: Boolean
+}
+
+external entity SwedishCopy {
+    -- Same NoEnglishPrefix / LengthBounded / NonEmpty invariants as spec 003.
+    text: String
+}
+
+-- ============================================================
+-- Enums
+-- ============================================================
+
+-- The six-way discriminator. Every zone carries one of these.
+enum ZoneId {
+    sammanfatta             -- spec 003 (already shipped)
+    tillengelska            -- translate to English
+    tillsvenska             -- translate to Swedish
+    punktlista              -- bullet list
+    anonymisera             -- anonymise personal identifiers
+    forenkla                -- plain-Swedish rewrite (klarspråk)
+}
+
+-- ============================================================
+-- Value objects
+-- ============================================================
+
+-- Per-zone identity bundle. Modeled as a value (no identity of its
+-- own) keyed by ZoneId. In code this becomes a `match` over ZoneId
+-- with associated functions; the value-object shape here documents
+-- the field set so any reviewer can confirm all six branches.
+value ZoneIdentity {
+    id: ZoneId
+    slug: String                          -- "sammanfatta", "tillengelska", ...
+    title: String                         -- "Sammanfatta", "Till engelska", ...
+    hint_copy: String                     -- per-zone Swedish hint per FR-005
+    sidecar_suffix: String                -- "sammanfatta", "tillengelska", "anonymiserad", ...
+    header_paragraph_template: String     -- "Sammanfattning av '{name}'", etc.
+    system_prompt_module: String          -- "src-tauri/src/prompts/<slug>.rs"
+    has_disclaimer_paragraph: Boolean     -- true for anonymisera + forenkla
+}
+
+-- ============================================================
+-- Entities
+-- ============================================================
+
+-- DropZone now parameterised by ZoneId. The visible_state machine
+-- and the current_job slot are unchanged from spec 003; what's new
+-- is the `id` field plus the rule that all six zones share the
+-- same OllamaClient + global disabled gate.
+entity DropZone {
+    id: ZoneId                            -- the discriminator
+    title: String                         -- from ZoneIdentity.title
+    hint: SwedishCopy                     -- per-zone or shared FR-005 default
+    visible_state: idle | dragover | processing | success | error
+    current_job: DropJob? when visible_state = processing | success | error
+    disabled: Boolean
+    sidecar_status: OllamaSidecar
+
+    transitions visible_state {
+        idle -> dragover
+        dragover -> idle
+        dragover -> processing
+        dragover -> error
+        idle -> error
+        processing -> success
+        processing -> error
+        success -> idle
+        error -> idle
+    }
+
+    invariant DisabledMatchesGlobalStatus {
+        disabled = (sidecar_status.user_visible_status != ready)
+    }
+    invariant SingleFlightPerZone {
+        -- Per-zone single-flight (FR-011): each zone has its own
+        -- slot. A drop on zone A while zone A is processing is
+        -- rejected; a drop on zone B is independent.
+        current_job != null and current_job.outcome = in_flight
+            implies visible_state = processing
+    }
+    invariant ProcessingHasJob {
+        visible_state in {processing, success, error} implies current_job != null
+    }
+    invariant IdleHasNoJob {
+        visible_state = idle implies current_job = null
+    }
+}
+
+-- The drag-drop routing target. Resolved by the WebView's
+-- `elementFromPoint(x, y)` walk per FR-010a; the `position` is in
+-- CSS pixels (Rust converted from physical via devicePixelRatio).
+value DropTarget {
+    paths: String                         -- comma-joined or first-only; Rust holds Vec<PathBuf>
+    position_x_css: Decimal
+    position_y_css: Decimal
+    resolved_zone: ZoneId?                -- null if drop landed outside any [data-zone-id]
+}
+
+-- ============================================================
+-- Config / fixed boundaries
+-- ============================================================
+
+config {
+    zone_count: Integer = 6
+    grid_columns_default: Integer = 3
+    grid_columns_narrow: Integer = 2
+    grid_columns_extreme: Integer = 1
+    grid_columns_narrow_breakpoint_px: Integer = 920
+    grid_columns_extreme_breakpoint_px: Integer = 520
+    -- Reuse spec 003 timing + truncation constants — not redeclared here.
+}
+
+-- ============================================================
+-- Rules
+-- ============================================================
+
+-- FR-010a — OS-level drop routed via elementFromPoint. The Rust
+-- WindowEvent::DragDrop handler emits a single event with paths +
+-- position; the WebView resolves to a ZoneId and invokes the
+-- per-zone dispatch. Drops that land outside any [data-zone-id] are
+-- silently ignored (no error snapshot).
+rule RouteDropToZoneByPosition {
+    when: FileDroppedOnWindow(paths, position_x_css, position_y_css)
+    ensures:
+        let target = ResolveZoneFromPosition(position_x_css, position_y_css)
+        if target.resolved_zone != null:
+            DispatchToZone(zone_id: target.resolved_zone, paths: paths)
+}
+
+rule DropOutsideAnyZoneIsSilentlyIgnored {
+    when: FileDroppedOnWindow(paths, position_x_css, position_y_css)
+    requires:
+        let target = ResolveZoneFromPosition(position_x_css, position_y_css)
+        target.resolved_zone = null
+    ensures:
+        -- No state change. No error snapshot. The user just sees
+        -- the drag-leave-equivalent behavior on whichever zone (if
+        -- any) was in dragover.
+        DropIgnored(reason: outside_any_zone)
+}
+
+-- FR-006 — every zone owns a system prompt module. The presence of
+-- a prompt for each ZoneId is structural (a Rust match must be
+-- exhaustive); this rule documents the contract.
+rule EveryZoneHasASystemPrompt {
+    when: ZoneCreated(id)
+    ensures:
+        SystemPromptDefined(zone: id, location: `src-tauri/src/prompts/{id.slug}.rs`)
+}
+
+-- FR-009 — per-zone first-header paragraph. The header_meta_paragraph
+-- (timestamp + model label) is unchanged from spec 003; only the
+-- filename_paragraph varies by ZoneId.
+rule SummaryDocHeaderUsesPerZoneTemplate {
+    when: SummaryDocCreated(summary, zone_id, source_basename)
+    ensures:
+        summary.header_filename_paragraph = RenderTemplate(
+            template: ZoneIdentity(zone_id).header_paragraph_template,
+            filename: source_basename
+        )
+}
+
+-- FR-013 — Anonymise disclaimer. The system prompt asks for
+-- consistent placeholders, but the model can miss names; the
+-- disclaimer paragraph sets the honest expectation in the .docx
+-- itself, not just the UI.
+rule AnonymiseDisclaimerPrepended {
+    when: SummaryDocCreated(summary, zone_id: anonymisera, source_basename)
+    ensures:
+        summary.disclaimer_paragraph =
+            `AI-anonymisering är inte hundra procent — granska resultatet innan du delar.`
+}
+
+-- FR-014 — Förenkla disclaimer.
+rule SimplifyDisclaimerPrepended {
+    when: SummaryDocCreated(summary, zone_id: forenkla, source_basename)
+    ensures:
+        summary.disclaimer_paragraph =
+            `Förenklad version — granska att inga juridiska poänger gick förlorade.`
+}
+
+-- TillSvenska detected-already-Swedish notice (per 2026-05-27
+-- clarification). When the model detects the input is already
+-- Swedish, it prepends the body with a Swedish notice — same shape
+-- as the spec 003 FR-019 truncation notice paragraph.
+rule TillSvenskaAlreadySwedishNoticePrepended {
+    when: ModelDetectsLanguageMatch(zone_id: tillsvenska, source_language: swedish)
+    ensures:
+        SummaryDocBodyPrependedWith(
+            `(Dokumentet är redan på svenska — endast lätt korrigerad.)`
+        )
+}
+
+-- FR-011 — per-zone single-flight. The bounce copy and behavior are
+-- IDENTICAL to spec 003's DropWhileBusy rule, only scoped per zone.
+rule DropWhileZoneBusy {
+    when: Drop(zone, files)
+    requires:
+        zone.disabled = false and
+        files.count = 1 and
+        zone.visible_state = processing
+    ensures:
+        DropRejected(
+            zone: zone,
+            reason: zone_busy,
+            message: SwedishCopy(text: `Vänta tills föregående dokument är klart`)
+        )
+}
+
+-- US6 — drops on different zones are independent. A zone A in
+-- Processing does NOT block a zone B drop.
+rule DropOnDifferentZoneAcceptedIndependently {
+    when: Drop(zone_b, files)
+    requires:
+        zone_b.disabled = false and
+        files.count = 1 and
+        zone_b.visible_state in {idle, dragover}
+        -- (some other zone A may be in processing; that's irrelevant here)
+    ensures:
+        zone_b.visible_state = processing
+        DropJob.created(
+            source: SourceDocument(path: files.first.path),
+            started_at: now,
+            outcome: in_flight,
+            -- zone_id stored on the job is zone_b.id
+        )
+}
+
+-- ============================================================
+-- Invariants (global)
+-- ============================================================
+
+invariant SixZonesExist {
+    -- FR-001 — the grid always has all six zones, no more, no less.
+    DropZones.count = zone_count
+}
+
+invariant EachZoneHasUniqueId {
+    -- No two DropZone instances share a ZoneId.
+    DropZones.all(z1 =>
+        DropZones.where(z2 => z2.id = z1.id).count = 1
+    )
+}
+
+invariant AllZonesShareSameSidecarStatus {
+    -- FR-012 — when the sidecar status is non-Ready, ALL six zones
+    -- are disabled simultaneously (they all reference the same
+    -- spec 002 OllamaSidecar).
+    DropZones.all(z => z.sidecar_status = SystemSidecar)
+}
+
+invariant DisabledGateAppliesToAllZones {
+    -- FR-012 follow-on: when one zone is disabled, all are; when
+    -- one is enabled, all are.
+    DropZones.all(z => z.disabled = (SystemSidecar.user_visible_status != ready))
+}
+
+invariant PerZoneSingleFlightDoesNotBlockOtherZones {
+    -- US6 / FR-011 — a job in flight on one zone never causes
+    -- another zone to enter zone_busy. The bounce is scoped to the
+    -- zone where the second drop landed. Operationally: every
+    -- DropJob is attached to exactly one zone, and no two zones
+    -- share a current_job pointer.
+    DropZones.all(z =>
+        z.current_job = null or
+        DropZones.where(other => other.id != z.id and other.current_job = z.current_job).count = 0
+    )
+}
+
+invariant SidecarSuffixMatchesZoneId {
+    -- FR-004 + FR-007 — the suffix is the canonical Swedish form
+    -- of the zone's title (past-participle adjective where it reads
+    -- better, e.g. "anonymiserad" not "anonymisera").
+    ZoneIdentities.where(z => z.id = sammanfatta).first.sidecar_suffix = `sammanfatta` and
+    ZoneIdentities.where(z => z.id = tillengelska).first.sidecar_suffix = `tillengelska` and
+    ZoneIdentities.where(z => z.id = tillsvenska).first.sidecar_suffix = `tillsvenska` and
+    ZoneIdentities.where(z => z.id = punktlista).first.sidecar_suffix = `punktlista` and
+    ZoneIdentities.where(z => z.id = anonymisera).first.sidecar_suffix = `anonymiserad` and
+    ZoneIdentities.where(z => z.id = forenkla).first.sidecar_suffix = `forenkla`
+}
+
+invariant OnlyLoopbackOutboundAcrossAllZones {
+    -- FR-016 + Principle I — every zone's dispatch routes through
+    -- the shared OllamaClient at 127.0.0.1:11434. No zone gets a
+    -- separate outbound surface.
+    OllamaClients.all(c => c.base_url = `http://127.0.0.1:11434`)
+}
+
+invariant SourceImmutableAcrossAllZones {
+    -- FR-016 + spec 003 FR-024 — every zone's dispatch preserves
+    -- the source file's SHA-256. Tested per zone in spec 004.
+    -- (Modeled in spec 003 spec.allium; reasserted here for the
+    -- new zone set.)
+    for job in DropJobs where job.outcome in {success, failure, cancelled}:
+        SourceUnchanged(job)
+}
+
+invariant DisclaimerOnlyOnAnonymiseAndForenkla {
+    -- FR-013 + FR-014 — only those two zones produce a disclaimer
+    -- paragraph. The other four zones produce sidecars without a
+    -- disclaimer (header + optional truncation notice + body).
+    for z in ZoneIdentities:
+        z.has_disclaimer_paragraph = (z.id = anonymisera or z.id = forenkla)
+}
+
+-- ============================================================
+-- Surfaces
+-- ============================================================
+
+actor LawStudent { identified_by: `the local user` }
+
+surface SixZoneGrid {
+    facing viewer: LawStudent
+    context zones: DropZones
+    provides:
+        FileDroppedOnWindow(paths, position_x_css, position_y_css)
+        CancelClicked(zone)
+    exposes:
+        zones.id
+        zones.title
+        zones.visible_state
+        zones.disabled
+}
+
+-- ============================================================
+-- Deferred
+-- ============================================================
+
+-- (ZoneIdentity.per_zone_hint_copy was originally deferred to spec 010
+--  polish; pulled into spec 004 during the allium-elicit clarification
+--  round on 2026-05-27. See FR-005 in spec.md for the six per-zone
+--  hint strings.)
+deferred ZoneIdentity.user_configurable_prompt     -- spec 010 (settings panel)
+deferred Anonymisera.regex_post_process            -- spec 010 "strict mode"
+deferred DropZone.bulk_drop_across_multiple_zones  -- not in roadmap; design choice
+
+-- ============================================================
+-- Open questions
+-- ============================================================
+
+-- (No open questions — three clarifications auto-picked and
+-- integrated into the spec body on 2026-05-27.)

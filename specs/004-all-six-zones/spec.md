@@ -127,7 +127,14 @@ The student drops a `.docx` on Sammanfatta to get a summary, then immediately dr
 - **FR-002**: On viewports narrower than the 6-zone grid's minimum comfortable width, the grid MUST collapse to 3 rows × 2 columns; on extremely narrow viewports (rare for a desktop app), to 6 rows × 1 column. The reading order is preserved across breakpoints.
 - **FR-003**: Each zone MUST have a unique `ZoneId` — `sammanfatta`, `tillengelska`, `tillsvenska`, `punktlista`, `anonymisera`, `forenkla` — used as the slug across the event channel, sidecar filename suffix, and prompt module file.
 - **FR-004**: Each zone MUST display its Swedish title verbatim. Titles: "Sammanfatta", "Till engelska", "Till svenska", "Punktlista", "Anonymisera", "Förenkla". (Spec 003 used the one-word "Sammanfatta"; the two-word "Till engelska" / "Till svenska" matches Swedish orthography for prepositional phrases.)
-- **FR-005**: Each zone MUST display a one-line Swedish hint customised to its action. Suggested defaults: "Släpp ett .docx-dokument här" works for all six zones (the action verb is in the title; the hint just describes what to drop). The spec MAY supply per-zone hints in a later polish pass; spec 004 ships with the shared hint.
+- **FR-005**: Each zone MUST display a one-line Swedish hint customised to its action (pulled into scope from the original spec 010 deferral, 2026-05-27). The per-zone hints are:
+  - Sammanfatta: `Släpp ett .docx för sammanfattning`
+  - TillEngelska: `Släpp ett .docx för engelsk översättning`
+  - TillSvenska: `Släpp ett .docx för svensk översättning`
+  - Punktlista: `Släpp ett .docx för punktlista`
+  - Anonymisera: `Släpp ett .docx för anonymisering`
+  - Förenkla: `Släpp ett .docx för klarspråk`
+  Each hint follows the `Släpp ett .docx för <action-noun>` pattern; the action noun matches the zone's purpose. All hints MUST satisfy the spec 003 Swedish-copy invariants (≤ 80 chars, no `Error:` prefix, non-empty).
 - **FR-006**: Each zone MUST own its system prompt as a `pub const <SLUG>_SYSTEM_PROMPT: &str = "..."` constant in `src-tauri/src/prompts/<slug>.rs`. The prompt is in Swedish (or English for TillEngelska's instruction to the model — the *target* output is English) and includes the same "no greeting, no meta-commentary" guardrails from spec 003.
 - **FR-007**: Each zone MUST produce a sidecar `.docx` with a per-zone filename suffix. The suffixes are: `sammanfatta`, `tillengelska`, `tillsvenska`, `punktlista`, `anonymiserad` (note: past-participle adjective, not the verb stem), `forenkla`. Canonical name: `<source-stem>.<suffix>.docx`.
 - **FR-008**: Each zone MUST reuse the spec 003 atomic-write + FR-006 collision rules unchanged.
