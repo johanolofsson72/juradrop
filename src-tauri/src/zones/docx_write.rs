@@ -14,7 +14,7 @@ use std::path::Path;
 use chrono::Local;
 use docx_rs::{Docx, Paragraph, Run};
 
-use super::prompts::SAMMANFATTA_SYSTEM_PROMPT;
+use crate::prompts::SAMMANFATTA_SYSTEM_PROMPT;
 
 const TRUNCATION_NOTICE: &str =
     "(Dokumentet förkortades innan sammanfattning — endast början är sammanfattad.)";

@@ -19,11 +19,15 @@ pub mod docx_extract;
 pub mod docx_write;
 pub mod errors;
 pub mod job;
-pub mod prompts;
+// Spec 004 T004 — prompts moved to crate::prompts (one file per zone).
+// The `zones/prompts.rs` shim is gone; old callers were inside this
+// crate and have been migrated to `crate::prompts::...`.
 pub mod sammanfatta;
 pub mod sidecar_path;
 pub mod snapshot;
+pub mod zone_id;
 
 pub use errors::ZoneFailure;
 pub use job::DropJob;
 pub use snapshot::{JobOutcome, ZoneSnapshot, ZoneState};
+pub use zone_id::ZoneId;

@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use tauri::{DragDropEvent, Emitter, Listener, Manager, RunEvent, WindowEvent};
 
+pub mod prompts;
 pub mod sidecar;
 pub mod zones;
 

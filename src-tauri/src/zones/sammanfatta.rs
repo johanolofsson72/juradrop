@@ -20,9 +20,9 @@ use super::docx_extract::extract_text;
 use super::docx_write::build_summary_doc;
 use super::errors::ZoneFailure;
 use super::job::DropJob;
-use super::prompts::SAMMANFATTA_SYSTEM_PROMPT;
 use super::sidecar_path::{resolve_target, write_atomically};
 use super::snapshot::{JobOutcome, ZoneSnapshot, ZoneState};
+use crate::prompts::SAMMANFATTA_SYSTEM_PROMPT;
 
 /// Auto-clear delays per FR-010 / FR-011.
 const SUCCESS_AUTO_CLEAR: Duration = Duration::from_secs(2);

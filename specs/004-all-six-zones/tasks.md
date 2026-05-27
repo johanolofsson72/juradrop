@@ -20,9 +20,9 @@ description: "Task list for spec 004 — All six drop zones (2×3 grid)"
 
 **Purpose**: Confirm dependencies + design notes; no new deps in spec 004.
 
-- [ ] T001 Verify all Cargo deps from spec 003 are still in `src-tauri/Cargo.toml` (docx-rs, open, tokio-util, uuid, zip, chrono). Spec 004 introduces zero new crates. No change expected; this task is a sanity gate.
-- [ ] T002 [P] Create the design notes file `design-system/pages/004-six-zone-grid.md` capturing the 2×3 grid layout, responsive collapse breakpoints (920 px → 3×2, 520 px → 1×6), per-zone hint typography, disclaimer paragraph styling for Anonymisera + Förenkla.
-- [ ] T002a Invoke the `frontend-design` skill via the Skill tool BEFORE any UI work below. Reference `design-system/MASTER.md` and the new T002 doc. BLOCKING REQUIREMENT.
+- [x] T001 Verify all Cargo deps from spec 003 are still in `src-tauri/Cargo.toml` (docx-rs, open, tokio-util, uuid, zip, chrono). Spec 004 introduces zero new crates. No change expected; this task is a sanity gate.
+- [x] T002 [P] Create the design notes file `design-system/pages/004-six-zone-grid.md` capturing the 2×3 grid layout, responsive collapse breakpoints (920 px → 3×2, 520 px → 1×6), per-zone hint typography, disclaimer paragraph styling for Anonymisera + Förenkla.
+- [x] T002a Invoke the `frontend-design` skill via the Skill tool BEFORE any UI work below. Reference `design-system/MASTER.md` and the new T002 doc. BLOCKING REQUIREMENT.
 
 ---
 
@@ -30,13 +30,13 @@ description: "Task list for spec 004 — All six drop zones (2×3 grid)"
 
 **Purpose**: Introduce ZoneId without removing SammanfattaZone yet. Phase 2 keeps the existing spec 003 behaviour intact while adding the new abstraction.
 
-- [ ] T003 Create `src-tauri/src/zones/zone_id.rs` per data-model.md. ZoneId enum with six variants + `slug() / title() / hint_copy() / sidecar_suffix() / header_paragraph_template() / has_disclaimer() / disclaimer_paragraph() / system_prompt() / ALL` associated functions. `#[derive(..., Serialize, Deserialize)]` with `serde(rename_all = "snake_case")`. Include `#[cfg(test)] mod tests` asserting each function is exhaustive over `ZoneId::ALL` (no missing match arms at compile time).
-- [ ] T004 Create `src-tauri/src/prompts/` module skeleton — `mod.rs` re-exporting per-zone constants. Move spec 003's prompt to `src-tauri/src/prompts/sammanfatta.rs`. The existing `src-tauri/src/zones/prompts.rs` becomes a deprecated re-export shim during the migration, then is deleted in T008.
-- [ ] T005 [P] Author `src-tauri/src/prompts/tillengelska.rs` with `pub const TILLENGELSKA_SYSTEM_PROMPT: &str = "..."` matching research.md R-008. English instruction targeting English output for a Swedish source. The constant is exported via prompts/mod.rs.
-- [ ] T006 [P] Author `src-tauri/src/prompts/tillsvenska.rs` per R-008 — Swedish target output, with the "already in Swedish" detection clause per the 2026-05-27 clarification.
-- [ ] T007 [P] Author `src-tauri/src/prompts/punktlista.rs` per R-008 — Swedish bulleted output, one bullet per fact, `- ` prefix.
-- [ ] T008 [P] Author `src-tauri/src/prompts/anonymisera.rs` per R-008 — placeholder consistency clause ("samma placeholder för samma identitet genom hela dokumentet"). Swedish.
-- [ ] T009 [P] Author `src-tauri/src/prompts/forenkla.rs` per R-008 — plain-Swedish rewrite with parenthetical jargon explanations. Swedish.
+- [x] T003 Create `src-tauri/src/zones/zone_id.rs` per data-model.md. ZoneId enum with six variants + `slug() / title() / hint_copy() / sidecar_suffix() / header_paragraph_template() / has_disclaimer() / disclaimer_paragraph() / system_prompt() / ALL` associated functions. `#[derive(..., Serialize, Deserialize)]` with `serde(rename_all = "snake_case")`. Include `#[cfg(test)] mod tests` asserting each function is exhaustive over `ZoneId::ALL` (no missing match arms at compile time).
+- [x] T004 Create `src-tauri/src/prompts/` module skeleton — `mod.rs` re-exporting per-zone constants. Move spec 003's prompt to `src-tauri/src/prompts/sammanfatta.rs`. The existing `src-tauri/src/zones/prompts.rs` becomes a deprecated re-export shim during the migration, then is deleted in T008.
+- [x] T005 [P] Author `src-tauri/src/prompts/tillengelska.rs` with `pub const TILLENGELSKA_SYSTEM_PROMPT: &str = "..."` matching research.md R-008. English instruction targeting English output for a Swedish source. The constant is exported via prompts/mod.rs.
+- [x] T006 [P] Author `src-tauri/src/prompts/tillsvenska.rs` per R-008 — Swedish target output, with the "already in Swedish" detection clause per the 2026-05-27 clarification.
+- [x] T007 [P] Author `src-tauri/src/prompts/punktlista.rs` per R-008 — Swedish bulleted output, one bullet per fact, `- ` prefix.
+- [x] T008 [P] Author `src-tauri/src/prompts/anonymisera.rs` per R-008 — placeholder consistency clause ("samma placeholder för samma identitet genom hela dokumentet"). Swedish.
+- [x] T009 [P] Author `src-tauri/src/prompts/forenkla.rs` per R-008 — plain-Swedish rewrite with parenthetical jargon explanations. Swedish.
 
 **Checkpoint after T009**: All six prompt files exist. `ZoneId::system_prompt()` returns each one based on variant. Build + tests green; no behavioural change to the running app yet.
 
