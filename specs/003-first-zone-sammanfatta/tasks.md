@@ -127,17 +127,17 @@ description: "Task list for spec 003 — First drop zone (Sammanfatta)"
 
 ### Implementation for User Story 4
 
-- [ ] T041 [US4] In `src-tauri/src/zones/sammanfatta.rs::handle_drag_event`, count the dropped paths and bail with `ZoneFailure::MultipleFiles` if `paths.len() >= 2` (FR-014).
-- [ ] T042 [US4] Same handler: check `path.extension() == Some("docx".as_ref())` and bail with `ZoneFailure::InvalidFormat` otherwise (FR-013).
-- [ ] T043 [US4] Same handler: if the current job's `outcome == InFlight`, bail with `ZoneFailure::ZoneBusy` and emit a transient toast/inline message (does NOT disturb the in-flight job's UI state — FR-015).
-- [ ] T044 [US4] Map every `ClientError` from `OllamaClient::generate` to `ZoneFailure::ModelError` inside `sammanfatta.rs::dispatch` (FR-020).
-- [ ] T045 [US4] Map every `std::io::Error` from `write_atomically` to `ZoneFailure::SaveError` (FR-019 + edge case).
+- [x] T041 [US4] In `src-tauri/src/zones/sammanfatta.rs::handle_drag_event`, count the dropped paths and bail with `ZoneFailure::MultipleFiles` if `paths.len() >= 2` (FR-014).
+- [x] T042 [US4] Same handler: check `path.extension() == Some("docx".as_ref())` and bail with `ZoneFailure::InvalidFormat` otherwise (FR-013).
+- [x] T043 [US4] Same handler: if the current job's `outcome == InFlight`, bail with `ZoneFailure::ZoneBusy` and emit a transient toast/inline message (does NOT disturb the in-flight job's UI state — FR-015).
+- [x] T044 [US4] Map every `ClientError` from `OllamaClient::generate` to `ZoneFailure::ModelError` inside `sammanfatta.rs::dispatch` (FR-020).
+- [x] T045 [US4] Map every `std::io::Error` from `write_atomically` to `ZoneFailure::SaveError` (FR-019 + edge case).
 
 ### Tests for User Story 4
 
-- [ ] T046 [P] [US4] Write `src-tauri/tests/zone_docx_robustness.rs` covering: corrupt zip → `ParseError`, password-protected → `PasswordProtected`, whitespace-only → `EmptyText`, exact 24,000 chars + 1 → truncation flag set. Each case uses an in-process zip-built fixture (no real Word needed).
-- [ ] T047 [P] [US4] Write a vitest test `src/__tests__/SammanfattaZone.errors.test.tsx`: for each `ZoneFailure` variant, set the store's `zone.failure` and assert the rendered string matches `SWEDISH_ZONE_ERROR[variant]`. Also asserts no rendered string starts with `Error:` and every string is ≤ 80 characters (mirrors the Allium `SwedishCopy` invariants in JS). **SC-002 check**: wrap each error injection in `vi.useFakeTimers()` and assert the rendered string appears in the DOM within the simulated 3-second budget. The store update is synchronous so this is effectively asserting < 100 ms in practice — but the explicit fake-timer wrapper documents the SC-002 contract in the test source.
-- [ ] T048 [P] [US4] Cross-language drift assertion: a Rust test that prints every `ZoneFailure::Display` string to a JSON file at build time + a vitest test that imports `SWEDISH_ZONE_ERROR` and asserts byte-for-byte equality against the same JSON file. Catches future refactors that update one side without the other.
+- [x] T046 [P] [US4] Write `src-tauri/tests/zone_docx_robustness.rs` covering: corrupt zip → `ParseError`, password-protected → `PasswordProtected`, whitespace-only → `EmptyText`, exact 24,000 chars + 1 → truncation flag set. Each case uses an in-process zip-built fixture (no real Word needed).
+- [x] T047 [P] [US4] Write a vitest test `src/__tests__/SammanfattaZone.errors.test.tsx`: for each `ZoneFailure` variant, set the store's `zone.failure` and assert the rendered string matches `SWEDISH_ZONE_ERROR[variant]`. Also asserts no rendered string starts with `Error:` and every string is ≤ 80 characters (mirrors the Allium `SwedishCopy` invariants in JS). **SC-002 check**: wrap each error injection in `vi.useFakeTimers()` and assert the rendered string appears in the DOM within the simulated 3-second budget. The store update is synchronous so this is effectively asserting < 100 ms in practice — but the explicit fake-timer wrapper documents the SC-002 contract in the test source.
+- [x] T048 [P] [US4] Cross-language drift assertion: a Rust test that prints every `ZoneFailure::Display` string to a JSON file at build time + a vitest test that imports `SWEDISH_ZONE_ERROR` and asserts byte-for-byte equality against the same JSON file. Catches future refactors that update one side without the other.
 
 **Checkpoint**: US4 done = every error category surfaces its Swedish string; both sides of the Rust/TS boundary agree on every string.
 
