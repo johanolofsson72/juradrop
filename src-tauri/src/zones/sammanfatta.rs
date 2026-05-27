@@ -22,7 +22,7 @@ use super::errors::ZoneFailure;
 use super::job::DropJob;
 use super::sidecar_path::{resolve_target, write_atomically};
 use super::snapshot::{JobOutcome, ZoneSnapshot, ZoneState};
-use crate::prompts::SAMMANFATTA_SYSTEM_PROMPT;
+use super::zone_id::ZoneId;
 
 /// Auto-clear delays per FR-010 / FR-011.
 const SUCCESS_AUTO_CLEAR: Duration = Duration::from_secs(2);
@@ -40,15 +40,30 @@ impl Default for ZoneState {
     }
 }
 
-pub struct SammanfattaZone {
+pub struct DropZone {
+    id: ZoneId,
     state: Arc<RwLock<ZoneInternalState>>,
 }
 
-impl SammanfattaZone {
-    pub fn new() -> Arc<Self> {
+/// Compat shim — spec 003 call sites still say `SammanfattaZone`.
+/// Removed in T049 (Phase 7 cleanup).
+pub type SammanfattaZone = DropZone;
+
+impl DropZone {
+    pub fn new(id: ZoneId) -> Arc<Self> {
         Arc::new(Self {
+            id,
             state: Arc::new(RwLock::new(ZoneInternalState::default())),
         })
+    }
+
+    pub fn id(&self) -> ZoneId {
+        self.id
+    }
+
+    /// Per-channel emit string `juradrop://zone/<slug>`.
+    fn event_channel(&self) -> String {
+        format!("juradrop://zone/{}", self.id.slug())
     }
 
     /// Validate a Drop and either start the dispatch pipeline or
@@ -95,7 +110,7 @@ impl SammanfattaZone {
         {
             let st = self.state.read();
             if matches!(st.visible, ZoneState::Processing) {
-                let _ = app.emit("juradrop://sammanfatta", self.snapshot_for_busy_toast());
+                let _ = app.emit(&self.event_channel(), self.snapshot_for_busy_toast());
                 return;
             }
         }
@@ -111,13 +126,13 @@ impl SammanfattaZone {
             st.current_job = Some(job);
         }
         let _ = app.emit(
-            "juradrop://sammanfatta",
+            &self.event_channel(),
             ZoneSnapshot {
                 state: ZoneState::Processing,
                 disabled: false,
                 failure: None,
                 job_id: Some(job_id.to_string()),
-                progress_hint: Some("Sammanfattar…".into()),
+                progress_hint: Some(self.id.processing_hint().into()),
             },
         );
 
@@ -161,10 +176,13 @@ impl SammanfattaZone {
             }
         };
 
-        // Step 2: build the full prompt (system + user). Re-wrap in
-        // Redacted immediately so logging stays safe end-to-end.
+        // Step 2: build the per-zone full prompt (system + user). The
+        // system prompt comes from self.id.system_prompt() so each
+        // zone fires its own Swedish instruction. Wrap in Redacted
+        // immediately so logging stays safe end-to-end.
         let full_prompt = format!(
-            "{SAMMANFATTA_SYSTEM_PROMPT}\n\n{}",
+            "{}\n\n{}",
+            self.id.system_prompt(),
             extracted.raw.as_inner()
         );
         let prompt = Redacted::new(full_prompt);
@@ -194,9 +212,11 @@ impl SammanfattaZone {
             return;
         }
 
-        // Step 4: build the output .docx + write atomically.
-        let bytes = build_summary_doc(&source, &response_text, extracted.was_truncated);
-        let target = resolve_target(&source);
+        // Step 4: build the output .docx + write atomically. Both
+        // per-zone — the writer uses the zone's header template +
+        // disclaimer, and the resolver uses the zone's sidecar suffix.
+        let bytes = build_summary_doc(self.id, &source, &response_text, extracted.was_truncated);
+        let target = resolve_target(&source, self.id);
 
         if let Err(failure) = write_atomically(&target, &bytes).await {
             self.finalize_with_failure(&app, job_id, failure).await;
@@ -219,7 +239,7 @@ impl SammanfattaZone {
             st.visible = ZoneState::Success;
         }
         let _ = app.emit(
-            "juradrop://sammanfatta",
+            &self.event_channel(),
             ZoneSnapshot {
                 state: ZoneState::Success,
                 disabled: false,
@@ -256,7 +276,7 @@ impl SammanfattaZone {
                 progress_hint: None,
             };
             drop(st);
-            let _ = app.emit("juradrop://sammanfatta", snap);
+            let _ = app.emit(&self.event_channel(), snap);
         }
     }
 
@@ -269,7 +289,7 @@ impl SammanfattaZone {
             st.current_job = None;
         }
         let _ = app.emit(
-            "juradrop://sammanfatta",
+            &self.event_channel(),
             ZoneSnapshot {
                 state: ZoneState::Error,
                 disabled: false,
@@ -308,7 +328,7 @@ impl SammanfattaZone {
             st.visible = ZoneState::Error;
         }
         let _ = app.emit(
-            "juradrop://sammanfatta",
+            &self.event_channel(),
             ZoneSnapshot {
                 state: ZoneState::Error,
                 disabled: false,
@@ -338,7 +358,7 @@ impl SammanfattaZone {
             st.visible = ZoneState::Success;
         }
         let _ = app.emit(
-            "juradrop://sammanfatta",
+            &self.event_channel(),
             ZoneSnapshot {
                 state: ZoneState::Success,
                 disabled: false,
@@ -388,7 +408,7 @@ impl SammanfattaZone {
             st.visible = ZoneState::Idle;
             st.current_job = None;
         }
-        let _ = app.emit("juradrop://sammanfatta", ZoneSnapshot::idle(false));
+        let _ = app.emit(&self.event_channel(), ZoneSnapshot::idle(false));
         true
     }
 
@@ -440,7 +460,7 @@ mod tests {
 
     #[test]
     fn new_zone_starts_idle_with_no_job() {
-        let zone = SammanfattaZone::new();
+        let zone = DropZone::new(ZoneId::Sammanfatta);
         let st = zone.state.read();
         assert!(matches!(st.visible, ZoneState::Idle));
         assert!(st.current_job.is_none());
@@ -448,7 +468,7 @@ mod tests {
 
     #[test]
     fn cancel_with_stale_job_id_is_no_op() {
-        let zone = SammanfattaZone::new();
+        let zone = DropZone::new(ZoneId::Sammanfatta);
         // No job in flight — cancel should be silent (no panic).
         zone.cancel("00000000-0000-0000-0000-000000000000");
         let st = zone.state.read();
@@ -479,7 +499,7 @@ mod tests {
             .expect("build mock app");
         let handle = app.handle().clone();
 
-        let zone = SammanfattaZone::new();
+        let zone = DropZone::new(ZoneId::Sammanfatta);
 
         // Case 1 — expected matches actual. Clear should fire.
         zone.set_visible_for_test(ZoneState::Success);

@@ -14,6 +14,7 @@ use super::disk_space;
 use super::log_safe::Redacted;
 use super::manager::OllamaSidecar;
 use super::status::{AppStatus, ConsentChoice, ModelStatus, SidecarStatus, UserVisibleStatus};
+use crate::zones::ZoneId;
 
 /// Default model the PoC bundles. Spec 002 contracts/ollama-api-usage.md +
 /// spec.allium `ModelArtifact::TagIsDefault` invariant.
@@ -115,7 +116,7 @@ impl AppState {
             progress: Arc::new(RwLock::new(None)),
             consent: Arc::new(RwLock::new(ConsentRecord::default())),
             error_override: Arc::new(RwLock::new(None)),
-            sammanfatta: crate::zones::sammanfatta::SammanfattaZone::new(),
+            sammanfatta: crate::zones::sammanfatta::DropZone::new(ZoneId::Sammanfatta),
         }
     }
 

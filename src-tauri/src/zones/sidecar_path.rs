@@ -12,40 +12,40 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 use super::errors::ZoneFailure;
+use super::zone_id::ZoneId;
 
-const SIDECAR_BASENAME_SUFFIX: &str = "sammanfatta";
-
-/// FR-005 — canonical sidecar path for a given source `.docx`. Does NOT
-/// check filesystem state; pure path computation.
-pub fn canonical_for(source: &Path) -> PathBuf {
+/// FR-005 + FR-007 — canonical sidecar path for a given source `.docx`
+/// and ZoneId. The suffix is per-zone (`sammanfatta`, `tillengelska`,
+/// `anonymiserad`, …). Pure path computation.
+pub fn canonical_for(source: &Path, zone_id: ZoneId) -> PathBuf {
     let dir = source.parent().unwrap_or_else(|| Path::new(""));
     let stem = source
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("dokument");
-    dir.join(format!("{stem}.{SIDECAR_BASENAME_SUFFIX}.docx"))
+    let suffix = zone_id.sidecar_suffix();
+    dir.join(format!("{stem}.{suffix}.docx"))
 }
 
 /// FR-006 — sidecar path with a local-time timestamp suffix appended
-/// before the extension. Used when `canonical_for(source)` already
-/// exists on disk.
-pub fn with_collision_suffix(source: &Path) -> PathBuf {
+/// before the extension. Used when `canonical_for` already exists.
+pub fn with_collision_suffix(source: &Path, zone_id: ZoneId) -> PathBuf {
     let dir = source.parent().unwrap_or_else(|| Path::new(""));
     let stem = source
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("dokument");
+    let suffix = zone_id.sidecar_suffix();
     let ts = Local::now().format("%Y-%m-%d-%H%M%S");
-    dir.join(format!("{stem}.{SIDECAR_BASENAME_SUFFIX}.{ts}.docx"))
+    dir.join(format!("{stem}.{suffix}.{ts}.docx"))
 }
 
-/// FR-006 — resolve a free sidecar path: canonical if available,
-/// otherwise the timestamped variant. Does the filesystem probe so the
-/// caller's dispatch logic stays linear.
-pub fn resolve_target(source: &Path) -> PathBuf {
-    let canonical = canonical_for(source);
+/// FR-006 — resolve a free per-zone sidecar path: canonical if
+/// available, otherwise the timestamped variant.
+pub fn resolve_target(source: &Path, zone_id: ZoneId) -> PathBuf {
+    let canonical = canonical_for(source, zone_id);
     if canonical.exists() {
-        with_collision_suffix(source)
+        with_collision_suffix(source, zone_id)
     } else {
         canonical
     }
@@ -93,20 +93,20 @@ mod tests {
 
     #[test]
     fn canonical_appends_sammanfatta_docx_in_same_dir() {
-        let p = canonical_for(Path::new("/tmp/some/dir/ruling.docx"));
+        let p = canonical_for(Path::new("/tmp/some/dir/ruling.docx"), ZoneId::Sammanfatta);
         assert_eq!(p.to_string_lossy(), "/tmp/some/dir/ruling.sammanfatta.docx");
     }
 
     #[test]
     fn canonical_handles_stem_with_dots() {
         // file_stem strips only the LAST extension; "v2.final.docx" → "v2.final".
-        let p = canonical_for(Path::new("/tmp/v2.final.docx"));
+        let p = canonical_for(Path::new("/tmp/v2.final.docx"), ZoneId::Sammanfatta);
         assert_eq!(p.to_string_lossy(), "/tmp/v2.final.sammanfatta.docx");
     }
 
     #[test]
     fn collision_suffix_is_iso_local_time() {
-        let p = with_collision_suffix(Path::new("/tmp/a.docx"));
+        let p = with_collision_suffix(Path::new("/tmp/a.docx"), ZoneId::Sammanfatta);
         let s = p.to_string_lossy();
         assert!(s.starts_with("/tmp/a.sammanfatta."));
         assert!(s.ends_with(".docx"));
@@ -140,7 +140,7 @@ mod tests {
 
         let mut paths: Vec<PathBuf> = Vec::new();
         for i in 0..10 {
-            let target = resolve_target(&source);
+            let target = resolve_target(&source, ZoneId::Sammanfatta);
             write_atomically(&target, format!("body {i}").as_bytes())
                 .await
                 .unwrap();
@@ -148,7 +148,7 @@ mod tests {
             // file in the same second, sleep and re-pick.
             if paths.contains(&target) {
                 tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
-                let retry = resolve_target(&source);
+                let retry = resolve_target(&source, ZoneId::Sammanfatta);
                 write_atomically(&retry, format!("body {i} retry").as_bytes())
                     .await
                     .unwrap();

@@ -21,7 +21,8 @@ use std::time::Duration;
 
 use docx_rs::{Docx, Paragraph, Run};
 use juradrop_lib::sidecar::client::OllamaClient;
-use juradrop_lib::zones::sammanfatta::SammanfattaZone;
+use juradrop_lib::zones::sammanfatta::DropZone;
+use juradrop_lib::zones::ZoneId;
 use sha2::{Digest, Sha256};
 use tauri::test::{mock_builder, mock_context, noop_assets};
 use tempfile::TempDir;
@@ -49,7 +50,7 @@ fn write_fixture_docx(dir: &std::path::Path, text: &str) -> PathBuf {
 
 /// Helper: peek at the current in-flight job id without taking a
 /// long write lock. Returns None if the zone is idle.
-fn current_job_id(zone: &SammanfattaZone) -> Option<String> {
+fn current_job_id(zone: &DropZone) -> Option<String> {
     // The zone exposes `cancel(&str)` but not a getter for the
     // current id; in production, the React layer carries the
     // job_id in the snapshot it observes. For tests we rely on
@@ -86,7 +87,7 @@ async fn cancel_mid_inference_leaves_no_sidecar_and_source_byte_identical() {
         .build(mock_context(noop_assets()))
         .expect("build mock tauri app");
     let handle = app.handle().clone();
-    let zone = SammanfattaZone::new();
+    let zone = DropZone::new(ZoneId::Sammanfatta);
     let client = Arc::new(OllamaClient::with_base_url(server.uri()));
 
     // 3. Stage a fixture .docx, capture its hash.
@@ -197,7 +198,7 @@ async fn cancel_with_unknown_job_id_is_idempotent_noop() {
         .build(mock_context(noop_assets()))
         .expect("build mock tauri app");
     let _handle = app.handle().clone();
-    let zone = SammanfattaZone::new();
+    let zone = DropZone::new(ZoneId::Sammanfatta);
 
     // Idle zone — cancel by random id is a no-op.
     zone.cancel("00000000-0000-0000-0000-000000000000");

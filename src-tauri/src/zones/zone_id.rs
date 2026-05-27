@@ -80,6 +80,19 @@ impl ZoneId {
         }
     }
 
+    /// Per-zone Swedish present-tense verb shown during Processing.
+    /// "Sammanfattar…", "Översätter…", "Listar…", etc.
+    pub fn processing_hint(self) -> &'static str {
+        match self {
+            ZoneId::Sammanfatta => "Sammanfattar…",
+            ZoneId::TillEngelska => "Översätter…",
+            ZoneId::TillSvenska => "Översätter…",
+            ZoneId::Punktlista => "Listar…",
+            ZoneId::Anonymisera => "Anonymiserar…",
+            ZoneId::Forenkla => "Förenklar…",
+        }
+    }
+
     /// FR-007 — sidecar filename suffix. Note the past-participle
     /// "anonymiserad" for the noun-form filename (reads better than
     /// the verb stem on disk).

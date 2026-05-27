@@ -20,7 +20,8 @@ use std::time::Duration;
 use docx_rs::{Docx, Paragraph, Run};
 use juradrop_lib::sidecar::client::OllamaClient;
 use juradrop_lib::zones::docx_extract::extract_text_from_bytes;
-use juradrop_lib::zones::sammanfatta::SammanfattaZone;
+use juradrop_lib::zones::sammanfatta::DropZone;
+use juradrop_lib::zones::ZoneId;
 use sha2::{Digest, Sha256};
 use tauri::test::{mock_builder, mock_context, noop_assets};
 use tempfile::TempDir;
@@ -71,7 +72,7 @@ async fn drop_docx_writes_sidecar_and_leaves_source_byte_identical() {
         .build(mock_context(noop_assets()))
         .expect("build mock tauri app");
     let handle = app.handle().clone();
-    let zone = SammanfattaZone::new();
+    let zone = DropZone::new(ZoneId::Sammanfatta);
     let client = Arc::new(OllamaClient::with_base_url(server.uri()));
 
     // 3. Stage a fixture .docx and capture its SHA-256.
@@ -137,7 +138,7 @@ async fn disabled_zone_rejects_drop_without_calling_model() {
         .build(mock_context(noop_assets()))
         .expect("build mock tauri app");
     let handle = app.handle().clone();
-    let zone = SammanfattaZone::new();
+    let zone = DropZone::new(ZoneId::Sammanfatta);
     // A client pointed at a port nothing listens on — would fail loudly
     // if dispatch reached it; the disabled gate must short-circuit before.
     let client = Arc::new(OllamaClient::with_base_url(
@@ -169,7 +170,7 @@ async fn non_docx_drop_emits_invalid_format_and_does_not_call_model() {
         .build(mock_context(noop_assets()))
         .expect("build mock tauri app");
     let handle = app.handle().clone();
-    let zone = SammanfattaZone::new();
+    let zone = DropZone::new(ZoneId::Sammanfatta);
     let client = Arc::new(OllamaClient::with_base_url(
         "http://127.0.0.1:1".to_string(),
     ));
@@ -214,7 +215,7 @@ async fn drop_with_exotic_chars_in_path_produces_correctly_named_sidecar() {
         .build(mock_context(noop_assets()))
         .expect("build mock tauri app");
     let handle = app.handle().clone();
-    let zone = SammanfattaZone::new();
+    let zone = DropZone::new(ZoneId::Sammanfatta);
     let client = Arc::new(OllamaClient::with_base_url(server.uri()));
 
     let dir = TempDir::new().expect("tempdir");
@@ -303,7 +304,7 @@ async fn dispatch_failure_leaves_no_sidecar_on_disk() {
         .build(mock_context(noop_assets()))
         .expect("build mock tauri app");
     let handle = app.handle().clone();
-    let zone = SammanfattaZone::new();
+    let zone = DropZone::new(ZoneId::Sammanfatta);
     let client = Arc::new(OllamaClient::with_base_url(server.uri()));
 
     let dir = TempDir::new().expect("tempdir");
@@ -362,7 +363,7 @@ async fn multi_file_drop_emits_multiple_files_failure() {
         .build(mock_context(noop_assets()))
         .expect("build mock tauri app");
     let handle = app.handle().clone();
-    let zone = SammanfattaZone::new();
+    let zone = DropZone::new(ZoneId::Sammanfatta);
     let client = Arc::new(OllamaClient::with_base_url(
         "http://127.0.0.1:1".to_string(),
     ));

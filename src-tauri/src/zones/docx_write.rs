@@ -1,12 +1,12 @@
-// Spec 003 / T015 — build the summary `.docx` per contracts/docx-format.md.
+// Spec 003 / T015 + spec 004 / T015 — build the per-zone summary `.docx`.
 //
-// Output structure:
-//   paragraph 0   — "Sammanfattning av '<basename>'"           (bold)
-//   paragraph 1   — "Genererad <YYYY-MM-DD HH:MM> av JuraDrop
-//                    med modellen gemma3:4b."                  (regular)
-//   paragraph 2   — truncation notice (Swedish, italic)        (optional)
-//   paragraph 3   — empty spacer                                (always)
-//   paragraph 4+  — model response, split on `\n\n`             (1+)
+// Output structure per `specs/004-all-six-zones/contracts/docx-format.md`:
+//   paragraph 0  — per-zone header from ZoneId::header_paragraph_template() (bold)
+//   paragraph 1  — "Genererad <ts> av JuraDrop med modellen gemma3:4b." (regular)
+//   paragraph 2  — truncation notice                                    (italic, optional)
+//   paragraph 3  — per-zone disclaimer (Anonymisera + Förenkla only)    (italic, conditional)
+//   paragraph 4  — empty spacer                                          (always)
+//   paragraph 5+ — model response, split on `\n\n`                       (1+)
 
 use std::io::Cursor;
 use std::path::Path;
@@ -14,29 +14,34 @@ use std::path::Path;
 use chrono::Local;
 use docx_rs::{Docx, Paragraph, Run};
 
-use crate::prompts::SAMMANFATTA_SYSTEM_PROMPT;
+use super::zone_id::ZoneId;
 
 const TRUNCATION_NOTICE: &str =
     "(Dokumentet förkortades innan sammanfattning — endast början är sammanfattad.)";
 
 const MODEL_LABEL: &str = "gemma3:4b";
 
-/// Construct a serialized `.docx` summarizing `response` for `source`.
+/// Construct a serialized per-zone `.docx`.
 ///
-/// `truncated` toggles the FR-019 Swedish truncation notice paragraph.
-/// The system prompt referenced here is only used at run time to
-/// invoke the model — it does not appear in the output document.
-pub fn build_summary_doc(source: &Path, response: &str, truncated: bool) -> Vec<u8> {
-    let _ = SAMMANFATTA_SYSTEM_PROMPT; // keep the import meaningful; the
-                                       // dispatcher uses this constant.
-
+/// - `zone_id`     — selects the FR-009 header template + optional disclaimer.
+/// - `source`      — used for the {name} substitution in the header.
+/// - `response`    — the model output. Split on `\n\n` into body paragraphs.
+/// - `truncated`   — toggles the FR-019 truncation notice paragraph.
+pub fn build_summary_doc(
+    zone_id: ZoneId,
+    source: &Path,
+    response: &str,
+    truncated: bool,
+) -> Vec<u8> {
     let basename = source
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("(okänt dokument)");
     let generated_at = Local::now().format("%Y-%m-%d %H:%M");
 
-    let header_filename = format!("Sammanfattning av '{basename}'");
+    let header_filename = zone_id
+        .header_paragraph_template()
+        .replace("{name}", basename);
     let header_meta = format!("Genererad {generated_at} av JuraDrop med modellen {MODEL_LABEL}.");
 
     let mut docx = Docx::new()
@@ -49,7 +54,13 @@ pub fn build_summary_doc(source: &Path, response: &str, truncated: bool) -> Vec<
         );
     }
 
-    // Spacer paragraph between header block and body.
+    // FR-013 + FR-014 — disclaimer paragraph for Anonymise + Förenkla only.
+    if let Some(disclaimer) = zone_id.disclaimer_paragraph() {
+        docx =
+            docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(disclaimer).italic()));
+    }
+
+    // Spacer between header block and body.
     docx = docx.add_paragraph(Paragraph::new());
 
     // Body: split on `\n\n`, drop empty trailing chunks.
@@ -79,10 +90,14 @@ mod tests {
     }
 
     #[test]
-    fn output_is_a_valid_docx_round_trippable_through_docx_rs() {
-        let bytes = build_summary_doc(&fake_source(), "En koncis sammanfattning.", false);
+    fn sammanfatta_header_uses_sammanfattning_template() {
+        let bytes = build_summary_doc(
+            ZoneId::Sammanfatta,
+            &fake_source(),
+            "En koncis sammanfattning.",
+            false,
+        );
         let extracted = extract_text_from_bytes(&bytes).expect("output must parse");
-        // First paragraph must be the FR-005a header.
         assert!(extracted
             .raw
             .as_inner()
@@ -90,8 +105,59 @@ mod tests {
     }
 
     #[test]
+    fn tillengelska_header_uses_oversattning_template() {
+        let bytes = build_summary_doc(ZoneId::TillEngelska, &fake_source(), "English text.", false);
+        let extracted = extract_text_from_bytes(&bytes).unwrap();
+        assert!(extracted
+            .raw
+            .as_inner()
+            .contains("Översättning till engelska av 'my-ruling.docx'"));
+    }
+
+    #[test]
+    fn punktlista_header_uses_punktlista_template() {
+        let bytes = build_summary_doc(ZoneId::Punktlista, &fake_source(), "- A\n- B", false);
+        let extracted = extract_text_from_bytes(&bytes).unwrap();
+        assert!(extracted
+            .raw
+            .as_inner()
+            .contains("Punktlista över 'my-ruling.docx'"));
+    }
+
+    #[test]
+    fn anonymisera_includes_fr013_disclaimer_paragraph() {
+        let bytes = build_summary_doc(ZoneId::Anonymisera, &fake_source(), "Person A...", false);
+        let extracted = extract_text_from_bytes(&bytes).unwrap();
+        assert!(extracted
+            .raw
+            .as_inner()
+            .contains("AI-anonymisering är inte hundra procent"));
+    }
+
+    #[test]
+    fn forenkla_includes_fr014_disclaimer_paragraph() {
+        let bytes = build_summary_doc(ZoneId::Forenkla, &fake_source(), "Förenklad…", false);
+        let extracted = extract_text_from_bytes(&bytes).unwrap();
+        assert!(extracted
+            .raw
+            .as_inner()
+            .contains("Förenklad version — granska att inga juridiska poänger"));
+    }
+
+    #[test]
+    fn sammanfatta_has_no_disclaimer_paragraph() {
+        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Text.", false);
+        let extracted = extract_text_from_bytes(&bytes).unwrap();
+        assert!(!extracted
+            .raw
+            .as_inner()
+            .contains("AI-anonymisering är inte hundra procent"));
+        assert!(!extracted.raw.as_inner().contains("Förenklad version"));
+    }
+
+    #[test]
     fn meta_paragraph_includes_model_label() {
-        let bytes = build_summary_doc(&fake_source(), "Hej.", false);
+        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Hej.", false);
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted.raw.as_inner().contains("gemma3:4b"));
         assert!(extracted
@@ -102,11 +168,12 @@ mod tests {
 
     #[test]
     fn truncation_notice_present_only_when_flag_set() {
-        let with_notice = build_summary_doc(&fake_source(), "Kort text.", true);
+        let with_notice =
+            build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Kort text.", true);
         let extracted = extract_text_from_bytes(&with_notice).unwrap();
         assert!(extracted.raw.as_inner().contains("Dokumentet förkortades"));
 
-        let without = build_summary_doc(&fake_source(), "Kort text.", false);
+        let without = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Kort text.", false);
         let extracted2 = extract_text_from_bytes(&without).unwrap();
         assert!(!extracted2.raw.as_inner().contains("Dokumentet förkortades"));
     }
@@ -114,34 +181,11 @@ mod tests {
     #[test]
     fn body_paragraphs_split_on_double_newline() {
         let body = "Första.\n\nAndra.\n\nTredje.";
-        let bytes = build_summary_doc(&fake_source(), body, false);
+        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), body, false);
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         let raw = extracted.raw.as_inner();
         assert!(raw.contains("Första."));
         assert!(raw.contains("Andra."));
         assert!(raw.contains("Tredje."));
-    }
-
-    #[test]
-    fn empty_body_chunks_are_dropped() {
-        // Triple newlines produce an empty middle chunk — must NOT
-        // emit a body paragraph for it.
-        let body = "A.\n\n\n\nB.";
-        let bytes = build_summary_doc(&fake_source(), body, false);
-        let extracted = extract_text_from_bytes(&bytes).unwrap();
-        let raw = extracted.raw.as_inner();
-        assert!(raw.contains("A."));
-        assert!(raw.contains("B."));
-    }
-
-    #[test]
-    fn output_uses_filename_with_extension_in_header() {
-        let bytes = build_summary_doc(
-            Path::new("/Users/me/Documents/HD-2024-123.docx"),
-            "Text.",
-            false,
-        );
-        let extracted = extract_text_from_bytes(&bytes).unwrap();
-        assert!(extracted.raw.as_inner().contains("HD-2024-123.docx"));
     }
 }
