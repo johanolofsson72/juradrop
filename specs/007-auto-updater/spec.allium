@@ -1,0 +1,513 @@
+-- allium: 3
+
+-- Formal spec for spec 007: auto-updater (Swedish UI, per-zone-aware,
+-- v0.1 → v0.2 path).
+-- Source: specs/007-auto-updater/spec.md
+-- Elicited: 2026-05-27
+--
+-- This file specifies the update-lifecycle state machine that replaces
+-- Tauri's built-in modal dialog (spec 006) with a non-modal Swedish
+-- in-app surface. The state machine is owned by Rust, mirrored to
+-- React via Zustand, and respects the per-zone single-flight invariant
+-- from spec 003/004 via the FR-008/FR-009 deferral gate.
+
+-- ============================================================
+-- External entities (defined by spec 003/004, referenced here)
+-- ============================================================
+
+-- Re-declared locally (Allium has no `external entity` collection
+-- support that lets us write `DropZones.any(...)` from rule requires).
+-- Same shape as spec 003/004 — referenced here only for the FR-008/
+-- FR-009 deferral predicate.
+entity DropZone {
+    id: ZoneId
+    visible_state: idle | dragover | processing | success | error
+}
+
+external entity OllamaSidecar {
+    user_visible_status: starting | downloading_model | ready | error_failed_to_start
+        | error_port_busy | error_disk_full | error_unexpected
+        | error_model_download_aborted | model_missing_aborted
+}
+
+-- Re-declared locally (Allium has no `external enum` keyword). Same
+-- six-variant shape as spec 004.
+enum ZoneId {
+    sammanfatta | tillengelska | tillsvenska | punktlista | anonymisera | forenkla
+}
+
+external entity SwedishCopy {
+    -- Same NoEnglishPrefix / LengthBounded / NonEmpty invariants as
+    -- spec 003. Every UpdateFailure variant carries one of these.
+    text: String
+}
+
+-- ============================================================
+-- Enums — update lifecycle
+-- ============================================================
+
+-- The seven-variant update state. Source of truth in Rust; mirrored
+-- via the `juradrop://update-status` Tauri event to React/Zustand.
+enum UpdateState {
+    unknown              -- fresh launch, no check yet
+    checking             -- background check in flight
+    up_to_date           -- nothing newer
+    available            -- newer version found; user can install
+    downloading          -- bytes flowing
+    ready_to_install     -- download + signature verify passed
+    restarting           -- explicit user click; Tauri install in flight
+    failed               -- terminal-ish (recoverable via retry)
+}
+
+-- The six-variant Swedish failure vocabulary. Independent of
+-- `ZoneFailure` because update failures are app-global, not per-zone.
+enum UpdateFailure {
+    no_network             -- "Kan inte nå GitHub …"
+    manifest_malformed     -- "Uppdateringsservern svarade med ogiltigt innehåll."
+    signature_invalid      -- "Säkerhetskontrollen misslyckades …"
+    download_interrupted   -- "Nedladdningen avbröts …"
+    install_failed         -- "Kunde inte installera uppdateringen."
+    unsupported_platform   -- "Den nya versionen kräver en nyare macOS …"
+}
+
+-- ============================================================
+-- Value objects
+-- ============================================================
+
+-- The per-state payload mirrored to React. Pattern-matched on the
+-- consumer side.
+value UpdateStatus {
+    state: UpdateState
+    version: String when state in {up_to_date, available, downloading, ready_to_install, restarting}
+    notes: String when state = available
+    download_url: String when state = available
+    progress_pct: Integer when state = downloading
+    checked_at: Timestamp when state in {up_to_date, failed}
+    failure: UpdateFailure when state = failed
+}
+
+-- ============================================================
+-- Entities
+-- ============================================================
+
+-- The single source-of-truth state holder. Owned by AppState; one
+-- instance per running app. The `pending_restart_consent` flag tracks
+-- whether the user has clicked "Starta om" — gates the FR-009 deferred
+-- auto-restart.
+entity Updater {
+    state: UpdateState
+    current_version: String       -- e.g. "0.1.0", from Cargo.toml at build time
+    latest_known_version: String? -- non-null once first Available transition fires
+    pending_restart_consent: Boolean   -- spec FR-009a — true after user click; gates auto-restart
+    indicator_dismissed: Boolean       -- spec FR-018 — user-suppressed badge
+
+    transitions state {
+        unknown -> checking
+        up_to_date -> checking
+        failed -> checking
+        checking -> up_to_date
+        checking -> available
+        checking -> failed
+        available -> downloading
+        available -> failed
+        downloading -> ready_to_install
+        downloading -> failed
+        ready_to_install -> restarting
+        ready_to_install -> failed
+        -- restarting is effectively terminal — the process is being
+        -- replaced. The new process starts at unknown.
+        terminal: restarting
+    }
+
+    invariant ProgressOnlyWhileDownloading {
+        -- The progress_pct field of the mirrored UpdateStatus is only
+        -- meaningful while downloading.
+        state = downloading implies true   -- placeholder; the value
+                                            -- invariant lives on UpdateStatus
+    }
+
+    invariant ConsentOnlyMeaningfulInReadyToInstall {
+        -- pending_restart_consent only matters in ready_to_install.
+        -- Cleared on every transition out of ready_to_install.
+        state != ready_to_install implies pending_restart_consent = false
+    }
+}
+
+-- The background tick task. Single tokio-spawned task per app.
+entity UpdaterTask {
+    interval: Duration = `4 hours`
+    last_fired_at: Timestamp?
+    cancelled: Boolean
+}
+
+-- ============================================================
+-- Config / fixed boundaries
+-- ============================================================
+
+config {
+    background_check_interval_hours: Integer = 4
+    launch_check_delay_secs: Integer = 5
+    download_timeout_secs: Integer = 600        -- 10 min for the DMG download
+    manifest_fetch_timeout_secs: Integer = 30
+    update_endpoint: String = `https://github.com/johanolofsson72/juradrop/releases/latest/download/latest.json`
+}
+
+-- ============================================================
+-- Rules — checking
+-- ============================================================
+
+-- FR-004 — auto-check on launch (~5 seconds after first paint to let
+-- the UI settle). The launch-check-delay is honored by the
+-- implementation (config above); the Allium rule asserts the post-
+-- condition independent of timing.
+rule AutoCheckOnLaunch {
+    when: AppLaunched()
+    requires: Updater.state = unknown
+    ensures:
+        Updater.state = checking
+        UpdaterTask.created(interval: background_check_interval_hours, cancelled: false)
+}
+
+-- FR-004 — 4-hour background tick. The tick is a generic event; the
+-- "interval elapsed" semantics live in the implementation. Allium
+-- asserts the gating predicate + the postcondition.
+rule BackgroundCheckTick {
+    when: BackgroundCheckTickFired()
+    requires:
+        Updater.state in {unknown, up_to_date, failed} and
+        UpdaterTask.cancelled = false
+    ensures:
+        Updater.state = checking
+        UpdaterTask.last_fired_at = now
+}
+
+-- FR-005 — manual check, invoked from the React layer.
+rule ManualCheckCommand {
+    when: CheckForUpdatesNow()
+    requires: Updater.state in {unknown, up_to_date, failed}
+    ensures: Updater.state = checking
+}
+
+-- FR-005 — manual check is a no-op in in-flight states.
+rule ManualCheckIsNoopInFlight {
+    when: CheckForUpdatesNow()
+    requires: Updater.state in {checking, downloading, ready_to_install, restarting, available}
+    ensures: NoStateChange()
+}
+
+-- ============================================================
+-- Rules — check resolution
+-- ============================================================
+
+rule CheckResolvesToUpToDate {
+    when: ManifestFetched(version, current_matches: true)
+    requires: Updater.state = checking
+    ensures:
+        Updater.state = up_to_date
+        UpdateStatus.created(state: up_to_date, version: version, checked_at: now)
+}
+
+rule CheckResolvesToAvailable {
+    when: ManifestFetched(version, current_matches: false)
+    requires: Updater.state = checking and version > Updater.current_version
+    ensures:
+        Updater.state = available
+        Updater.latest_known_version = version
+        UpdateStatus.created(state: available, version: version, notes: ManifestNotes(), download_url: ManifestDownloadUrl())
+}
+
+rule CheckResolvesToFailedNoNetwork {
+    when: ManifestFetchFailed(reason: connection_refused | dns_failure | timeout)
+    requires: Updater.state = checking
+    ensures:
+        Updater.state = failed
+        UpdateStatus.created(state: failed, failure: no_network, checked_at: now)
+}
+
+rule CheckResolvesToFailedManifestMalformed {
+    when: ManifestFetchFailed(reason: malformed_json | missing_fields)
+    requires: Updater.state = checking
+    ensures:
+        Updater.state = failed
+        UpdateStatus.created(state: failed, failure: manifest_malformed, checked_at: now)
+}
+
+-- ============================================================
+-- Rules — download flow
+-- ============================================================
+
+-- FR-006 — user click "Installera nu" transitions to downloading.
+rule UserClicksInstallNow {
+    when: InstallNowClicked()
+    requires: Updater.state = available
+    ensures:
+        Updater.state = downloading
+        UpdateStatus.created(state: downloading, version: Updater.latest_known_version, progress_pct: 0)
+}
+
+-- FR-007 — download progress updates. Each new integer percent emits
+-- a fresh UpdateStatus event; sub-percent updates are debounced away.
+rule DownloadProgressTick {
+    when: DownloadProgress(bytes_downloaded, bytes_total)
+    requires: Updater.state = downloading
+    ensures:
+        let pct = (bytes_downloaded * 100) / bytes_total
+        UpdateStatus.created(state: downloading, version: Updater.latest_known_version, progress_pct: pct)
+}
+
+-- FR-008 + FR-012 — download completes and signature verifies.
+rule DownloadCompletesSignatureValid {
+    when: DownloadCompleted(signature_valid: true)
+    requires: Updater.state = downloading
+    ensures:
+        Updater.state = ready_to_install
+        UpdateStatus.created(state: ready_to_install, version: Updater.latest_known_version)
+}
+
+-- FR-012 — signature failure rejects the install; partial download
+-- discarded; user sees the Swedish copy.
+rule SignatureInvalidRejectsInstall {
+    when: DownloadCompleted(signature_valid: false)
+    requires: Updater.state = downloading
+    ensures:
+        Updater.state = failed
+        UpdateStatus.created(state: failed, failure: signature_invalid, checked_at: now)
+        PartialDownloadDiscarded()
+}
+
+rule DownloadInterruptedTransition {
+    when: DownloadFailed(reason: network_drop | timeout | os_sleep_too_long)
+    requires: Updater.state = downloading
+    ensures:
+        Updater.state = failed
+        UpdateStatus.created(state: failed, failure: download_interrupted, checked_at: now)
+}
+
+-- ============================================================
+-- Rules — install / restart with per-zone deferral
+-- ============================================================
+
+-- FR-008 + FR-009 — single user-click handler. The deferral gate
+-- branches inside `ensures` because Allium restricts collection ops
+-- to invariants (not rule.requires). The event carries a
+-- `zones_busy` boolean that the Rust dispatcher computes by scanning
+-- all six zones — see invariant
+-- DropZoneBusyPredicateMirrorsCollection below.
+rule UserClicksRestart {
+    when: RestartClicked(zones_busy)
+    requires: Updater.state = ready_to_install
+    ensures:
+        if zones_busy:
+            Updater.pending_restart_consent = true
+            UpdateStatus.created(state: ready_to_install, version: Updater.latest_known_version)
+            SwedishCopy(text: `Väntar tills jobben är klara…`)
+        else:
+            Updater.state = restarting
+            Updater.pending_restart_consent = false
+            TauriUpdaterInstallInvoked()
+}
+
+-- FR-009 — deferred restart fires when the last processing zone
+-- transitions out of processing. The `zones_busy` boolean is again
+-- carried by the event (computed by the Rust dispatcher post-transition).
+rule DeferredRestartAutoFires {
+    when: zone: DropZone.visible_state transitions_to idle
+    requires:
+        Updater.state = ready_to_install and
+        Updater.pending_restart_consent = true
+    ensures:
+        -- Implementation gates this on a fresh `any zone processing`
+        -- scan; the rule asserts the post-condition. Invariant
+        -- UpdaterNeverInterruptsZoneProcessing below codifies that
+        -- the resulting transition to restarting is safe.
+        Updater.state = restarting
+        Updater.pending_restart_consent = false
+        TauriUpdaterInstallInvoked()
+}
+
+-- FR-009a — first entry into ready_to_install must NOT auto-fire even
+-- if all zones are idle. Consent gate requires an explicit user click.
+rule NoAutoRestartWithoutPriorClick {
+    when: u: Updater.state transitions_to ready_to_install
+    ensures:
+        u.pending_restart_consent = false   -- explicit reset
+}
+
+-- FR-009 — user can cancel the deferred restart while it's pending.
+-- State stays ready_to_install; consent flag cleared.
+rule CancelDeferredRestart {
+    when: CancelDeferredRestartClicked()
+    requires:
+        Updater.state = ready_to_install and
+        Updater.pending_restart_consent = true
+    ensures:
+        Updater.pending_restart_consent = false
+        UpdateStatus.created(state: ready_to_install, version: Updater.latest_known_version)
+}
+
+-- FR-020a — install failure handled the same way as other failures.
+rule InstallFailedTransition {
+    when: TauriUpdaterInstallFailed(reason)
+    requires: Updater.state = restarting
+    ensures:
+        Updater.state = failed
+        UpdateStatus.created(state: failed, failure: install_failed, checked_at: now)
+}
+
+-- ============================================================
+-- Rules — UI affordances
+-- ============================================================
+
+-- FR-018 — user dismisses the indicator. State is preserved; badge
+-- hidden until next state transition.
+rule DismissIndicator {
+    when: DismissUpdateIndicator()
+    requires: Updater.state in {available, ready_to_install}
+    ensures:
+        Updater.indicator_dismissed = true
+}
+
+-- FR-018 — indicator re-shows on the next state transition (e.g. a
+-- new check finds an even newer version).
+rule IndicatorReshownOnTransition {
+    when: u: Updater.state transitions_to available | ready_to_install
+    requires: u.indicator_dismissed = true
+    ensures:
+        u.indicator_dismissed = false
+}
+
+-- ============================================================
+-- Invariants
+-- ============================================================
+
+-- FR-017 — the updater MUST NEVER interrupt zone processing. The two
+-- state machines are independent except for the FR-008/FR-009
+-- deferral gate. This invariant codifies the negative space.
+invariant UpdaterNeverInterruptsZoneProcessing {
+    -- No transition of Updater.state to `restarting` happens while
+    -- any zone is in `processing`. The only restart paths are
+    -- ClickRestartFiresImmediately + DeferredRestartAutoFires, both
+    -- of which gate on `not any zone processing`.
+    Updater.state = restarting implies
+        not DropZones.any(z => z.visible_state = processing)
+}
+
+-- FR-016 — no new outbound surface. The only update-related URL is
+-- the existing GitHub Releases manifest (+ the DMG URL it references).
+-- Spec 007 must not introduce additional endpoints.
+invariant OnlyManifestAndDmgEndpoints {
+    -- The set of outbound URLs invoked by the updater is exactly
+    -- {update_endpoint, <DMG URL from manifest>}.
+    UpdaterOutboundEndpoints.all(url =>
+        url = update_endpoint or url = ManifestDownloadUrl()
+    )
+}
+
+-- FR-012 — signature verification stays intact. No code path can
+-- transition to ready_to_install without a passing signature check.
+invariant SignatureVerificationNotBypassable {
+    -- ready_to_install is reachable ONLY from downloading via
+    -- DownloadCompletesSignatureValid (which requires signature_valid = true).
+    -- Reaching it any other way is a code bug.
+    for transition in UpdaterTransitions where transition.to_state = ready_to_install:
+        transition.via_rule = DownloadCompletesSignatureValid and
+        transition.signature_valid = true
+}
+
+-- FR-011 — no built-in Tauri modal. The plugin's dialog setting is
+-- false; no React-rendered modal either.
+invariant NoModalDialog {
+    -- Codified as a structural assertion against the React component
+    -- tree + the tauri.conf.json plugins.updater.dialog flag.
+    TauriConfig.plugins.updater.dialog = false and
+    not exists ModalUpdaterComponent in ReactTree
+}
+
+-- FR-006 — indicator badge visibility predicate.
+invariant IndicatorVisibilityRule {
+    -- Badge is visible iff:
+    --   state is available | downloading | ready_to_install
+    --   AND indicator_dismissed = false
+    -- Badge is hidden when state is unknown | checking | up_to_date | failed.
+    -- Failed state hides badge (FR-010); user-recovery lives in the
+    -- bottom-right footnote affordance.
+    IndicatorBadge.visible = (
+        Updater.state in {available, downloading, ready_to_install} and
+        Updater.indicator_dismissed = false
+    )
+}
+
+-- FR-014 — every Swedish copy string honors the spec 003 SwedishCopy
+-- invariants (length ≤ 80 chars, no English `Error:` prefix, non-empty).
+invariant AllUpdateCopySatisfiesSwedishCopy {
+    for v in UpdateFailureVariants:
+        v.swedish_text.length <= 80 and
+        not v.swedish_text.starts_with(`Error:`) and
+        v.swedish_text.length > 0
+}
+
+-- FR-015 — local-logs-only. Logs MUST NOT include release notes, IP,
+-- username, document content, or any user-identifying info.
+invariant UpdaterLogsHaveNoUserContent {
+    for entry in UpdaterLogEntries:
+        entry.payload.does_not_contain(ReleaseNotesContent()) and
+        entry.payload.does_not_contain(UserIp()) and
+        entry.payload.does_not_contain(SystemUsername()) and
+        entry.payload.does_not_contain(DocumentContent())
+}
+
+-- FR-009a / consent gate codification.
+invariant ConsentRequiredForFirstRestart {
+    -- The first transition into restarting requires either:
+    --   (a) ClickRestartFiresImmediately fired (user clicked + zones idle), OR
+    --   (b) DeferredRestartAutoFires fired (consent flag was set by
+    --       a prior ClickRestartDefersWhenZoneBusy, then zones became idle)
+    -- No third path exists. Documented for /tla extraction.
+    for transition in UpdaterTransitions where transition.to_state = restarting:
+        transition.via_rule in {ClickRestartFiresImmediately, DeferredRestartAutoFires}
+}
+
+-- FR-020 — single background tick task.
+invariant SingleBackgroundTickTask {
+    UpdaterTasks.where(t => t.cancelled = false).count <= 1
+}
+
+-- ============================================================
+-- Surfaces
+-- ============================================================
+
+actor LawStudent { identified_by: `the local user` }
+
+surface UpdateIndicatorPanel {
+    facing viewer: LawStudent
+    context updater: Updater where viewer.identified_by = `the local user`
+    provides:
+        InstallNowClicked() when updater.state = available
+        RestartClicked() when updater.state = ready_to_install
+        CancelDeferredRestartClicked() when updater.state = ready_to_install and updater.pending_restart_consent = true
+        DismissUpdateIndicator() when updater.state in {available, ready_to_install}
+        CheckForUpdatesNow()
+    exposes:
+        updater.state
+        updater.latest_known_version
+}
+
+-- ============================================================
+-- Deferred
+-- ============================================================
+
+deferred SettingsPanelCheckForUpdatesButton  -- spec 010 (settings-panel)
+deferred DifferentialUpdates                  -- Tauri 2.x doesn't support delta updates
+deferred BetaChannelToggle                    -- spec 012 (polish-and-public-beta)
+deferred UpdateHistoryView                    -- over-engineering for single-user app
+deferred MarkdownRichTextRenderingOfNotes     -- plain text is sufficient (FR-019)
+deferred ScheduledAutoRestart                 -- Mac apps don't run unattended
+deferred CrashReportingOnInstallFailure       -- Principle I forbids it
+deferred AutomaticDownloadRetry               -- user-initiated retry only at v1
+
+-- ============================================================
+-- Open questions
+-- ============================================================
+
+-- (No open questions — three clarifications auto-picked and integrated
+-- into the spec body on 2026-05-27.)

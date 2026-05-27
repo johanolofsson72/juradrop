@@ -210,10 +210,15 @@ Read these files WHEN you need them — do not load everything upfront:
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 
-- Active spec: `specs/006-signing-and-ci/spec.md` (spec-only track — no Allium, no plan/research/contracts/quickstart/data-model)
-- Previous spec (next-to-most-recent): `specs/005-additional-input-formats/`
+- Active spec: `specs/007-auto-updater/spec.md`
+- Allium spec: `specs/007-auto-updater/spec.allium`
+- Implementation plan: `specs/007-auto-updater/plan.md`
+- Research notes: `specs/007-auto-updater/research.md`
+- Data model: `specs/007-auto-updater/data-model.md`
+- Contracts: `specs/007-auto-updater/contracts/`
+- Quickstart: `specs/007-auto-updater/quickstart.md`
 
-Previous specs (completed): `specs/001-tauri-bootstrap/`, `specs/002-ollama-sidecar-poc/`, `specs/003-first-zone-sammanfatta/`, `specs/004-all-six-zones/`, `specs/005-additional-input-formats/`
+Previous specs (completed): `specs/001-tauri-bootstrap/`, `specs/002-ollama-sidecar-poc/`, `specs/003-first-zone-sammanfatta/`, `specs/004-all-six-zones/`, `specs/005-additional-input-formats/`, `specs/006-signing-and-ci/`
 <!-- SPECKIT END -->
 
 ## graphify
