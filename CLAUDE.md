@@ -210,13 +210,13 @@ Read these files WHEN you need them — do not load everything upfront:
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 
-- Active spec: `specs/003-first-zone-sammanfatta/spec.md`
-- Allium spec: `specs/003-first-zone-sammanfatta/spec.allium`
-- Implementation plan: `specs/003-first-zone-sammanfatta/plan.md`
-- Research notes: `specs/003-first-zone-sammanfatta/research.md`
-- Data model: `specs/003-first-zone-sammanfatta/data-model.md`
-- Contracts: `specs/003-first-zone-sammanfatta/contracts/`
-- Quickstart: `specs/003-first-zone-sammanfatta/quickstart.md`
+- Active spec: `specs/004-all-six-zones/spec.md`
+- Allium spec: `specs/004-all-six-zones/spec.allium`
+- Implementation plan: `specs/004-all-six-zones/plan.md`
+- Research notes: `specs/004-all-six-zones/research.md`
+- Data model: `specs/004-all-six-zones/data-model.md`
+- Contracts: `specs/004-all-six-zones/contracts/`
+- Quickstart: `specs/004-all-six-zones/quickstart.md`
 
-Previous specs (completed): `specs/001-tauri-bootstrap/`, `specs/002-ollama-sidecar-poc/`
+Previous specs (completed): `specs/001-tauri-bootstrap/`, `specs/002-ollama-sidecar-poc/`, `specs/003-first-zone-sammanfatta/`
 <!-- SPECKIT END -->
