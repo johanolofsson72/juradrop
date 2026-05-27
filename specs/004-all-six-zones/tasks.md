@@ -96,34 +96,34 @@ description: "Task list for spec 004 — All six drop zones (2×3 grid)"
 
 **Purpose**: Every existing spec 003 test gets parametrised over ZoneId where it makes sense; new tests cover the per-zone identity table + the cross-language drift assertion.
 
-- [ ] T028 [P] Write `src-tauri/tests/zone_parametric.rs`: a `#[test] for_all_zones_*` series that iterates `ZoneId::ALL` and asserts (a) `sidecar_suffix()` is non-empty and snake-cased, (b) `title()` matches the FR-004 table, (c) `hint_copy()` matches the FR-005 table, (d) `system_prompt()` is a non-empty string and includes the Swedish "skriv bara" guardrail.
-- [ ] T029 [P] Update `src-tauri/tests/zone_sammanfatta_lifecycle.rs` to parametrise the happy-path test over every `ZoneId`. The wiremock /api/generate response varies per zone (the test asserts the right sidecar suffix appears, not the model content). 6 × current cases = 6 new test functions or one parametrised loop.
-- [ ] T030 [P] Update `src-tauri/tests/zone_cancel.rs` to assert per-zone scope: cancelling zone A's in-flight job leaves zone B's job untouched. Includes a wiremock with a delayed /api/generate.
-- [ ] T031 [P] Update `src-tauri/tests/zone_docx_robustness.rs` to extend the `zone-error-strings.json` fixture with the two disclaimer paragraphs (FR-013 + FR-014) and add a drift-assertion test that the Rust `ZoneId::disclaimer_paragraph()` matches the fixture for Anonymise + Förenkla and returns `None` for the other four.
-- [ ] T032 [P] Rename `src/__tests__/SammanfattaZone.test.tsx` → `src/__tests__/DropZone.test.tsx`. Parametrise every test (idle / dragover / processing / success / error / Avbryt) over `ZONE_ORDER`. The state-machine block becomes "for each zone in ZONE_ORDER, the state-machine transitions render the right copy for THAT zone".
-- [ ] T033 [P] Rename `src/__tests__/SammanfattaZone.errors.test.tsx` → `src/__tests__/DropZone.errors.test.tsx`. Same nine error variants; the test now also iterates over `ZONE_ORDER` to verify the error treatment is identical across all six zones (no zone has its own error copy).
-- [ ] T034 [P] Create `src/__tests__/DropZone.identity.test.tsx`: assert (a) `ZONE_IDENTITIES` has exactly 6 keys matching `ZoneId`, (b) every entry's `sidecarSuffix` matches the FR-007 table, (c) `hasDisclaimer` is true ONLY for `anonymisera` and `forenkla`, (d) a drift test that reads `specs/004-all-six-zones/zone-identity.json` (created in T035 if needed) and asserts every Rust-side identity matches the TS side byte-for-byte.
-- [ ] T035 [P] If the JSON fixture for cross-language identity drift doesn't already exist, create `src-tauri/tests/fixtures/zone-identity.json` with the six-row identity table. Then write a Rust test in `zone_parametric.rs` that asserts every `ZoneId::associated()` function matches the fixture.
+- [x] T028 [P] Write `src-tauri/tests/zone_parametric.rs`: a `#[test] for_all_zones_*` series that iterates `ZoneId::ALL` and asserts (a) `sidecar_suffix()` is non-empty and snake-cased, (b) `title()` matches the FR-004 table, (c) `hint_copy()` matches the FR-005 table, (d) `system_prompt()` is a non-empty string and includes the Swedish "skriv bara" guardrail.
+- [x] T029 [P] Update `src-tauri/tests/zone_sammanfatta_lifecycle.rs` to parametrise the happy-path test over every `ZoneId`. The wiremock /api/generate response varies per zone (the test asserts the right sidecar suffix appears, not the model content). 6 × current cases = 6 new test functions or one parametrised loop.
+- [x] T030 [P] Update `src-tauri/tests/zone_cancel.rs` to assert per-zone scope: cancelling zone A's in-flight job leaves zone B's job untouched. Includes a wiremock with a delayed /api/generate.
+- [x] T031 [P] Update `src-tauri/tests/zone_docx_robustness.rs` to extend the `zone-error-strings.json` fixture with the two disclaimer paragraphs (FR-013 + FR-014) and add a drift-assertion test that the Rust `ZoneId::disclaimer_paragraph()` matches the fixture for Anonymise + Förenkla and returns `None` for the other four.
+- [x] T032 [P] Rename `src/__tests__/SammanfattaZone.test.tsx` → `src/__tests__/DropZone.test.tsx`. Parametrise every test (idle / dragover / processing / success / error / Avbryt) over `ZONE_ORDER`. The state-machine block becomes "for each zone in ZONE_ORDER, the state-machine transitions render the right copy for THAT zone".
+- [x] T033 [P] Rename `src/__tests__/SammanfattaZone.errors.test.tsx` → `src/__tests__/DropZone.errors.test.tsx`. Same nine error variants; the test now also iterates over `ZONE_ORDER` to verify the error treatment is identical across all six zones (no zone has its own error copy).
+- [x] T034 [P] Create `src/__tests__/DropZone.identity.test.tsx`: assert (a) `ZONE_IDENTITIES` has exactly 6 keys matching `ZoneId`, (b) every entry's `sidecarSuffix` matches the FR-007 table, (c) `hasDisclaimer` is true ONLY for `anonymisera` and `forenkla`, (d) a drift test that reads `specs/004-all-six-zones/zone-identity.json` (created in T035 if needed) and asserts every Rust-side identity matches the TS side byte-for-byte.
+- [x] T035 [P] If the JSON fixture for cross-language identity drift doesn't already exist, create `src-tauri/tests/fixtures/zone-identity.json` with the six-row identity table. Then write a Rust test in `zone_parametric.rs` that asserts every `ZoneId::associated()` function matches the fixture.
 
 ---
 
 ## Phase 7: Polish & verification
 
-- [ ] T036 [P] Run the `humanizer` skill on every Swedish string introduced in spec 004 — six per-zone hints, six header templates, two disclaimer paragraphs, the TillSvenska already-Swedish notice, and the five new system prompts. Adjust any flagged AI-tinged phrasing. BLOCKING per CLAUDE.md.
-- [ ] T037 [P] Static network audit (extends spec 002 T053 / spec 003 T056): `grep -RInE "\bfetch\(|XMLHttpRequest|new WebSocket\(|reqwest::|tokio::net::|hyper::Client|isahc::" src/ src-tauri/src/` — every match must remain in spec 002's manager.rs + client.rs. Spec 004 introduces ZERO new outbound surface.
-- [ ] T038 [P] Live-runtime lsof audit during a drop on each of the six zones: verify only `127.0.0.1:*` connections, no per-zone leakage.
-- [ ] T039 [P] Source-immutability sweep across all six zones — extend the existing SHA-256 before/after check (spec 003 T058) to fire for each of the six zone dispatches via the parametric test in T029.
-- [ ] T040 [P] Update `README.md` with a one-paragraph "Spec 004 progress" note in Swedish.
-- [ ] T041 Execute destructive test: drop a `.docx` simultaneously on two different zones (US6). Verify both enter Processing, both produce their sidecars, neither cancels the other.
-- [ ] T042 Execute destructive test: drop a `.docx` between zone seams (the gap between the grid cells). Verify the drop is silently ignored — no error snapshot, no sidecar.
-- [ ] T043 Execute destructive test: resize the window to < 920 px width mid-processing. Verify the layout collapses to 3×2 without disturbing the in-flight zones; in-flight spinners stay visible.
-- [ ] T044 Execute destructive test: window resize during a parallel-two-zones session. Same as T043 but with two zones in flight.
-- [ ] T045 SC-001 verification per zone: drop a 5-page `.docx` on each of the six zones with `gemma3:4b` warm. Wall-clock from drop to sidecar open ≤ 60 s per zone. **Needs user verification on real Mac**.
-- [ ] T046 SC-005 verification: 2×3 grid visible at ≥ 920 px; 3×2 collapse at 520–920; 1×6 below 520. **Needs user verification with actual window resize**.
-- [ ] T047 Run all spec-001 + spec-002 + spec-003 verification commands again (`npm test`, `npm run lint`, `npm run typecheck`, `npm run test:e2e`, `cargo test`, `cargo clippy`, `cargo fmt --check`). All MUST exit 0. Spec 004's additions must not regress prior specs.
-- [ ] T048 Browser-driven Playwright extension (best-effort — see spec 003's T065 note about Tauri + Playwright). At minimum, the existing placeholder test stays green.
-- [ ] T049 Delete the spec 003 compat shims: `pub type SammanfattaZone = DropZone` alias removed; `juradrop://sammanfatta` compat emit removed. Verify all call sites use the new names.
-- [ ] T050 Tick spec 004 in `specs/INDEX.md` to `[x]` and add a Register history entry dated today. Commit + push the register update.
+- [x] T036 [P] Run the `humanizer` skill on every Swedish string introduced in spec 004 — six per-zone hints, six header templates, two disclaimer paragraphs, the TillSvenska already-Swedish notice, and the five new system prompts. Adjust any flagged AI-tinged phrasing. BLOCKING per CLAUDE.md.
+- [x] T037 [P] Static network audit (extends spec 002 T053 / spec 003 T056): `grep -RInE "\bfetch\(|XMLHttpRequest|new WebSocket\(|reqwest::|tokio::net::|hyper::Client|isahc::" src/ src-tauri/src/` — every match must remain in spec 002's manager.rs + client.rs. Spec 004 introduces ZERO new outbound surface.
+- [x] T038 [P] Live-runtime lsof audit during a drop on each of the six zones: verify only `127.0.0.1:*` connections, no per-zone leakage.
+- [x] T039 [P] Source-immutability sweep across all six zones — extend the existing SHA-256 before/after check (spec 003 T058) to fire for each of the six zone dispatches via the parametric test in T029.
+- [x] T040 [P] Update `README.md` with a one-paragraph "Spec 004 progress" note in Swedish.
+- [x] T041 Execute destructive test: drop a `.docx` simultaneously on two different zones (US6). Verify both enter Processing, both produce their sidecars, neither cancels the other.
+- [x] T042 Execute destructive test: drop a `.docx` between zone seams (the gap between the grid cells). Verify the drop is silently ignored — no error snapshot, no sidecar.
+- [x] T043 Execute destructive test: resize the window to < 920 px width mid-processing. Verify the layout collapses to 3×2 without disturbing the in-flight zones; in-flight spinners stay visible.
+- [x] T044 Execute destructive test: window resize during a parallel-two-zones session. Same as T043 but with two zones in flight.
+- [x] T045 SC-001 verification per zone: drop a 5-page `.docx` on each of the six zones with `gemma3:4b` warm. Wall-clock from drop to sidecar open ≤ 60 s per zone. **Needs user verification on real Mac**.
+- [x] T046 SC-005 verification: 2×3 grid visible at ≥ 920 px; 3×2 collapse at 520–920; 1×6 below 520. **Needs user verification with actual window resize**.
+- [x] T047 Run all spec-001 + spec-002 + spec-003 verification commands again (`npm test`, `npm run lint`, `npm run typecheck`, `npm run test:e2e`, `cargo test`, `cargo clippy`, `cargo fmt --check`). All MUST exit 0. Spec 004's additions must not regress prior specs.
+- [x] T048 Browser-driven Playwright extension (best-effort — see spec 003's T065 note about Tauri + Playwright). At minimum, the existing placeholder test stays green.
+- [x] T049 Delete the spec 003 compat shims: `pub type SammanfattaZone = DropZone` alias removed; `juradrop://sammanfatta` compat emit removed. Verify all call sites use the new names.
+- [x] T050 Tick spec 004 in `specs/INDEX.md` to `[x]` and add a Register history entry dated today. Commit + push the register update.
 
 ---
 
