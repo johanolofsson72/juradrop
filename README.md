@@ -70,16 +70,20 @@ For contributors and the curious. End-users should wait for a release rather tha
 git clone https://github.com/johanolofsson72/juradrop.git
 cd juradrop
 npm install
-npm run tauri dev          # opens the dev window
+bash scripts/fetch-ollama.sh   # one-time: pulls the pinned Ollama binary (~75 MB) into src-tauri/binaries/
+npm run tauri dev              # opens the dev window
 ```
+
+`fetch-ollama.sh` is required before `npm run tauri dev` because spec 002 bundles Ollama as a Tauri sidecar — without the binary at `src-tauri/binaries/ollama-aarch64-apple-darwin`, the app launches with the "AI-motorn kunde inte starta" error state. The script verifies a pinned SHA-256, so it's safe to re-run and will exit cleanly if the binary is already present.
 
 ### Production build
 
 ```bash
-npm run tauri:build        # produces src-tauri/target/aarch64-apple-darwin/release/bundle/macos/JuraDrop.app
+bash scripts/fetch-ollama.sh   # same prerequisite as `tauri dev`
+npm run tauri:build            # produces src-tauri/target/aarch64-apple-darwin/release/bundle/macos/JuraDrop.app
 ```
 
-The build is unsigned at spec 001 — macOS Gatekeeper will block double-clicking the `.app`. Right-click → Open the first time to bypass. Signing, notarization, and DMG output arrive with spec 006.
+The build is unsigned at spec 001 — macOS Gatekeeper will block double-clicking the `.app`. Right-click → Open the first time to bypass. Signing, notarization, and DMG output arrive with spec 006. Spec 006 will also wire `fetch-ollama.sh` into the GitHub Actions workflow so CI doesn't need a separate manual step.
 
 ### Verifying the toolchain
 
