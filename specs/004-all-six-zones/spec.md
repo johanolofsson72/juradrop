@@ -8,6 +8,14 @@
 
 **Input**: User description: Extend spec 003's single Sammanfatta zone to a 2×3 grid of six themed drop zones (Sammanfatta, TillEngelska, TillSvenska, Punktlista, Anonymisera, Förenkla). Each zone reuses the spec 003 state machine, dispatch pipeline, atomic-write sidecar, FR-005a header, error mapping, cancel affordance, and disabled gate — only the per-zone identity (slug, title, system prompt, sidecar suffix, event channel) changes. Per-zone state is independent (each zone has its own single-flight slot + cancel token + event stream); the OllamaClient is shared and Ollama's request queue serialises actual inference. Privacy invariant unchanged (no document content leaves the Mac; every prompt wrapped in `Redacted<String>` end-to-end).
 
+## Clarifications
+
+### Session 2026-05-27 (auto-picked recommendations per `.claude/settings.json`)
+
+- Q: How does an OS-level drag-drop (Tauri's `WindowEvent::DragDrop` is window-scoped, not zone-scoped) map to which of the six zones receives the file? → A: **`elementFromPoint` in the WebView.** The Rust handler emits a single `juradrop://file-dropped` event carrying the OS file path(s) + the drop position (converted from physical to CSS pixels via `window.devicePixelRatio`). The JS layer calls `document.elementFromPoint(x, y)`, walks up to the nearest `[data-zone-id]` ancestor, reads the ZoneId, and invokes a Rust command `dispatch_to_zone(zone_id, paths)`. Privacy stays intact (the paths flow via the Rust event payload — the WebView never reads the file or its bytes; the zone-id is the only thing flowing back across the boundary).
+- Q: If the user drops a Swedish `.docx` on TillSvenska (already in the target language) — passthrough, rewrite, or refuse? → A: **Model decides, with a Swedish notice prepended.** The system prompt instructs `gemma3:4b` to detect the source language; if already Swedish, output a lightly-cleaned version (typos, formatting) and prepend the body with the Swedish notice `(Dokumentet är redan på svenska — endast lätt korrigerad.)`. Same shape as the FR-019 truncation notice (between the FR-009 header and the model body). No hard error; the user just sees the original-ish content + the notice.
+- Q: Anonymisera placeholder consistency (the same "Anna Andersson" → same "Person A" throughout) — prompt instruction only, or post-process? → A: **Prompt instruction only at v1.** The system prompt explicitly asks the model to maintain a stable map of source-name → placeholder across the document. Post-processing (regex replacement after model output) is deferred to spec 010 (settings panel) where a "strict anonymisation mode" toggle becomes meaningful. The FR-013 disclaimer ("AI-anonymisering är inte hundra procent — granska resultatet innan du delar.") sets the honest expectation at v1.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 — Translate a Swedish legal text to English (Priority: P1)
@@ -52,7 +60,7 @@ The student needs to share a ruling in a study group chat without leaking the pa
 **Acceptance Scenarios**:
 
 1. **Given** the AI is `Klar` and a `.docx` with personal names on disk, **When** the user drops it on Anonymisera, **Then** the sidecar replaces personal names with neutral placeholders and preserves the surrounding sentences (replaces tokens, not paragraphs).
-2. **Given** the anonymisation completed, **When** the user reads the sidecar, **Then** no original personal names, personnummer-shaped strings, or addresses appear verbatim; placeholder tokens are consistent within a document (the same "Anna Andersson" is the same "Person A" throughout, not "Person A" then "Person C").
+2. **Given** the anonymisation completed, **When** the user reads the sidecar, **Then** no original personal names, personnummer-shaped strings, or addresses appear verbatim; placeholder tokens are consistent within a document (the same "Anna Andersson" is the same "Person A" throughout, not "Person A" then "Person C"). Per the 2026-05-27 clarification: consistency is achieved via system-prompt instruction at v1 — no post-process regex pass. The FR-013 disclaimer covers the residual risk; spec 010 may add a "strict mode" toggle.
 
 ---
 
@@ -82,7 +90,7 @@ The student receives an English `.docx` (a translated foreign ruling, or course 
 **Acceptance Scenarios**:
 
 1. **Given** the AI is `Klar` and an English `.docx` is on disk, **When** the user drops it on TillSvenska, **Then** the sidecar `<stem>.tillsvenska.docx` is written in Swedish.
-2. **Given** the user drops a Swedish `.docx` on TillSvenska by mistake, **When** the dispatch runs, **Then** the system prompt instructs `gemma3:4b` to detect the language and either output Swedish (passthrough) or include a brief Swedish notice that the input was already in Swedish — graceful degradation, not a hard error.
+2. **Given** the user drops a Swedish `.docx` on TillSvenska by mistake, **When** the dispatch runs, **Then** the model detects the language and prepends the body with the Swedish notice `(Dokumentet är redan på svenska — endast lätt korrigerad.)` (clarification 2026-05-27). Graceful degradation, not a hard error.
 
 ---
 
@@ -125,6 +133,7 @@ The student drops a `.docx` on Sammanfatta to get a summary, then immediately dr
 - **FR-008**: Each zone MUST reuse the spec 003 atomic-write + FR-006 collision rules unchanged.
 - **FR-009**: Each zone MUST reuse the spec 003 FR-005a header structure but with a per-zone first paragraph. Specifically: paragraph 0 is `Sammanfattning av '<filename>'` (Sammanfatta), `Översättning till engelska av '<filename>'` (TillEngelska), `Översättning till svenska av '<filename>'` (TillSvenska), `Punktlista över '<filename>'` (Punktlista), `Anonymiserad version av '<filename>'` (Anonymisera), `Förenklad version av '<filename>'` (Förenkla). Paragraph 1 (timestamp + model) is unchanged from spec 003.
 - **FR-010**: Each zone MUST emit its state-machine snapshots on a per-zone event channel `juradrop://zone/<slug>`. The payload shape (`ZoneSnapshot`) is unchanged from spec 003; only the channel name is per-zone.
+- **FR-010a**: The OS-level drag-drop MUST be routed to the correct zone via the `elementFromPoint` pattern (clarification 2026-05-27). The Rust `WindowEvent::DragDrop` handler emits `juradrop://file-dropped` with `{ paths: PathBuf[], position: { x: f64, y: f64 } }` in **CSS pixels** (Rust converts from physical via the window's device pixel ratio). The WebView reads the event, calls `document.elementFromPoint(x, y)`, walks up to the nearest `[data-zone-id]` ancestor, and invokes `dispatch_to_zone(zone_id, paths)`. A drop that doesn't land on any zone (e.g. on the WelcomeCard area) is silently ignored — no error snapshot. Privacy invariant: the WebView only sees the path strings via the Rust event payload, never via the HTML5 drag-drop API.
 - **FR-011**: Each zone MUST have its own single-flight slot. A drop on zone A while zone A is processing is rejected with the "Vänta tills föregående dokument är klart" Swedish copy (FR-015 from spec 003 reused). A drop on zone B while zone A is processing is accepted independently.
 - **FR-012**: All six zones MUST be disabled simultaneously whenever `UserVisibleStatus != Klar`. The disabled state mirrors spec 003's FR-012 — same Swedish hint borrowed from WelcomeCard, same visual treatment.
 - **FR-013**: The Anonymisera sidecar MUST include a Swedish disclaimer paragraph at the top of the body (between the FR-009 header and the model output): "AI-anonymisering är inte hundra procent — granska resultatet innan du delar.". The disclaimer is part of the .docx, not the UI.
