@@ -1,0 +1,631 @@
+-- allium: 3
+
+-- Formal spec for spec 005: additional input formats (.pdf, .txt, .md).
+-- Source: specs/005-additional-input-formats/spec.md
+-- Elicited: 2026-05-27
+--
+-- This file EXTENDS specs/003-first-zone-sammanfatta/spec.allium and
+-- specs/004-all-six-zones/spec.allium. The DropZone entity, the six-way
+-- ZoneId, the visible-state machine, the DropJob outcome graph, the
+-- atomic-write invariants, the source-immutability invariant, the
+-- privacy boundary, and the global disabled gate — all unchanged.
+-- What changes here is the extractor multiplexer (one of four input
+-- formats) and the writer multiplexer (one of three output formats),
+-- both selected from the input file's lowercase extension.
+
+-- ============================================================
+-- External entities (defined by spec 002 / 003 / 004, referenced here)
+-- ============================================================
+
+external entity DropZone {
+    id: ZoneId
+    visible_state: idle | dragover | processing | success | error
+}
+
+external entity DropJob {
+    id: String
+    source_path: String
+    outcome: in_flight | success | failure | cancelled
+    truncated: Boolean
+}
+
+external entity OllamaClient {
+    base_url: String
+}
+
+external entity SwedishCopy {
+    text: String
+}
+
+external entity SourceDocument {
+    -- The dropped file on disk. Read-only for every dispatch.
+    path: String
+    sha256_before: String
+    extension: String
+}
+
+-- Re-declared locally because Allium has no `external enum` keyword.
+-- Same six-way shape as spec 004's ZoneId; matched by ordinal.
+enum ZoneId {
+    sammanfatta | tillengelska | tillsvenska | punktlista | anonymisera | forenkla
+}
+
+-- Re-declared locally because Allium has no `external value` keyword.
+-- Same shape as spec 004 ZoneIdentity, with the spec-005 hint_copy
+-- update applied (each hint now lists all four supported extensions).
+value ZoneIdentity {
+    id: ZoneId
+    slug: String
+    title: String
+    hint_copy: String
+    sidecar_suffix: String
+    has_disclaimer_paragraph: Boolean
+}
+
+-- ============================================================
+-- Enums
+-- ============================================================
+
+-- Discriminator for the four supported input formats. Resolved from
+-- the lowercase file extension only (no magic-byte sniffing).
+enum InputFormat {
+    docx | pdf | txt | md
+}
+
+-- Discriminator for the three supported output formats. Derived from
+-- InputFormat via the FR-011 mirror rule (with the PDF→DOCX exception).
+enum OutputFormat {
+    docx | txt | md
+}
+
+-- Byte-order-mark detected at the leading 4 bytes of a `.txt` or `.md`
+-- file. Drives the FR-005 BOM-first decode cascade.
+enum BomKind {
+    none | utf8 | utf16_le | utf16_be | utf32_le | utf32_be
+}
+
+-- Extended failure set. Existing variants are inherited from spec 003;
+-- only the two new ones (NoExtractableText, UnsupportedEncoding) are
+-- declared here.
+enum ZoneFailure {
+    password_protected             -- inherited (spec 003)
+    unsupported_format             -- inherited (spec 003), copy updated for four formats
+    empty_text                     -- inherited (spec 003), now applies to all four formats
+    truncated                      -- inherited (spec 003)
+    ollama_error                   -- inherited (spec 003)
+    write_failure                  -- inherited (spec 003)
+    cancelled                      -- inherited (spec 003)
+    no_extractable_text            -- NEW: PDF-only, no text content stream at all
+    unsupported_encoding           -- NEW: .txt / .md in UTF-16 / UTF-32 / other
+}
+
+-- ============================================================
+-- Value objects
+-- ============================================================
+
+-- Extended from spec 003. New optional fields: `was_partial` for
+-- PDF partial-extraction tracking (FR-002a), `frontmatter` for
+-- Markdown YAML/TOML preservation (FR-008a).
+value ExtractedText {
+    raw: String                                  -- wrapped in Redacted<String> at the type level
+    was_truncated: Boolean                       -- FR-016 / spec 003 FR-019 — 24,000 char cap
+    was_partial: Boolean                         -- FR-002a — PDF recovered < 100% pages
+    frontmatter: String?                         -- FR-008a — captured md frontmatter block
+}
+
+-- Captured Markdown frontmatter. Either YAML (fences = ---) or TOML
+-- (fences = +++). Preserved verbatim, prepended to the sidecar.
+value MdFrontmatter {
+    fence: yaml | toml
+    raw_block: String                            -- includes both fences and trailing newline
+}
+
+-- The per-format sidecar header. Same data points (basename, zone
+-- title, date) rendered three ways depending on output format.
+value MirroredHeader {
+    output_format: OutputFormat
+    basename: String
+    zone_title: String
+    date_iso: String                             -- YYYY-MM-DD
+}
+
+-- The mapping from input file to output sidecar. Carries the resolved
+-- InputFormat, the mirrored OutputFormat, and the sidecar path.
+value SidecarPlan {
+    source_path: String
+    input_format: InputFormat
+    output_format: OutputFormat
+    output_path: String
+    zone_id: ZoneId
+}
+
+-- ============================================================
+-- Config / fixed boundaries
+-- ============================================================
+
+config {
+    truncation_char_cap: Integer = 24000         -- inherited from spec 003 FR-019
+    frontmatter_max_bytes: Integer = 8192        -- FR-008a — frontmatter block must close within first 8 KB
+    blank_line_collapse_min: Integer = 3         -- runs of >= 3 blank lines collapse to exactly 2
+    blank_line_collapse_target: Integer = 2
+    supported_input_extensions_count: Integer = 4
+    supported_output_extensions_count: Integer = 3
+}
+
+-- ============================================================
+-- Rules — format detection
+-- ============================================================
+
+-- FR-009 — format detection is extension-only. The extension is
+-- lowercased before matching; case is irrelevant.
+rule DetectInputFormat {
+    when: FileDropped(zone, source)
+    requires: source.extension in {`docx`, `pdf`, `txt`, `md`, `DOCX`, `PDF`, `TXT`, `MD`, `Pdf`, `Md`, `Txt`}
+    ensures:
+        let lower = source.extension.to_lower
+        InputFormatResolved(
+            source: source,
+            format:
+                if lower = `docx`: docx
+                else if lower = `pdf`: pdf
+                else if lower = `txt`: txt
+                else if lower = `md`: md
+        )
+}
+
+-- FR-010 — any extension not in the supported set maps to the
+-- existing UnsupportedFormat variant, with the copy updated to list
+-- all four formats. No content read.
+rule UnsupportedExtensionMapsToError {
+    when: FileDropped(zone, source)
+    requires: source.extension.to_lower not in {`docx`, `pdf`, `txt`, `md`}
+    ensures:
+        zone.visible_state = error
+        ZoneFailureRaised(
+            zone: zone,
+            failure: unsupported_format,
+            message: SwedishCopy(text: `Filformatet stöds inte — dra ett .docx, .pdf, .txt eller .md.`)
+        )
+}
+
+-- FR-011 — output extension mirrors input with one exception: PDF
+-- input maps to DOCX output (writing a polished PDF is out of scope).
+rule MirrorOutputExtension {
+    when: SidecarPlanResolved(plan)
+    ensures:
+        plan.output_format =
+            if plan.input_format = docx: docx
+            else if plan.input_format = pdf: docx
+            else if plan.input_format = txt: txt
+            else if plan.input_format = md: md
+}
+
+-- ============================================================
+-- Rules — DOCX (unchanged from spec 003)
+-- ============================================================
+
+rule ExtractDocx {
+    when: ExtractionStarted(source, input_format: docx)
+    ensures:
+        -- Behavior inherited byte-for-byte from spec 003 docx_extract.
+        ExtractDocxRoundTrip(source)
+}
+
+-- ============================================================
+-- Rules — PDF extraction
+-- ============================================================
+
+-- FR-003 — encrypted PDFs map to PasswordProtected. Detection happens
+-- before any text-extraction attempt (the PDF encryption dict is read
+-- from the trailer; pdf-extract refuses encrypted PDFs by default).
+rule PdfEncryptedMapsToPasswordProtected {
+    when: ExtractionStarted(source, input_format: pdf)
+    requires: PdfIsEncrypted(source)
+    ensures:
+        ZoneFailureRaised(
+            zone: source.zone,
+            failure: password_protected,
+            message: SwedishCopy(text: `Filen är lösenordsskyddad — öppna och spara om utan lösenord.`)
+        )
+}
+
+-- FR-004 — PDFs with >= 1 page but zero extractable text (image-only,
+-- no embedded text content stream) map to the NEW NoExtractableText
+-- error. OCR is out of scope.
+rule PdfWithNoTextMapsToNoExtractableText {
+    when: ExtractionStarted(source, input_format: pdf)
+    requires:
+        not PdfIsEncrypted(source) and
+        PdfPageCount(source) >= 1 and
+        PdfExtractRawByteCount(source) = 0
+    ensures:
+        ZoneFailureRaised(
+            zone: source.zone,
+            failure: no_extractable_text,
+            message: SwedishCopy(text: `Hittade ingen text att läsa i PDF-filen — skannade bilder stöds inte än.`)
+        )
+}
+
+-- FR-002 + FR-002a — happy-path PDF extraction. Null bytes stripped,
+-- CRLF normalised to LF, runs of 3+ blank lines collapsed to 2.
+-- `was_partial` is true when pdf-extract reported per-page errors OR
+-- recovered text from fewer than 100% of the source pages.
+rule ExtractPdfHappyPath {
+    when: ExtractionStarted(source, input_format: pdf)
+    requires:
+        not PdfIsEncrypted(source) and
+        PdfExtractRawByteCount(source) > 0
+    ensures:
+        let raw = PdfExtractText(source).strip_nulls.normalise_crlf.collapse_blank_lines
+        let pages_total = PdfPageCount(source)
+        let pages_recovered = PdfPagesWithText(source)
+        ExtractedText.created(
+            raw: raw,
+            was_truncated: raw.length > truncation_char_cap,
+            was_partial: pages_recovered < pages_total or PdfExtractHadErrors(source) = true,
+            frontmatter: null
+        )
+}
+
+-- FR-002a — when an extraction is partial, the .docx sidecar writer
+-- prepends a Swedish partial-extraction notice paragraph BEFORE the
+-- truncation notice (if any) and BEFORE the model body.
+rule PartialPdfExtractionPrependsNotice {
+    when: SidecarWritePrepared(plan, extracted)
+    requires:
+        plan.input_format = pdf and
+        extracted.was_partial = true
+    ensures:
+        SidecarPrependsParagraph(
+            plan: plan,
+            text: SwedishCopy(text: `Delar av PDF-filen kunde inte läsas — resultatet kan vara ofullständigt.`),
+            position: before_truncation_notice
+        )
+}
+
+-- ============================================================
+-- Rules — TXT extraction
+-- ============================================================
+
+-- FR-005 — BOM-first detection. UTF-16 / UTF-32 BOMs map to
+-- UnsupportedEncoding immediately. UTF-8 BOM is stripped.
+rule TxtUtf16OrUtf32BomMapsToUnsupportedEncoding {
+    when: ExtractionStarted(source, input_format: txt)
+    requires: TxtLeadingBom(source) in {utf16_le, utf16_be, utf32_le, utf32_be}
+    ensures:
+        ZoneFailureRaised(
+            zone: source.zone,
+            failure: unsupported_encoding,
+            message: SwedishCopy(text: `Tecken-kodning stöds inte — spara filen som UTF-8 och försök igen.`)
+        )
+}
+
+rule TxtUtf8BomIsStripped {
+    when: ExtractionStarted(source, input_format: txt)
+    requires: TxtLeadingBom(source) = utf8
+    ensures:
+        let raw = TxtReadAfterBom(source, bytes_to_skip: 3).decode_utf8_strict.collapse_blank_lines
+        ExtractedText.created(
+            raw: raw,
+            was_truncated: raw.length > truncation_char_cap,
+            was_partial: false,
+            frontmatter: null
+        )
+}
+
+-- FR-005c + FR-006 — strict UTF-8 first, Windows-1252 fallback.
+-- Windows-1252 is total (maps every byte 0x00–0xFF), so this path
+-- always succeeds for non-BOM files.
+rule TxtNoBomStrictUtf8Then1252 {
+    when: ExtractionStarted(source, input_format: txt)
+    requires: TxtLeadingBom(source) = none
+    ensures:
+        let bytes = TxtReadAllBytes(source)
+        let raw =
+            if bytes.decode_utf8_strict.is_ok:
+                bytes.decode_utf8_strict.collapse_blank_lines
+            else:
+                bytes.decode_windows_1252_total.collapse_blank_lines
+        ExtractedText.created(
+            raw: raw,
+            was_truncated: raw.length > truncation_char_cap,
+            was_partial: false,
+            frontmatter: null
+        )
+}
+
+-- ============================================================
+-- Rules — MD extraction
+-- ============================================================
+
+-- FR-008 + FR-008a — Markdown follows the same BOM-first cascade as
+-- TXT (the rules above are inherited by reference). Additionally, a
+-- YAML or TOML frontmatter block at the top of the file is captured
+-- into the `frontmatter` side variable BEFORE the body Markdown is
+-- sent to the model.
+rule MdFrontmatterCapturedBeforeSend {
+    when: ExtractionStarted(source, input_format: md)
+    requires:
+        TxtLeadingBom(source) not in {utf16_le, utf16_be, utf32_le, utf32_be} and
+        MdHasFrontmatter(source, max_bytes: frontmatter_max_bytes)
+    ensures:
+        let block = MdReadFrontmatterBlock(source)
+        let body = MdReadAfterFrontmatter(source).collapse_blank_lines
+        ExtractedText.created(
+            raw: body,
+            was_truncated: body.length > truncation_char_cap,
+            was_partial: false,
+            frontmatter: block.raw_block
+        )
+}
+
+rule MdNoFrontmatter {
+    when: ExtractionStarted(source, input_format: md)
+    requires:
+        TxtLeadingBom(source) not in {utf16_le, utf16_be, utf32_le, utf32_be} and
+        not MdHasFrontmatter(source, max_bytes: frontmatter_max_bytes)
+    ensures:
+        -- Same UTF-8 / Windows-1252 cascade as TxtNoBomStrictUtf8Then1252.
+        let raw = MdReadAllBytes(source).decode_text.collapse_blank_lines
+        ExtractedText.created(
+            raw: raw,
+            was_truncated: raw.length > truncation_char_cap,
+            was_partial: false,
+            frontmatter: null
+        )
+}
+
+-- FR-008a — the .md writer prepends the captured frontmatter to the
+-- sidecar BEFORE the FR-014 H1 header. Guarantees byte-identical
+-- preservation regardless of model behaviour.
+rule MdSidecarPrependsCapturedFrontmatter {
+    when: SidecarWritePrepared(plan, extracted)
+    requires:
+        plan.output_format = md and
+        extracted.frontmatter != null
+    ensures:
+        SidecarPrependsRaw(
+            plan: plan,
+            text: extracted.frontmatter,
+            position: before_h1_header
+        )
+}
+
+-- ============================================================
+-- Rules — sidecar writers
+-- ============================================================
+
+-- FR-012 — sidecar filename construction. Stem from the input,
+-- zone-specific suffix from ZoneIdentity, mirrored extension from
+-- MirrorOutputExtension.
+rule SidecarPathConstruction {
+    when: SidecarPlanResolved(plan)
+    ensures:
+        plan.output_path = FilesystemPath(
+            directory: ParentDir(plan.source_path),
+            stem: Stem(plan.source_path),
+            suffix: ZoneIdentity(plan.zone_id).sidecar_suffix,
+            extension: plan.output_format.to_string
+        )
+}
+
+-- FR-013 — TXT sidecar header.
+rule TxtSidecarHeaderShape {
+    when: SidecarWritePrepared(plan, extracted)
+    requires: plan.output_format = txt
+    ensures:
+        SidecarHeaderRendered(
+            plan: plan,
+            header: `# {basename} — {zone_title} — {date_iso}`,
+            blank_lines_after: 1
+        )
+}
+
+-- FR-014 — MD sidecar header (H1 + blockquote subtitle).
+rule MdSidecarHeaderShape {
+    when: SidecarWritePrepared(plan, extracted)
+    requires: plan.output_format = md
+    ensures:
+        SidecarHeaderRendered(
+            plan: plan,
+            header: `# {basename} — {zone_title}\n> {date_iso}`,
+            blank_lines_after: 1
+        )
+}
+
+-- FR-015 — DOCX sidecar header (unchanged from spec 003 / 004).
+rule DocxSidecarHeaderShape {
+    when: SidecarWritePrepared(plan, extracted)
+    requires: plan.output_format = docx
+    ensures:
+        SidecarHeaderRendered(
+            plan: plan,
+            header: ZoneIdentity(plan.zone_id).header_paragraph_template,
+            blank_lines_after: 0
+        )
+}
+
+-- FR-013 + FR-014 + FR-015 — disclaimer paragraph for Anonymisera +
+-- Förenkla zones gets rendered per output format. The text content
+-- is identical across formats; only the formatting differs.
+rule DisclaimerRenderingPerFormat {
+    when: SidecarWritePrepared(plan, extracted)
+    requires:
+        ZoneIdentity(plan.zone_id).has_disclaimer_paragraph = true
+    ensures:
+        let disclaimer_text = ZoneDisclaimerText(plan.zone_id)
+        SidecarDisclaimerRendered(
+            plan: plan,
+            text: disclaimer_text,
+            rendering:
+                if plan.output_format = docx: docx_paragraph_italic
+                else if plan.output_format = txt: comment_prefixed_line
+                else if plan.output_format = md: blockquote_with_obs_strong
+        )
+}
+
+-- FR-016 — truncation cap applies to all four input formats. The cap
+-- is checked AFTER extraction on the raw text.
+rule TruncationCapAcrossAllFormats {
+    when: ExtractedText.created(raw, was_truncated, was_partial, frontmatter)
+    requires: raw.length > truncation_char_cap
+    ensures:
+        was_truncated = true
+        TruncatedTo(raw, char_cap: truncation_char_cap)
+        -- The Swedish truncation notice is rendered per output format
+        -- by the format-specific writer (.docx paragraph, .txt comment,
+        -- .md blockquote).
+}
+
+-- ============================================================
+-- Rules — zone hint copy update
+-- ============================================================
+
+-- FR-017 — every zone's idle hint mentions all four supported formats.
+-- The hint MUST fit the SwedishCopy 80-char invariant from spec 003.
+rule ZoneHintMentionsAllFourFormats {
+    when: ZoneIdleHintRendered(zone_id, hint)
+    ensures:
+        hint.contains(`.docx`) and
+        hint.contains(`.pdf`) and
+        hint.contains(`.txt`) and
+        hint.contains(`.md`) and
+        hint.length <= 80
+}
+
+-- ============================================================
+-- Invariants
+-- ============================================================
+
+invariant ExtensionToFormatMappingIsTotal {
+    -- Every lowercase supported extension maps to exactly one
+    -- InputFormat. The mapping is total over the supported set.
+    InputFormatResolutions.where(r => r.extension = `docx`).all(r => r.format = docx) and
+    InputFormatResolutions.where(r => r.extension = `pdf`).all(r => r.format = pdf) and
+    InputFormatResolutions.where(r => r.extension = `txt`).all(r => r.format = txt) and
+    InputFormatResolutions.where(r => r.extension = `md`).all(r => r.format = md)
+}
+
+invariant OutputExtensionFollowsMirrorRule {
+    -- FR-011 — exactly one exception to direct mirroring: pdf → docx.
+    for plan in SidecarPlans:
+        plan.output_format =
+            if plan.input_format = pdf: docx
+            else if plan.input_format = docx: docx
+            else if plan.input_format = txt: txt
+            else if plan.input_format = md: md
+}
+
+invariant NoExtractableTextIsPdfOnly {
+    -- FR-004 — the new NoExtractableText error is exclusively for PDFs
+    -- with zero extractable text. Whitespace-only documents of any
+    -- format map to the existing EmptyText error instead.
+    for failure in ZoneFailures where failure.variant = no_extractable_text:
+        failure.source.extension.to_lower = `pdf`
+}
+
+invariant UnsupportedEncodingIsTxtOrMdOnly {
+    -- FR-007 — the new UnsupportedEncoding error is exclusively for
+    -- .txt and .md files in UTF-16/UTF-32 (or other non-decodable
+    -- encoding). PDF encoding is the file's own concern; DOCX is XML.
+    for failure in ZoneFailures where failure.variant = unsupported_encoding:
+        failure.source.extension.to_lower in {`txt`, `md`}
+}
+
+invariant TruncationCapApplicableToAllFormats {
+    -- FR-016 — the 24,000-UTF-8-char cap applies to all four formats.
+    for et in ExtractedTexts:
+        et.raw.length <= truncation_char_cap or et.was_truncated = true
+}
+
+invariant PrivacyBoundaryAcrossAllFormats {
+    -- FR-019 + Principle I — every extracted text wrapped in
+    -- Redacted<String> at the type level. No extractor is allowed to
+    -- log, persist, or transmit the raw text outside the dispatch.
+    for et in ExtractedTexts:
+        et.raw.is_redacted = true
+}
+
+invariant SourceImmutableAcrossAllFormats {
+    -- FR-021 — SHA-256 source(before) = source(after) for every job
+    -- regardless of input format. Inherited from spec 003 FR-024,
+    -- explicitly extended to PDF / TXT / MD.
+    for job in DropJobs where job.outcome in {success, failure, cancelled}:
+        SourceUnchanged(job)
+}
+
+invariant OnlyLoopbackOutboundAcrossAllFormats {
+    -- Principle I — no new outbound surface introduced by spec 005.
+    -- The OllamaClient base URL constraint is inherited from spec 002.
+    OllamaClients.all(c => c.base_url = `http://127.0.0.1:11434`)
+}
+
+invariant HintCopyLockstepAcrossLanguages {
+    -- FR-018 — Rust ZoneId::hint_copy(), TS ZONE_IDENTITIES, and the
+    -- shared zone-identity.json fixture stay in byte-for-byte
+    -- lock-step. The T035 cross-language drift test from spec 004
+    -- enforces this; spec 005 must not break it.
+    for z in ZoneIdentities:
+        z.hint_copy = FixtureLookup(`zone-identity.json`, z.slug, `hint_copy`) and
+        z.hint_copy = RustLookup(`ZoneId::hint_copy`, z.slug)
+}
+
+invariant FrontmatterOnlyOnMdFormat {
+    -- FR-008a — the `frontmatter` field on ExtractedText is non-null
+    -- ONLY when the input format is md AND a leading YAML/TOML block
+    -- was detected within the first 8 KB. For any other format the
+    -- field stays null.
+    for et in ExtractedTexts:
+        et.frontmatter != null implies et.source.input_format = md
+}
+
+invariant PartialFlagOnlyOnPdf {
+    -- FR-002a — the `was_partial` flag on ExtractedText is true ONLY
+    -- when the input format is pdf AND pdf-extract recovered text
+    -- from fewer than 100% of pages OR reported per-page errors.
+    for et in ExtractedTexts where et.was_partial = true:
+        et.source.input_format = pdf
+}
+
+invariant StateMachineUnchangedFromSpec004 {
+    -- FR-020 — the per-zone visible_state machine is byte-identical
+    -- to spec 004. Spec 005 adds NO new states, NO new transitions,
+    -- NO new event channels. Every new error variant (NoExtractableText,
+    -- UnsupportedEncoding) maps to the existing `error` visible state
+    -- via the existing ZoneFailureRaised channel.
+    DropZones.all(z => z.visible_state in {idle, dragover, processing, success, error})
+}
+
+-- ============================================================
+-- Surfaces
+-- ============================================================
+
+actor LawStudent { identified_by: `the local user` }
+
+surface FormatAwareDropZone {
+    facing viewer: LawStudent
+    context zone: DropZone where viewer.identified_by = `the local user`
+    provides:
+        FileDropped(zone, source)
+    exposes:
+        zone.id
+        zone.visible_state
+        ZoneIdentity(zone.id).hint_copy
+}
+
+-- ============================================================
+-- Deferred
+-- ============================================================
+
+deferred ScannedPdfOcrSupport                    -- spec TBD; requires Tesseract or equivalent; out of v1 scope
+deferred LongTailFormatRtfPagesOdt               -- spec 009 (long-tail-formats)
+deferred Utf32EncodingFallback                   -- spec TBD; UTF-32 is rare enough to refuse at v1
+deferred PerFormatTruncationLimits               -- spec 010 (settings panel)
+deferred PdfOutputAuthoring                      -- not on roadmap; writing polished PDFs is out of project scope
+
+-- ============================================================
+-- Open questions
+-- ============================================================
+
+-- (No open questions — five clarifications auto-picked and integrated
+-- into the spec body on 2026-05-27.)

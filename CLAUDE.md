@@ -210,13 +210,23 @@ Read these files WHEN you need them — do not load everything upfront:
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 
-- Active spec: `specs/004-all-six-zones/spec.md`
-- Allium spec: `specs/004-all-six-zones/spec.allium`
-- Implementation plan: `specs/004-all-six-zones/plan.md`
-- Research notes: `specs/004-all-six-zones/research.md`
-- Data model: `specs/004-all-six-zones/data-model.md`
-- Contracts: `specs/004-all-six-zones/contracts/`
-- Quickstart: `specs/004-all-six-zones/quickstart.md`
+- Active spec: `specs/005-additional-input-formats/spec.md`
+- Allium spec: `specs/005-additional-input-formats/spec.allium`
+- Implementation plan: `specs/005-additional-input-formats/plan.md`
+- Research notes: `specs/005-additional-input-formats/research.md`
+- Data model: `specs/005-additional-input-formats/data-model.md`
+- Contracts: `specs/005-additional-input-formats/contracts/`
+- Quickstart: `specs/005-additional-input-formats/quickstart.md`
 
-Previous specs (completed): `specs/001-tauri-bootstrap/`, `specs/002-ollama-sidecar-poc/`, `specs/003-first-zone-sammanfatta/`
+Previous specs (completed): `specs/001-tauri-bootstrap/`, `specs/002-ollama-sidecar-poc/`, `specs/003-first-zone-sammanfatta/`, `specs/004-all-six-zones/`
 <!-- SPECKIT END -->
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
