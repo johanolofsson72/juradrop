@@ -176,16 +176,21 @@ describe('Cross-language Swedish copy drift (T048)', () => {
     });
   });
 
-  it('SWEDISH_ZONE_ERROR has exactly the 9 expected ZoneFailure keys (no extras)', () => {
+  it('SWEDISH_ZONE_ERROR has exactly the 11 expected ZoneFailure keys (no extras)', () => {
+    // Spec 003 introduced 9 variants; spec 005 added two more
+    // (no_extractable_text + unsupported_encoding) for the four-format
+    // input matrix.
     const tsKeys = Object.keys(SWEDISH_ZONE_ERROR).sort();
     const expected = [
       'empty_text',
       'invalid_format',
       'model_error',
       'multiple_files',
+      'no_extractable_text',
       'parse_error',
       'password_protected',
       'save_error',
+      'unsupported_encoding',
       'zone_busy',
       'zone_disabled',
     ];

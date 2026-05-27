@@ -9,7 +9,7 @@
 import type { ZoneFailure } from '@/lib/tauri-bridge';
 
 export const SWEDISH_ZONE_ERROR = {
-  invalid_format: 'Endast .docx i denna version',
+  invalid_format: 'Filformatet stöds inte — dra ett .docx, .pdf, .txt eller .md',
   multiple_files: 'Ett dokument i taget',
   zone_busy: 'Vänta tills föregående dokument är klart',
   zone_disabled: 'AI är inte redo ännu',
@@ -18,6 +18,9 @@ export const SWEDISH_ZONE_ERROR = {
   empty_text: 'Dokumentet innehåller ingen text',
   model_error: 'AI-motorn svarade inte — försök igen',
   save_error: 'Kunde inte spara sammanfattningen',
+  // Spec 005 — PDF image-only + text-encoding errors.
+  no_extractable_text: 'Hittade ingen text att läsa i PDF-filen — skannade bilder stöds inte än',
+  unsupported_encoding: 'Tecken-kodning stöds inte — spara filen som UTF-8 och försök igen',
 } as const satisfies Record<ZoneFailure, string>;
 
 export type ZoneFailureCopy = (typeof SWEDISH_ZONE_ERROR)[ZoneFailure];

@@ -73,7 +73,7 @@ describe('SammanfattaZone', () => {
 
   it('shows the idle hint and the [ docx ] signature label when idle and ready', () => {
     render(<SammanfattaZone />);
-    expect(screen.getByText('Släpp ett .docx för sammanfattning')).toBeInTheDocument();
+    expect(screen.getByText('Släpp ett .docx, .pdf, .txt eller .md för sammanfattning')).toBeInTheDocument();
     expect(screen.getByText('[ docx ]')).toBeInTheDocument();
   });
 
@@ -157,7 +157,7 @@ describe('SammanfattaZone', () => {
       const { rerender, findByText, queryByText } = render(<SammanfattaZone />);
 
       // 1. idle
-      expect(await findByText('Släpp ett .docx för sammanfattning')).toBeInTheDocument();
+      expect(await findByText('Släpp ett .docx, .pdf, .txt eller .md för sammanfattning')).toBeInTheDocument();
       expect(await findByText('[ docx ]')).toBeInTheDocument();
 
       // 2. dragover
@@ -195,7 +195,7 @@ describe('SammanfattaZone', () => {
         progress_hint: null,
       });
       rerender(<SammanfattaZone />);
-      expect(await findByText('Släpp ett .docx för sammanfattning')).toBeInTheDocument();
+      expect(await findByText('Släpp ett .docx, .pdf, .txt eller .md för sammanfattning')).toBeInTheDocument();
       expect(await findByText('[ docx ]')).toBeInTheDocument();
     });
 
@@ -232,7 +232,7 @@ describe('SammanfattaZone', () => {
       expect(
         queryByText('AI-motorn svarade inte — försök igen'),
       ).not.toBeInTheDocument();
-      expect(await findByText('Släpp ett .docx för sammanfattning')).toBeInTheDocument();
+      expect(await findByText('Släpp ett .docx, .pdf, .txt eller .md för sammanfattning')).toBeInTheDocument();
     });
 
     it('dragover → idle (drag-leave without drop) returns to the idle hint', async () => {
@@ -243,12 +243,12 @@ describe('SammanfattaZone', () => {
 
       setZone({ state: 'idle' });
       rerender(<SammanfattaZone />);
-      await findByText('Släpp ett .docx för sammanfattning');
+      await findByText('Släpp ett .docx, .pdf, .txt eller .md för sammanfattning');
     });
 
     it('global status flipping to non-Klar disables the zone mid-idle', async () => {
       const { rerender, findByText } = render(<SammanfattaZone />);
-      await findByText('Släpp ett .docx för sammanfattning');
+      await findByText('Släpp ett .docx, .pdf, .txt eller .md för sammanfattning');
 
       // AI flips to startar — zone borrows the welcome card copy.
       setStatusVisible('startar');
@@ -339,7 +339,7 @@ describe('SammanfattaZone', () => {
       rerender(<SammanfattaZone />);
       root = screen.getByText('Sammanfatta').closest('section') as HTMLElement;
       expect(root.getAttribute('data-disabled')).toBe('false');
-      expect(await findByText('Släpp ett .docx för sammanfattning')).toBeInTheDocument();
+      expect(await findByText('Släpp ett .docx, .pdf, .txt eller .md för sammanfattning')).toBeInTheDocument();
     });
   });
 

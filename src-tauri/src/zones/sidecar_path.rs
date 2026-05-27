@@ -12,24 +12,31 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 use super::errors::ZoneFailure;
+use super::output_format::OutputFormat;
 use super::zone_id::ZoneId;
 
-/// FR-005 + FR-007 — canonical sidecar path for a given source `.docx`
+/// FR-005 + FR-007 — canonical sidecar path for a given source file
 /// and ZoneId. The suffix is per-zone (`sammanfatta`, `tillengelska`,
-/// `anonymiserad`, …). Pure path computation.
-pub fn canonical_for(source: &Path, zone_id: ZoneId) -> PathBuf {
+/// `anonymiserad`, …) and the extension comes from the mirrored
+/// OutputFormat (spec 005 FR-011). Pure path computation.
+pub fn canonical_for_format(source: &Path, zone_id: ZoneId, ext: OutputFormat) -> PathBuf {
     let dir = source.parent().unwrap_or_else(|| Path::new(""));
     let stem = source
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("dokument");
     let suffix = zone_id.sidecar_suffix();
-    dir.join(format!("{stem}.{suffix}.docx"))
+    dir.join(format!("{stem}.{suffix}.{ext}", ext = ext.as_str()))
+}
+
+/// Spec 003 compat shim — same as the spec-005 form with `OutputFormat::Docx`.
+pub fn canonical_for(source: &Path, zone_id: ZoneId) -> PathBuf {
+    canonical_for_format(source, zone_id, OutputFormat::Docx)
 }
 
 /// FR-006 — sidecar path with a local-time timestamp suffix appended
-/// before the extension. Used when `canonical_for` already exists.
-pub fn with_collision_suffix(source: &Path, zone_id: ZoneId) -> PathBuf {
+/// before the extension. Used when `canonical_for_format` already exists.
+pub fn with_collision_suffix_format(source: &Path, zone_id: ZoneId, ext: OutputFormat) -> PathBuf {
     let dir = source.parent().unwrap_or_else(|| Path::new(""));
     let stem = source
         .file_stem()
@@ -37,18 +44,28 @@ pub fn with_collision_suffix(source: &Path, zone_id: ZoneId) -> PathBuf {
         .unwrap_or("dokument");
     let suffix = zone_id.sidecar_suffix();
     let ts = Local::now().format("%Y-%m-%d-%H%M%S");
-    dir.join(format!("{stem}.{suffix}.{ts}.docx"))
+    dir.join(format!("{stem}.{suffix}.{ts}.{ext}", ext = ext.as_str()))
 }
 
-/// FR-006 — resolve a free per-zone sidecar path: canonical if
-/// available, otherwise the timestamped variant.
-pub fn resolve_target(source: &Path, zone_id: ZoneId) -> PathBuf {
-    let canonical = canonical_for(source, zone_id);
+/// Spec 003 compat shim — same as the spec-005 form with `OutputFormat::Docx`.
+pub fn with_collision_suffix(source: &Path, zone_id: ZoneId) -> PathBuf {
+    with_collision_suffix_format(source, zone_id, OutputFormat::Docx)
+}
+
+/// FR-006 — resolve a free per-zone sidecar path for a specific output
+/// format: canonical if available, otherwise the timestamped variant.
+pub fn resolve_target_format(source: &Path, zone_id: ZoneId, ext: OutputFormat) -> PathBuf {
+    let canonical = canonical_for_format(source, zone_id, ext);
     if canonical.exists() {
-        with_collision_suffix(source, zone_id)
+        with_collision_suffix_format(source, zone_id, ext)
     } else {
         canonical
     }
+}
+
+/// Spec 003 compat shim — same as the spec-005 form with `OutputFormat::Docx`.
+pub fn resolve_target(source: &Path, zone_id: ZoneId) -> PathBuf {
+    resolve_target_format(source, zone_id, OutputFormat::Docx)
 }
 
 /// R-007 — atomic write: `<path>.tmp` → fsync → rename. Either the
@@ -61,7 +78,13 @@ pub async fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), ZoneFailu
         let _ = fs::create_dir_all(parent).await;
     }
 
-    let tmp = path.with_extension("docx.tmp");
+    // Spec 005 — append `.tmp` to the FULL path instead of replacing
+    // the extension. The old `.with_extension("docx.tmp")` form hard-
+    // coded the docx extension; the format-aware writers need to drop
+    // `.tmp` next to `.txt` / `.md` sidecars too.
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp: PathBuf = tmp.into();
 
     // Write phase
     let mut file = match fs::File::create(&tmp).await {

@@ -165,6 +165,9 @@ fn every_zone_failure_string_matches_the_cross_language_fixture() {
         (ZoneFailure::EmptyText, "empty_text"),
         (ZoneFailure::ModelError, "model_error"),
         (ZoneFailure::SaveError, "save_error"),
+        // Spec 005 — two new variants for the PDF + text-encoding paths.
+        (ZoneFailure::NoExtractableText, "no_extractable_text"),
+        (ZoneFailure::UnsupportedEncoding, "unsupported_encoding"),
     ];
 
     for (variant, key) in cases {
@@ -183,10 +186,10 @@ fn every_zone_failure_string_matches_the_cross_language_fixture() {
     // new variant added to the enum without a fixture entry (or vice
     // versa) fails here.
     let fixture_obj = fixture.as_object().expect("fixture is an object");
-    // _comment + 9 variants = 10 keys.
+    // _comment + 11 variants (9 from spec 003 + 2 from spec 005) = 12 keys.
     assert_eq!(
         fixture_obj.len(),
-        10,
-        "fixture must list exactly 9 ZoneFailure variants + 1 _comment field"
+        12,
+        "fixture must list exactly 11 ZoneFailure variants + 1 _comment field"
     );
 }

@@ -16,12 +16,16 @@ use crate::sidecar::client::OllamaClient;
 use crate::sidecar::log_safe::Redacted;
 use crate::sidecar::status::SidecarStatus;
 
-use super::docx_extract::extract_text;
 use super::docx_write::build_summary_doc;
 use super::errors::ZoneFailure;
+use super::extract::extract_text as extract_text_dispatch;
+use super::input_format::InputFormat;
 use super::job::DropJob;
-use super::sidecar_path::{resolve_target, write_atomically};
+use super::md_write::build_sidecar as build_md_sidecar;
+use super::output_format::OutputFormat;
+use super::sidecar_path::{resolve_target_format, write_atomically};
 use super::snapshot::{JobOutcome, ZoneSnapshot, ZoneState};
+use super::txt_write::build_sidecar as build_txt_sidecar;
 use super::zone_id::ZoneId;
 
 /// Auto-clear delays per FR-010 / FR-011.
@@ -32,12 +36,6 @@ const ERROR_AUTO_CLEAR: Duration = Duration::from_secs(5);
 struct ZoneInternalState {
     visible: ZoneState,
     current_job: Option<DropJob>,
-}
-
-impl Default for ZoneState {
-    fn default() -> Self {
-        ZoneState::Idle
-    }
 }
 
 pub struct DropZone {
@@ -156,11 +154,27 @@ impl DropZone {
         job_id: Uuid,
         cancel_token: tokio_util::sync::CancellationToken,
     ) {
-        // Step 1: extract text. Runs synchronously because docx-rs
-        // and our zip layer don't expose async APIs.
+        // Spec 005 — detect the input format from the lowercase extension.
+        // None → InvalidFormat (FR-010). Resolves which extractor and
+        // which writer run.
+        let input_format = match InputFormat::detect_from_path(&source) {
+            Some(f) => f,
+            None => {
+                self.finalize_with_failure(&app, job_id, ZoneFailure::InvalidFormat)
+                    .await;
+                return;
+            }
+        };
+        let output_format = OutputFormat::mirror_from(input_format);
+
+        // Step 1: extract text. Runs synchronously because the
+        // extractors (docx-rs, pdf-extract, std::fs) don't expose
+        // async APIs. The dispatcher routes to the right per-format
+        // extractor and centralises the truncation cap + blank-line
+        // collapse.
         let extracted = match tokio::task::spawn_blocking({
             let source = source.clone();
-            move || extract_text(&source)
+            move || extract_text_dispatch(&source, input_format)
         })
         .await
         {
@@ -212,11 +226,31 @@ impl DropZone {
             return;
         }
 
-        // Step 4: build the output .docx + write atomically. Both
+        // Step 4: build the output sidecar + write atomically. Both
         // per-zone — the writer uses the zone's header template +
         // disclaimer, and the resolver uses the zone's sidecar suffix.
-        let bytes = build_summary_doc(self.id, &source, &response_text, extracted.was_truncated);
-        let target = resolve_target(&source, self.id);
+        // Spec 005 — the writer chosen per `output_format` mirrors the
+        // input extension (with PDF → DOCX per FR-011).
+        let bytes = match output_format {
+            OutputFormat::Docx => build_summary_doc(
+                self.id,
+                &source,
+                &response_text,
+                extracted.was_truncated,
+                extracted.was_partial,
+            ),
+            OutputFormat::Txt => {
+                build_txt_sidecar(self.id, &source, &response_text, extracted.was_truncated)
+            }
+            OutputFormat::Md => build_md_sidecar(
+                self.id,
+                &source,
+                &response_text,
+                extracted.frontmatter.as_deref(),
+                extracted.was_truncated,
+            ),
+        };
+        let target = resolve_target_format(&source, self.id, output_format);
 
         if let Err(failure) = write_atomically(&target, &bytes).await {
             self.finalize_with_failure(&app, job_id, failure).await;

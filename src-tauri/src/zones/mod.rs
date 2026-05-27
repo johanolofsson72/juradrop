@@ -27,7 +27,20 @@ pub mod sidecar_path;
 pub mod snapshot;
 pub mod zone_id;
 
+// Spec 005 — additional input formats (.pdf, .txt, .md) + per-format writers.
+pub mod extract;
+pub mod input_format;
+pub mod md_extract;
+pub mod md_write;
+pub mod output_format;
+pub mod pdf_extract;
+pub mod txt_extract;
+pub mod txt_write;
+
 pub use errors::ZoneFailure;
+pub use extract::ExtractedText;
+pub use input_format::InputFormat;
 pub use job::DropJob;
+pub use output_format::OutputFormat;
 pub use snapshot::{JobOutcome, ZoneSnapshot, ZoneState};
 pub use zone_id::ZoneId;

@@ -1,6 +1,6 @@
 {
-  "_comment": "Spec 003 / T048 — single source of truth for the Swedish error strings emitted by the Sammanfatta zone. Rust side (src-tauri/src/zones/errors.rs) and TS side (src/components/SammanfattaZone.errors.ts) both assert against this fixture in their drift-detection tests. Update all three together when changing a string.",
-  "invalid_format": "Endast .docx i denna version",
+  "_comment": "Spec 003 / T048 + spec 005 — single source of truth for the Swedish error strings emitted by the drop zones. Rust side (src-tauri/src/zones/errors.rs) and TS side (src/components/DropZone.errors.ts) both assert against this fixture in their drift-detection tests. Update all three together when changing a string. Spec 005 added two new keys (no_extractable_text, unsupported_encoding) and updated invalid_format copy for the four supported formats.",
+  "invalid_format": "Filformatet stöds inte — dra ett .docx, .pdf, .txt eller .md",
   "multiple_files": "Ett dokument i taget",
   "zone_busy": "Vänta tills föregående dokument är klart",
   "zone_disabled": "AI är inte redo ännu",
@@ -8,5 +8,7 @@
   "password_protected": "Dokumentet är lösenordsskyddat",
   "empty_text": "Dokumentet innehåller ingen text",
   "model_error": "AI-motorn svarade inte — försök igen",
-  "save_error": "Kunde inte spara sammanfattningen"
+  "save_error": "Kunde inte spara sammanfattningen",
+  "no_extractable_text": "Hittade ingen text att läsa i PDF-filen — skannade bilder stöds inte än",
+  "unsupported_encoding": "Tecken-kodning stöds inte — spara filen som UTF-8 och försök igen"
 }

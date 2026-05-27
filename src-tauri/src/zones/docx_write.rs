@@ -19,6 +19,11 @@ use super::zone_id::ZoneId;
 const TRUNCATION_NOTICE: &str =
     "(Dokumentet förkortades innan sammanfattning — endast början är sammanfattad.)";
 
+// Spec 005 / FR-002a — Swedish partial-extraction notice for PDFs
+// where pdf-extract recovered text from fewer than 100% of pages.
+pub const PARTIAL_EXTRACTION_NOTICE: &str =
+    "(Delar av PDF-filen kunde inte läsas — resultatet kan vara ofullständigt.)";
+
 const MODEL_LABEL: &str = "gemma3:4b";
 
 /// Construct a serialized per-zone `.docx`.
@@ -27,11 +32,13 @@ const MODEL_LABEL: &str = "gemma3:4b";
 /// - `source`      — used for the {name} substitution in the header.
 /// - `response`    — the model output. Split on `\n\n` into body paragraphs.
 /// - `truncated`   — toggles the FR-019 truncation notice paragraph.
+/// - `was_partial` — (spec 005 FR-002a) toggles the Swedish partial-PDF notice.
 pub fn build_summary_doc(
     zone_id: ZoneId,
     source: &Path,
     response: &str,
     truncated: bool,
+    was_partial: bool,
 ) -> Vec<u8> {
     let basename = source
         .file_name()
@@ -47,6 +54,14 @@ pub fn build_summary_doc(
     let mut docx = Docx::new()
         .add_paragraph(Paragraph::new().add_run(Run::new().add_text(&header_filename).bold()))
         .add_paragraph(Paragraph::new().add_run(Run::new().add_text(&header_meta)));
+
+    // Spec 005 FR-002a — partial PDF notice comes BEFORE the truncation
+    // notice (root-cause before symptom).
+    if was_partial {
+        docx = docx.add_paragraph(
+            Paragraph::new().add_run(Run::new().add_text(PARTIAL_EXTRACTION_NOTICE).italic()),
+        );
+    }
 
     if truncated {
         docx = docx.add_paragraph(
@@ -96,6 +111,7 @@ mod tests {
             &fake_source(),
             "En koncis sammanfattning.",
             false,
+            false,
         );
         let extracted = extract_text_from_bytes(&bytes).expect("output must parse");
         assert!(extracted
@@ -106,7 +122,13 @@ mod tests {
 
     #[test]
     fn tillengelska_header_uses_oversattning_template() {
-        let bytes = build_summary_doc(ZoneId::TillEngelska, &fake_source(), "English text.", false);
+        let bytes = build_summary_doc(
+            ZoneId::TillEngelska,
+            &fake_source(),
+            "English text.",
+            false,
+            false,
+        );
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted
             .raw
@@ -116,7 +138,7 @@ mod tests {
 
     #[test]
     fn punktlista_header_uses_punktlista_template() {
-        let bytes = build_summary_doc(ZoneId::Punktlista, &fake_source(), "- A\n- B", false);
+        let bytes = build_summary_doc(ZoneId::Punktlista, &fake_source(), "- A\n- B", false, false);
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted
             .raw
@@ -126,7 +148,13 @@ mod tests {
 
     #[test]
     fn anonymisera_includes_fr013_disclaimer_paragraph() {
-        let bytes = build_summary_doc(ZoneId::Anonymisera, &fake_source(), "Person A...", false);
+        let bytes = build_summary_doc(
+            ZoneId::Anonymisera,
+            &fake_source(),
+            "Person A...",
+            false,
+            false,
+        );
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted
             .raw
@@ -136,7 +164,7 @@ mod tests {
 
     #[test]
     fn forenkla_includes_fr014_disclaimer_paragraph() {
-        let bytes = build_summary_doc(ZoneId::Forenkla, &fake_source(), "Förenklad…", false);
+        let bytes = build_summary_doc(ZoneId::Forenkla, &fake_source(), "Förenklad…", false, false);
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted
             .raw
@@ -146,7 +174,7 @@ mod tests {
 
     #[test]
     fn sammanfatta_has_no_disclaimer_paragraph() {
-        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Text.", false);
+        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Text.", false, false);
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(!extracted
             .raw
@@ -157,7 +185,7 @@ mod tests {
 
     #[test]
     fn meta_paragraph_includes_model_label() {
-        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Hej.", false);
+        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Hej.", false, false);
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted.raw.as_inner().contains("gemma3:4b"));
         assert!(extracted
@@ -168,12 +196,23 @@ mod tests {
 
     #[test]
     fn truncation_notice_present_only_when_flag_set() {
-        let with_notice =
-            build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Kort text.", true);
+        let with_notice = build_summary_doc(
+            ZoneId::Sammanfatta,
+            &fake_source(),
+            "Kort text.",
+            true,
+            false,
+        );
         let extracted = extract_text_from_bytes(&with_notice).unwrap();
         assert!(extracted.raw.as_inner().contains("Dokumentet förkortades"));
 
-        let without = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Kort text.", false);
+        let without = build_summary_doc(
+            ZoneId::Sammanfatta,
+            &fake_source(),
+            "Kort text.",
+            false,
+            false,
+        );
         let extracted2 = extract_text_from_bytes(&without).unwrap();
         assert!(!extracted2.raw.as_inner().contains("Dokumentet förkortades"));
     }
@@ -181,11 +220,86 @@ mod tests {
     #[test]
     fn body_paragraphs_split_on_double_newline() {
         let body = "Första.\n\nAndra.\n\nTredje.";
-        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), body, false);
+        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), body, false, false);
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         let raw = extracted.raw.as_inner();
         assert!(raw.contains("Första."));
         assert!(raw.contains("Andra."));
         assert!(raw.contains("Tredje."));
+    }
+
+    // ============================================================
+    // Spec 005 / T018 — partial-PDF notice rendering tests.
+    // ============================================================
+
+    #[test]
+    fn partial_pdf_flag_inserts_swedish_partial_notice() {
+        let bytes = build_summary_doc(
+            ZoneId::Sammanfatta,
+            &fake_source(),
+            "Body text.",
+            false,
+            true, // was_partial
+        );
+        let extracted = extract_text_from_bytes(&bytes).unwrap();
+        assert!(extracted
+            .raw
+            .as_inner()
+            .contains("Delar av PDF-filen kunde inte läsas"));
+    }
+
+    #[test]
+    fn partial_notice_appears_when_both_partial_and_truncated_are_set() {
+        let bytes = build_summary_doc(
+            ZoneId::Sammanfatta,
+            &fake_source(),
+            "Body text.",
+            true, // truncated
+            true, // was_partial
+        );
+        let extracted = extract_text_from_bytes(&bytes).unwrap();
+        let raw = extracted.raw.as_inner();
+        assert!(raw.contains("Delar av PDF-filen kunde inte läsas"));
+        assert!(raw.contains("Dokumentet förkortades"));
+        // Partial notice must precede the truncation notice (root cause
+        // before the symptom). Find both occurrences and check order.
+        let partial_idx = raw
+            .find("Delar av PDF-filen")
+            .expect("partial notice present");
+        let truncation_idx = raw
+            .find("Dokumentet förkortades")
+            .expect("truncation notice present");
+        assert!(
+            partial_idx < truncation_idx,
+            "partial notice must precede truncation notice"
+        );
+    }
+
+    #[test]
+    fn no_partial_notice_when_flag_unset() {
+        let bytes = build_summary_doc(
+            ZoneId::Sammanfatta,
+            &fake_source(),
+            "Body text.",
+            false,
+            false,
+        );
+        let extracted = extract_text_from_bytes(&bytes).unwrap();
+        assert!(!extracted.raw.as_inner().contains("Delar av PDF-filen"));
+    }
+
+    #[test]
+    fn partial_notice_and_disclaimer_both_present_on_anonymisera() {
+        let bytes = build_summary_doc(
+            ZoneId::Anonymisera,
+            &fake_source(),
+            "Person A...",
+            false,
+            true,
+        );
+        let extracted = extract_text_from_bytes(&bytes).unwrap();
+        let raw = extracted.raw.as_inner();
+        assert!(raw.contains("Delar av PDF-filen kunde inte läsas"));
+        assert!(raw.contains("AI-anonymisering är inte hundra procent"));
     }
 }

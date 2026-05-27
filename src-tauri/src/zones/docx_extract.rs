@@ -14,22 +14,11 @@ use docx_rs::DocumentChild;
 
 use super::errors::ZoneFailure;
 
-/// FR-019 / R-003 — character-count proxy for ~6,000 tokens, conservative
-/// for Swedish where chars-per-token is slightly higher than English.
-pub const TRUNCATION_CHAR_LIMIT: usize = 24_000;
-
-#[derive(Debug)]
-pub struct ExtractedText {
-    /// The raw extracted text. Wrapped in `Redacted` so it cannot leak
-    /// into `Debug` / `Display` log calls (Principle I privacy boundary).
-    pub raw: Redacted<String>,
-    /// Length in UTF-8 characters AFTER truncation, if any.
-    pub char_count: usize,
-    /// True iff the input exceeded `TRUNCATION_CHAR_LIMIT` and was
-    /// truncated. The dispatcher uses this to flip the truncation
-    /// notice paragraph in the summary doc (FR-019).
-    pub was_truncated: bool,
-}
+// Spec 005 — the canonical `ExtractedText` shape + truncation constant
+// now live in `super::extract`; this module re-exports them so the
+// spec 003 import path (`use ...::zones::docx_extract::ExtractedText`)
+// keeps working byte-identically.
+pub use super::extract::{ExtractedText, TRUNCATION_CHAR_LIMIT};
 
 /// Read a `.docx` file from disk and return its extracted text.
 ///
@@ -80,6 +69,9 @@ pub fn extract_text_from_bytes(bytes: &[u8]) -> Result<ExtractedText, ZoneFailur
         raw: Redacted::new(final_text),
         char_count,
         was_truncated,
+        // Spec 005 — these flags only fire for PDF / MD respectively.
+        was_partial: false,
+        frontmatter: None,
     })
 }
 

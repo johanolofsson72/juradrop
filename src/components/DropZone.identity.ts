@@ -19,7 +19,7 @@ export const ZONE_IDENTITIES = {
   sammanfatta: {
     slug: 'sammanfatta',
     title: 'Sammanfatta',
-    hintCopy: 'Släpp ett .docx för sammanfattning',
+    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för sammanfattning',
     sidecarSuffix: 'sammanfatta',
     processingHint: 'Sammanfattar…',
     hasDisclaimer: false,
@@ -27,7 +27,7 @@ export const ZONE_IDENTITIES = {
   tillengelska: {
     slug: 'tillengelska',
     title: 'Till engelska',
-    hintCopy: 'Släpp ett .docx för engelsk översättning',
+    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för engelsk översättning',
     sidecarSuffix: 'tillengelska',
     processingHint: 'Översätter…',
     hasDisclaimer: false,
@@ -35,7 +35,7 @@ export const ZONE_IDENTITIES = {
   tillsvenska: {
     slug: 'tillsvenska',
     title: 'Till svenska',
-    hintCopy: 'Släpp ett .docx för svensk översättning',
+    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för svensk översättning',
     sidecarSuffix: 'tillsvenska',
     processingHint: 'Översätter…',
     hasDisclaimer: false,
@@ -43,7 +43,7 @@ export const ZONE_IDENTITIES = {
   punktlista: {
     slug: 'punktlista',
     title: 'Punktlista',
-    hintCopy: 'Släpp ett .docx för punktlista',
+    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för punktlista',
     sidecarSuffix: 'punktlista',
     processingHint: 'Listar…',
     hasDisclaimer: false,
@@ -51,7 +51,7 @@ export const ZONE_IDENTITIES = {
   anonymisera: {
     slug: 'anonymisera',
     title: 'Anonymisera',
-    hintCopy: 'Släpp ett .docx för anonymisering',
+    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för anonymisering',
     // Past-participle adjective — matches Rust's ZoneId::sidecar_suffix.
     sidecarSuffix: 'anonymiserad',
     processingHint: 'Anonymiserar…',
@@ -60,7 +60,7 @@ export const ZONE_IDENTITIES = {
   forenkla: {
     slug: 'forenkla',
     title: 'Förenkla',
-    hintCopy: 'Släpp ett .docx för klarspråk',
+    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för klarspråk',
     sidecarSuffix: 'forenkla',
     processingHint: 'Förenklar…',
     hasDisclaimer: true,

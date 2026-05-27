@@ -40,6 +40,17 @@ open = "5"
 tokio-util = { version = "0.7", features = ["rt"] }
 # Spec 003 — UUID for DropJob.id used by cancel_summary lookup.
 uuid = { version = "1", features = ["v4", "serde"] }
+# Spec 005 — pure-Rust PDF text extraction. MIT-licensed, no external
+# binaries, no network. Used for the .pdf input format extractor.
+pdf-extract = "0.7"
+# Spec 005 — BOM detection + Windows-1252 fallback for the .txt / .md
+# encoding cascade. Mozilla's encoding_rs, pure Rust, audited.
+encoding_rs = "0.8"
+# Spec 005 — direct lopdf access for PDF encryption probe + page count.
+# Already a transitive dep via pdf-extract 0.7 (which pulls lopdf 0.34);
+# declared explicitly + pinned to the same major so the encryption check
+# is honest and we don't dual-compile the crate.
+lopdf = { version = "0.34", default-features = false, features = ["pom_parser"] }
 
 [dev-dependencies]
 # T023 — integration tests in tests/ need tauri::test::mock_builder /

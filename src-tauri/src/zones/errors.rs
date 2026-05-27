@@ -15,8 +15,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum ZoneFailure {
-    /// FR-013 — non-.docx drop.
-    #[error("Endast .docx i denna version")]
+    /// FR-013 — extension outside the supported set.
+    /// Spec 005 updated the copy to list all four supported formats.
+    #[error("Filformatet stöds inte — dra ett .docx, .pdf, .txt eller .md")]
     InvalidFormat,
 
     /// FR-014 — 2+ files dropped at once.
@@ -35,7 +36,7 @@ pub enum ZoneFailure {
     #[error("Kunde inte läsa dokumentet")]
     ParseError,
 
-    /// FR-017 — password-protected .docx detected before any model call.
+    /// FR-017 — password-protected document detected before any model call.
     #[error("Dokumentet är lösenordsskyddat")]
     PasswordProtected,
 
@@ -50,6 +51,20 @@ pub enum ZoneFailure {
     /// Edge case — filesystem rejected the sidecar write.
     #[error("Kunde inte spara sammanfattningen")]
     SaveError,
+
+    /// Spec 005 FR-004 — PDF with ≥ 1 page but pdf-extract returned
+    /// zero bytes of text (image-only / scanned, no embedded text layer).
+    /// Different from `EmptyText`: the file is not blank, it just has
+    /// no extractable text. Different recovery action (re-export with
+    /// text layer, vs. add content).
+    #[error("Hittade ingen text att läsa i PDF-filen — skannade bilder stöds inte än")]
+    NoExtractableText,
+
+    /// Spec 005 FR-007 — `.txt` or `.md` file in an encoding other than
+    /// UTF-8 or Windows-1252 (UTF-16 LE/BE, UTF-32 LE/BE). Detected by
+    /// leading BOM before any decode attempt.
+    #[error("Tecken-kodning stöds inte — spara filen som UTF-8 och försök igen")]
+    UnsupportedEncoding,
 }
 
 #[cfg(test)]
@@ -66,6 +81,9 @@ mod tests {
         ZoneFailure::EmptyText,
         ZoneFailure::ModelError,
         ZoneFailure::SaveError,
+        // Spec 005 — the two new format-detection variants.
+        ZoneFailure::NoExtractableText,
+        ZoneFailure::UnsupportedEncoding,
     ];
 
     #[test]

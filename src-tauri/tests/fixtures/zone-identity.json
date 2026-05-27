@@ -1,9 +1,9 @@
 {
-  "_comment": "Spec 004 / T035 — single source of truth for the six ZoneIdentity rows. The Rust side (src-tauri/src/zones/zone_id.rs) and the TS side (src/components/DropZone.identity.ts) both assert against this fixture in their drift-detection tests. Update all three together when changing any per-zone string.",
+  "_comment": "Spec 004 / T035 + spec 005 FR-017 — single source of truth for the six ZoneIdentity rows. The Rust side (src-tauri/src/zones/zone_id.rs) and the TS side (src/components/DropZone.identity.ts) both assert against this fixture in their drift-detection tests. Update all three together when changing any per-zone string. Spec 005 extended hint_copy for all six zones to list all four supported input formats (.docx, .pdf, .txt, .md).",
   "sammanfatta": {
     "slug": "sammanfatta",
     "title": "Sammanfatta",
-    "hint_copy": "Släpp ett .docx för sammanfattning",
+    "hint_copy": "Släpp ett .docx, .pdf, .txt eller .md för sammanfattning",
     "sidecar_suffix": "sammanfatta",
     "processing_hint": "Sammanfattar…",
     "has_disclaimer": false
@@ -11,7 +11,7 @@
   "tillengelska": {
     "slug": "tillengelska",
     "title": "Till engelska",
-    "hint_copy": "Släpp ett .docx för engelsk översättning",
+    "hint_copy": "Släpp ett .docx, .pdf, .txt eller .md för engelsk översättning",
     "sidecar_suffix": "tillengelska",
     "processing_hint": "Översätter…",
     "has_disclaimer": false
@@ -19,7 +19,7 @@
   "tillsvenska": {
     "slug": "tillsvenska",
     "title": "Till svenska",
-    "hint_copy": "Släpp ett .docx för svensk översättning",
+    "hint_copy": "Släpp ett .docx, .pdf, .txt eller .md för svensk översättning",
     "sidecar_suffix": "tillsvenska",
     "processing_hint": "Översätter…",
     "has_disclaimer": false
@@ -27,7 +27,7 @@
   "punktlista": {
     "slug": "punktlista",
     "title": "Punktlista",
-    "hint_copy": "Släpp ett .docx för punktlista",
+    "hint_copy": "Släpp ett .docx, .pdf, .txt eller .md för punktlista",
     "sidecar_suffix": "punktlista",
     "processing_hint": "Listar…",
     "has_disclaimer": false
@@ -35,7 +35,7 @@
   "anonymisera": {
     "slug": "anonymisera",
     "title": "Anonymisera",
-    "hint_copy": "Släpp ett .docx för anonymisering",
+    "hint_copy": "Släpp ett .docx, .pdf, .txt eller .md för anonymisering",
     "sidecar_suffix": "anonymiserad",
     "processing_hint": "Anonymiserar…",
     "has_disclaimer": true
@@ -43,7 +43,7 @@
   "forenkla": {
     "slug": "forenkla",
     "title": "Förenkla",
-    "hint_copy": "Släpp ett .docx för klarspråk",
+    "hint_copy": "Släpp ett .docx, .pdf, .txt eller .md för klarspråk",
     "sidecar_suffix": "forenkla",
     "processing_hint": "Förenklar…",
     "has_disclaimer": true

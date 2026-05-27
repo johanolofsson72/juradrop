@@ -205,32 +205,29 @@ fn handle_drag_drop_event(app: &tauri::AppHandle, drag: DragDropEvent) {
         .and_then(|w| w.scale_factor().ok())
         .unwrap_or(1.0);
 
-    match drag {
-        DragDropEvent::Drop { paths, position } => {
-            #[derive(serde::Serialize, Clone)]
-            struct FileDroppedPayload {
-                paths: Vec<std::path::PathBuf>,
-                position: CssPosition,
-            }
-            #[derive(serde::Serialize, Clone)]
-            struct CssPosition {
-                x: f64,
-                y: f64,
-            }
-            let payload = FileDroppedPayload {
-                paths,
-                position: CssPosition {
-                    x: position.x / scale,
-                    y: position.y / scale,
-                },
-            };
-            let _ = app.emit("juradrop://file-dropped", payload);
+    // Enter / Over / Leave are routed by the WebView's own
+    // drag-tracking layer (set per-zone via React onDragOver +
+    // data-zone-id). Rust only needs to fan out the Drop event with
+    // the OS file paths + the CSS-pixel position.
+    if let DragDropEvent::Drop { paths, position } = drag {
+        #[derive(serde::Serialize, Clone)]
+        struct FileDroppedPayload {
+            paths: Vec<std::path::PathBuf>,
+            position: CssPosition,
         }
-        // Enter / Over / Leave are routed by the WebView's own
-        // drag-tracking layer (set per-zone via React onDragOver +
-        // data-zone-id). Rust doesn't need to know which zone the
-        // cursor is over.
-        _ => {}
+        #[derive(serde::Serialize, Clone)]
+        struct CssPosition {
+            x: f64,
+            y: f64,
+        }
+        let payload = FileDroppedPayload {
+            paths,
+            position: CssPosition {
+                x: position.x / scale,
+                y: position.y / scale,
+            },
+        };
+        let _ = app.emit("juradrop://file-dropped", payload);
     }
 }
 

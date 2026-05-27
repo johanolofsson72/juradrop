@@ -74,7 +74,10 @@ export type ZoneFailure =
   | 'password_protected'
   | 'empty_text'
   | 'model_error'
-  | 'save_error';
+  | 'save_error'
+  // Spec 005 — two new variants for the four-format input matrix.
+  | 'no_extractable_text'
+  | 'unsupported_encoding';
 
 export interface ZoneSnapshot {
   state: ZoneState;

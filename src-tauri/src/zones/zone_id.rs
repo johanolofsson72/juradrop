@@ -66,17 +66,22 @@ impl ZoneId {
         }
     }
 
-    /// FR-005 — per-zone Swedish hint copy (pulled in from the spec 010
-    /// deferral via the 2026-05-27 clarification). Reviewed via the
-    /// humanizer skill in Phase 7 / T036.
+    /// FR-005 + spec 005 FR-017 — per-zone Swedish hint copy. Pulled
+    /// in from the spec 010 deferral via the spec 004 clarification
+    /// round; extended in spec 005 to list all four supported input
+    /// formats (.docx, .pdf, .txt, .md). Humanizer-reviewed:
+    /// noun-pattern parallelism kept across all six zones; each ≤ 80
+    /// chars per the SwedishCopy invariant from spec 003.
     pub fn hint_copy(self) -> &'static str {
         match self {
-            ZoneId::Sammanfatta => "Släpp ett .docx för sammanfattning",
-            ZoneId::TillEngelska => "Släpp ett .docx för engelsk översättning",
-            ZoneId::TillSvenska => "Släpp ett .docx för svensk översättning",
-            ZoneId::Punktlista => "Släpp ett .docx för punktlista",
-            ZoneId::Anonymisera => "Släpp ett .docx för anonymisering",
-            ZoneId::Forenkla => "Släpp ett .docx för klarspråk",
+            ZoneId::Sammanfatta => "Släpp ett .docx, .pdf, .txt eller .md för sammanfattning",
+            ZoneId::TillEngelska => {
+                "Släpp ett .docx, .pdf, .txt eller .md för engelsk översättning"
+            }
+            ZoneId::TillSvenska => "Släpp ett .docx, .pdf, .txt eller .md för svensk översättning",
+            ZoneId::Punktlista => "Släpp ett .docx, .pdf, .txt eller .md för punktlista",
+            ZoneId::Anonymisera => "Släpp ett .docx, .pdf, .txt eller .md för anonymisering",
+            ZoneId::Forenkla => "Släpp ett .docx, .pdf, .txt eller .md för klarspråk",
         }
     }
 

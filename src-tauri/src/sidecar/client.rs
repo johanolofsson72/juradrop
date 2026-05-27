@@ -340,6 +340,9 @@ mod tests {
         }
         // pull is callback-driven; we can't take a generic FnMut by-value
         // in a function pointer, so just confirm it's callable here.
+        // The returned future is dropped intentionally — this is a
+        // compile-time signature check, not a runtime call.
+        #[allow(clippy::let_underscore_future)]
         fn _pull_is_callable(c: &OllamaClient) {
             let _ = c.pull("x", |_| {});
         }
