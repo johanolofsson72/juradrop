@@ -170,13 +170,47 @@ impl OllamaSidecar {
         Err(SidecarError::StartupTimeout)
     }
 
-    pub async fn stop(&self, _grace: Duration) -> Result<(), SidecarError> {
+    /// Graceful shutdown: SIGTERM first, poll for exit up to `grace`, then
+    /// SIGKILL via the Tauri-owned child handle as a fallback. Ollama serve
+    /// traps SIGTERM and shuts down cleanly (closes connections, releases
+    /// the port) — SIGKILL alone leaves nothing on disk corrupted but skips
+    /// any in-flight cleanup the runtime might want to do.
+    pub async fn stop(&self, grace: Duration) -> Result<(), SidecarError> {
         self.set_status(SidecarStatus::Stopping);
-        if let Some(child) = self.child.write().take() {
-            child
-                .kill()
-                .map_err(|e| SidecarError::Plugin(e.to_string()))?;
+        let Some(child) = self.child.write().take() else {
+            // Nothing to stop — already gone (or never spawned). Idempotent.
+            self.set_status(SidecarStatus::Stopped);
+            return Ok(());
+        };
+
+        let pid = child.pid() as i32;
+
+        // Phase 1 — SIGTERM. Best-effort: if delivery fails (e.g. the
+        // process already exited between `take()` and now), the liveness
+        // poll below will see that and return Ok immediately.
+        unsafe {
+            libc::kill(pid, libc::SIGTERM);
         }
+
+        // Phase 2 — poll liveness. `kill(pid, 0)` is the POSIX "is it
+        // alive?" probe; ESRCH (process gone) flips it to non-zero.
+        let deadline = std::time::Instant::now() + grace;
+        while std::time::Instant::now() < deadline {
+            let alive = unsafe { libc::kill(pid, 0) } == 0;
+            if !alive {
+                self.set_status(SidecarStatus::Stopped);
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        // Phase 3 — fallback SIGKILL via the Tauri child handle. Reached
+        // only when SIGTERM was either ignored or the process hung past
+        // `grace`. Consumes `child`; the drain task's `rx` keeps receiving
+        // until the kernel reports termination.
+        child
+            .kill()
+            .map_err(|e| SidecarError::Plugin(e.to_string()))?;
         self.set_status(SidecarStatus::Stopped);
         Ok(())
     }
