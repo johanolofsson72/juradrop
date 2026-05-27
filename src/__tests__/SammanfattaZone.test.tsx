@@ -122,4 +122,119 @@ describe('SammanfattaZone', () => {
     expect(root.getAttribute('aria-label')).toMatch(/Sammanfatta/);
     expect(root.getAttribute('aria-disabled')).toBe('true');
   });
+
+  // T033 — sequenced state-machine transitions. The zone is purely
+  // state-reactive; the Rust core owns the timer-based transitions
+  // (success → idle after 2 s, error → idle after 5 s) and emits
+  // them as fresh snapshots. From the React layer's POV the timer
+  // arrives as a store mutation, so the test sequence is just
+  // setZone() calls verifying the UI tracks each step.
+  describe('state-machine transitions', () => {
+    it('idle → dragover → processing → success → idle reaches the right copy at each step', async () => {
+      const { rerender, findByText, queryByText } = render(<SammanfattaZone />);
+
+      // 1. idle
+      expect(await findByText('Släpp ett .docx-dokument här')).toBeInTheDocument();
+      expect(await findByText('[ docx ]')).toBeInTheDocument();
+
+      // 2. dragover
+      setZone({ state: 'dragover' });
+      rerender(<SammanfattaZone />);
+      expect(await findByText('Släpp för att sammanfatta')).toBeInTheDocument();
+      expect(queryByText('[ docx ]')).not.toBeInTheDocument();
+
+      // 3. processing
+      setZone({
+        state: 'processing',
+        job_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        progress_hint: 'Sammanfattar…',
+      });
+      rerender(<SammanfattaZone />);
+      expect(await findByText('Sammanfattar…')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Avbryt' })).toBeInTheDocument();
+
+      // 4. success
+      setZone({
+        state: 'success',
+        progress_hint: 'Klar — öppnar fil…',
+      });
+      rerender(<SammanfattaZone />);
+      expect(await findByText('Klar — öppnar fil…')).toBeInTheDocument();
+      expect(queryByText('Sammanfattar…')).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Avbryt' }),
+      ).not.toBeInTheDocument();
+
+      // 5. idle (auto-clear arrived as a snapshot from Rust)
+      setZone({
+        state: 'idle',
+        job_id: null,
+        progress_hint: null,
+      });
+      rerender(<SammanfattaZone />);
+      expect(await findByText('Släpp ett .docx-dokument här')).toBeInTheDocument();
+      expect(await findByText('[ docx ]')).toBeInTheDocument();
+    });
+
+    it('processing → error → idle replays the Swedish failure copy and clears it', async () => {
+      const { rerender, findByText, queryByText } = render(<SammanfattaZone />);
+
+      setZone({
+        state: 'processing',
+        job_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        progress_hint: 'Sammanfattar…',
+      });
+      rerender(<SammanfattaZone />);
+      await findByText('Sammanfattar…');
+
+      setZone({
+        state: 'error',
+        failure: 'model_error',
+        job_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        progress_hint: null,
+      });
+      rerender(<SammanfattaZone />);
+      expect(
+        await findByText('AI-motorn svarade inte — försök igen'),
+      ).toBeInTheDocument();
+      expect(queryByText('Sammanfattar…')).not.toBeInTheDocument();
+
+      // Auto-clear (would arrive from Rust 5 s later)
+      setZone({
+        state: 'idle',
+        failure: null,
+        job_id: null,
+      });
+      rerender(<SammanfattaZone />);
+      expect(
+        queryByText('AI-motorn svarade inte — försök igen'),
+      ).not.toBeInTheDocument();
+      expect(await findByText('Släpp ett .docx-dokument här')).toBeInTheDocument();
+    });
+
+    it('dragover → idle (drag-leave without drop) returns to the idle hint', async () => {
+      const { rerender, findByText } = render(<SammanfattaZone />);
+      setZone({ state: 'dragover' });
+      rerender(<SammanfattaZone />);
+      await findByText('Släpp för att sammanfatta');
+
+      setZone({ state: 'idle' });
+      rerender(<SammanfattaZone />);
+      await findByText('Släpp ett .docx-dokument här');
+    });
+
+    it('global status flipping to non-Klar disables the zone mid-idle', async () => {
+      const { rerender, findByText } = render(<SammanfattaZone />);
+      await findByText('Släpp ett .docx-dokument här');
+
+      // AI flips to startar — zone borrows the welcome card copy.
+      setStatusVisible('startar');
+      rerender(<SammanfattaZone />);
+      const root = screen
+        .getByText('Sammanfatta')
+        .closest('section') as HTMLElement;
+      expect(root.getAttribute('data-disabled')).toBe('true');
+      expect(await findByText('Startar AI...')).toBeInTheDocument();
+    });
+  });
 });

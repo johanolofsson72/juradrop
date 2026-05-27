@@ -370,17 +370,38 @@ impl SammanfattaZone {
 
     /// Transition from `expected` → `Idle`. No-op if a new drop arrived
     /// during the sleep and the visible_state has already moved on.
-    fn auto_clear_to_idle<R: Runtime>(&self, app: &AppHandle<R>, expected: ZoneState) {
+    /// Auto-clear transition: only fires if the visible state is still
+    /// `expected`. If a new drop or status change moved the zone on,
+    /// this is a no-op — that's the Allium ProcessingHasJob /
+    /// IdleHasNoJob safety net for the timer race.
+    ///
+    /// Returns `true` if the transition fired, `false` if it was a
+    /// no-op. Exposed for the unit test below; the production callers
+    /// (schedule_success_clear / schedule_error_clear) discard the
+    /// return value.
+    fn auto_clear_to_idle<R: Runtime>(&self, app: &AppHandle<R>, expected: ZoneState) -> bool {
         {
             let mut st = self.state.write();
-            if !matches!(st.visible, s if std::mem::discriminant(&s) == std::mem::discriminant(&expected))
-            {
-                return;
+            if st.visible != expected {
+                return false;
             }
             st.visible = ZoneState::Idle;
             st.current_job = None;
         }
         let _ = app.emit("juradrop://sammanfatta", ZoneSnapshot::idle(false));
+        true
+    }
+
+    // ----- Test-only accessors for the auto-clear unit tests (T035) ----
+
+    #[cfg(test)]
+    pub(crate) fn set_visible_for_test(&self, s: ZoneState) {
+        self.state.write().visible = s;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn visible_for_test(&self) -> ZoneState {
+        self.state.read().visible
     }
 }
 
@@ -424,5 +445,53 @@ mod tests {
         assert!(!sidecar_is_ready(SidecarStatus::Crashed));
         assert!(!sidecar_is_ready(SidecarStatus::Stopping));
         assert!(!sidecar_is_ready(SidecarStatus::Stopped));
+    }
+
+    /// T035 — auto-clear must fire when the visible state still matches
+    /// `expected`, and must NO-OP when the state has moved on (e.g. a
+    /// new drop arrived during the 2 s / 5 s sleep). Without this
+    /// guard, the timer would clobber an in-flight Processing state
+    /// after a success → processing transition.
+    #[test]
+    fn auto_clear_to_idle_only_fires_when_state_still_matches() {
+        use tauri::test::{mock_builder, mock_context, noop_assets};
+
+        let app = mock_builder()
+            .build(mock_context(noop_assets()))
+            .expect("build mock app");
+        let handle = app.handle().clone();
+
+        let zone = SammanfattaZone::new();
+
+        // Case 1 — expected matches actual. Clear should fire.
+        zone.set_visible_for_test(ZoneState::Success);
+        assert!(
+            zone.auto_clear_to_idle(&handle, ZoneState::Success),
+            "auto-clear should fire when state matches"
+        );
+        assert_eq!(zone.visible_for_test(), ZoneState::Idle);
+
+        // Case 2 — state has moved on. Clear should NOT fire.
+        zone.set_visible_for_test(ZoneState::Processing);
+        assert!(
+            !zone.auto_clear_to_idle(&handle, ZoneState::Success),
+            "auto-clear must be a no-op when visible state has moved on"
+        );
+        assert_eq!(
+            zone.visible_for_test(),
+            ZoneState::Processing,
+            "stale auto-clear must not clobber a new processing state"
+        );
+
+        // Case 3 — error → idle when state still matches.
+        zone.set_visible_for_test(ZoneState::Error);
+        assert!(zone.auto_clear_to_idle(&handle, ZoneState::Error));
+        assert_eq!(zone.visible_for_test(), ZoneState::Idle);
+
+        // Case 4 — error path with state moved on (a recover-and-redrop
+        // arrived) must also no-op.
+        zone.set_visible_for_test(ZoneState::Processing);
+        assert!(!zone.auto_clear_to_idle(&handle, ZoneState::Error));
+        assert_eq!(zone.visible_for_test(), ZoneState::Processing);
     }
 }

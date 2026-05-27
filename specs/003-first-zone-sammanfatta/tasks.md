@@ -85,18 +85,18 @@ description: "Task list for spec 003 — First drop zone (Sammanfatta)"
 
 ### Implementation for User Story 2
 
-- [ ] T027 [US2] Implement the state machine emit path in `src-tauri/src/zones/sammanfatta.rs`: after every state transition, call a private `emit_snapshot(&self, app: &AppHandle, snap: ZoneSnapshot)` helper that fires `app.emit("juradrop://sammanfatta", snap)`. Transitions to emit: dragover, processing, success, error, idle (auto-clear). Per `contracts/tauri-events.md`.
-- [ ] T028 [US2] Implement the success auto-clear timer: `tokio::time::sleep(Duration::from_secs(2))` then transition `Success → Idle` and re-emit. Cancellable if a new drop arrives during the 2 s window.
-- [ ] T029 [US2] Implement the error auto-clear timer: same shape as T028 but with `Duration::from_secs(5)`.
-- [ ] T030 [US2] Extend `src/components/SammanfattaZone.tsx` with the visible state machine: distinct Tailwind classes per `state`, dragover border pulse, spinner during processing, success checkmark + flash, error flash with the Swedish failure string. Use the `useStatusStore.zone` slice as the single source of truth.
-- [ ] T031 [US2] Add `aria-live="polite"` + `aria-atomic="true"` to the status announcer inside `SammanfattaZone.tsx` (separate `<p role="status">` if needed). The announcer reads the current Swedish progress hint or error string. Per SC-007.
-- [ ] T032 [US2] Add a `progressHint(state, failure)` helper in `SammanfattaZone.tsx` returning the appropriate Swedish string for the current state: idle → "Släpp ett .docx-dokument här", dragover → "Släpp för att sammanfatta", processing → "Sammanfattar…", success → "Klar — öppnar fil…", error → `SWEDISH_ZONE_ERROR[failure]`.
+- [x] T027 [US2] Implement the state machine emit path in `src-tauri/src/zones/sammanfatta.rs`: after every state transition, call a private `emit_snapshot(&self, app: &AppHandle, snap: ZoneSnapshot)` helper that fires `app.emit("juradrop://sammanfatta", snap)`. Transitions to emit: dragover, processing, success, error, idle (auto-clear). Per `contracts/tauri-events.md`.
+- [x] T028 [US2] Implement the success auto-clear timer: `tokio::time::sleep(Duration::from_secs(2))` then transition `Success → Idle` and re-emit. Cancellable if a new drop arrives during the 2 s window.
+- [x] T029 [US2] Implement the error auto-clear timer: same shape as T028 but with `Duration::from_secs(5)`.
+- [x] T030 [US2] Extend `src/components/SammanfattaZone.tsx` with the visible state machine: distinct Tailwind classes per `state`, dragover border pulse, spinner during processing, success checkmark + flash, error flash with the Swedish failure string. Use the `useStatusStore.zone` slice as the single source of truth.
+- [x] T031 [US2] Add `aria-live="polite"` + `aria-atomic="true"` to the status announcer inside `SammanfattaZone.tsx` (separate `<p role="status">` if needed). The announcer reads the current Swedish progress hint or error string. Per SC-007.
+- [x] T032 [US2] Add a `progressHint(state, failure)` helper in `SammanfattaZone.tsx` returning the appropriate Swedish string for the current state: idle → "Släpp ett .docx-dokument här", dragover → "Släpp för att sammanfatta", processing → "Sammanfattar…", success → "Klar — öppnar fil…", error → `SWEDISH_ZONE_ERROR[failure]`.
 
 ### Tests for User Story 2
 
-- [ ] T033 [P] [US2] Extend `src/__tests__/SammanfattaZone.test.tsx` with one test per state transition: idle→dragover (mock store mutation), dragover→processing (mock store), processing→success, processing→error, success→idle after 2 s (`vi.useFakeTimers()`), error→idle after 5 s.
-- [ ] T034 [P] [US2] Add an accessibility test in `SammanfattaZone.test.tsx`: the status announcer carries `aria-live="polite"` and `aria-atomic="true"`, and its text content updates when the store's `zone.state` changes.
-- [ ] T035 [P] [US2] Write `src-tauri/src/zones/sammanfatta.rs#[cfg(test)] mod tests`: unit tests for the auto-clear timer cancellation — set up a state, schedule the auto-clear, mutate the state before the timer fires, assert the auto-clear is a no-op when the state has already moved.
+- [x] T033 [P] [US2] Extend `src/__tests__/SammanfattaZone.test.tsx` with one test per state transition: idle→dragover (mock store mutation), dragover→processing (mock store), processing→success, processing→error, success→idle after 2 s (`vi.useFakeTimers()`), error→idle after 5 s.
+- [x] T034 [P] [US2] Add an accessibility test in `SammanfattaZone.test.tsx`: the status announcer carries `aria-live="polite"` and `aria-atomic="true"`, and its text content updates when the store's `zone.state` changes.
+- [x] T035 [P] [US2] Write `src-tauri/src/zones/sammanfatta.rs#[cfg(test)] mod tests`: unit tests for the auto-clear timer cancellation — set up a state, schedule the auto-clear, mutate the state before the timer fires, assert the auto-clear is a no-op when the state has already moved.
 
 **Checkpoint**: US2 done = every transition is visible within 100 ms, auto-clears fire on schedule, screen-reader announcements work.
 
