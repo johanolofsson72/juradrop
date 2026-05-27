@@ -35,3 +35,6 @@ libc = "0.2"
 tauri = { version = "2", features = ["test"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# T056 / T057 / T060 — mock HTTP server for client robustness tests.
+# Binds to a random port; test-time only, never linked into the app.
+wiremock = "0.6"

@@ -49,20 +49,32 @@ impl From<serde_json::Error> for ClientError {
 
 pub struct OllamaClient {
     http: reqwest::Client,
+    base_url: String,
 }
 
 impl OllamaClient {
+    /// Production constructor — targets the loopback Ollama at the
+    /// project-wide `BASE_URL`. Principle I requires this to remain
+    /// `127.0.0.1`; any change must be reviewed against `.specify/memory
+    /// /constitution.md`.
     pub fn new() -> Self {
+        Self::with_base_url(BASE_URL.to_string())
+    }
+
+    /// Test-only constructor for pointing the client at a mock HTTP server
+    /// (e.g. `wiremock::MockServer`). Production code MUST use `new()` so
+    /// the loopback invariant cannot be silently broken from a refactor.
+    pub fn with_base_url(base_url: String) -> Self {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(5))
             .build()
             .expect("failed to build reqwest client");
-        Self { http }
+        Self { http, base_url }
     }
 
     pub async fn list_tags(&self) -> Result<Vec<String>, ClientError> {
-        let url = format!("{}/api/tags", BASE_URL);
+        let url = format!("{}/api/tags", self.base_url);
         let resp = self.http.get(&url).send().await?;
         let body: ListTagsResponse = resp.json().await?;
         Ok(body.models.into_iter().map(|m| m.name).collect())
@@ -73,7 +85,7 @@ impl OllamaClient {
         model: &str,
         prompt: Redacted<String>,
     ) -> Result<Redacted<String>, ClientError> {
-        let url = format!("{}/api/generate", BASE_URL);
+        let url = format!("{}/api/generate", self.base_url);
         let body = GenerateRequest {
             model: model.to_string(),
             prompt: prompt.into_inner(),
@@ -87,8 +99,8 @@ impl OllamaClient {
         Ok(Redacted::new(parsed.response))
     }
 
-    pub fn base_url(&self) -> &'static str {
-        BASE_URL
+    pub fn base_url(&self) -> &str {
+        &self.base_url
     }
 
     /// Stream `POST /api/pull` and invoke `on_event` for each meaningful
@@ -104,7 +116,7 @@ impl OllamaClient {
         model: &str,
         mut on_event: impl FnMut(PullEvent) + Send,
     ) -> Result<(), ClientError> {
-        let url = format!("{}/api/pull", BASE_URL);
+        let url = format!("{}/api/pull", self.base_url);
         let body = PullRequest {
             name: model.to_string(),
             stream: true,
