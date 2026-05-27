@@ -202,7 +202,10 @@ mod tests {
     #[test]
     fn sidecar_error_port_busy_maps_to_fel_porten_upptagen() {
         let e = SidecarError::PortBusy;
-        assert_eq!(UserVisibleStatus::from(&e), UserVisibleStatus::FelPortenUpptagen);
+        assert_eq!(
+            UserVisibleStatus::from(&e),
+            UserVisibleStatus::FelPortenUpptagen
+        );
     }
 
     #[test]

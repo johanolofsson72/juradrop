@@ -20,19 +20,21 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 const PIDFILE_NAME: &str = "ollama.pid";
 
-fn pidfile_path(app: &AppHandle) -> Option<PathBuf> {
+fn pidfile_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     app.path().app_data_dir().ok().map(|p| p.join(PIDFILE_NAME))
 }
 
 /// Persist the just-spawned sidecar's PID. Best-effort — failures are
 /// logged but don't propagate; the worst case is we can't kill a future
 /// orphan, which is the pre-spec-002 status quo.
-pub fn write(app: &AppHandle, pid: u32) {
-    let Some(path) = pidfile_path(app) else { return };
+pub fn write<R: Runtime>(app: &AppHandle<R>, pid: u32) {
+    let Some(path) = pidfile_path(app) else {
+        return;
+    };
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -43,15 +45,19 @@ pub fn write(app: &AppHandle, pid: u32) {
 
 /// Remove the pidfile on clean shutdown so the next launch doesn't try to
 /// kill a recycled PID. Idempotent — missing-file is not an error.
-pub fn clear(app: &AppHandle) {
-    let Some(path) = pidfile_path(app) else { return };
+pub fn clear<R: Runtime>(app: &AppHandle<R>) {
+    let Some(path) = pidfile_path(app) else {
+        return;
+    };
     let _ = fs::remove_file(&path);
 }
 
 /// On launch, kill any stale sidecar process that the previous run left
 /// alive. Sends SIGTERM, sleeps briefly, then SIGKILL if still alive.
-pub fn kill_stale_if_present(app: &AppHandle) {
-    let Some(path) = pidfile_path(app) else { return };
+pub fn kill_stale_if_present<R: Runtime>(app: &AppHandle<R>) {
+    let Some(path) = pidfile_path(app) else {
+        return;
+    };
     let pid_str = match fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => return, // No file → no orphan to kill.
@@ -84,8 +90,6 @@ pub fn kill_stale_if_present(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn nonexistent_pid_treated_as_already_gone() {
         // PID 0 isn't valid for kill, but kill with sig=0 will fail with

@@ -28,3 +28,10 @@ thiserror = "1"
 # F2/F3 disk-space pre-check — already in the dependency tree transitively
 # via tokio; declaring it explicitly so the unsafe statvfs call is honest.
 libc = "0.2"
+
+[dev-dependencies]
+# T023 — integration tests in tests/ need tauri::test::mock_builder /
+# mock_context, which live behind the "test" feature.
+tauri = { version = "2", features = ["test"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

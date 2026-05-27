@@ -263,10 +263,9 @@ mod tests {
 
     #[test]
     fn pull_line_clamps_overshoot_to_100() {
-        let line: PullLine = serde_json::from_str(
-            r#"{"status":"downloading","total":100,"completed":150}"#,
-        )
-        .unwrap();
+        let line: PullLine =
+            serde_json::from_str(r#"{"status":"downloading","total":100,"completed":150}"#)
+                .unwrap();
         match line.into_event() {
             Some(PullEvent::Progress { percent }) => assert_eq!(percent, 100),
             other => panic!("expected Progress(100), got {other:?}"),
@@ -275,17 +274,14 @@ mod tests {
 
     #[test]
     fn pull_line_zero_total_yields_no_event() {
-        let line: PullLine = serde_json::from_str(
-            r#"{"status":"downloading","total":0,"completed":0}"#,
-        )
-        .unwrap();
+        let line: PullLine =
+            serde_json::from_str(r#"{"status":"downloading","total":0,"completed":0}"#).unwrap();
         assert!(line.into_event().is_none());
     }
 
     #[test]
     fn pull_line_manifest_status_yields_no_event() {
-        let line: PullLine =
-            serde_json::from_str(r#"{"status":"pulling manifest"}"#).unwrap();
+        let line: PullLine = serde_json::from_str(r#"{"status":"pulling manifest"}"#).unwrap();
         assert!(line.into_event().is_none());
     }
 
@@ -327,8 +323,7 @@ mod tests {
             c: &'a OllamaClient,
             model: &'a str,
             prompt: Redacted<String>,
-        ) -> impl std::future::Future<Output = Result<Redacted<String>, ClientError>> + 'a
-        {
+        ) -> impl std::future::Future<Output = Result<Redacted<String>, ClientError>> + 'a {
             c.generate(model, prompt)
         }
         // pull is callback-driven; we can't take a generic FnMut by-value

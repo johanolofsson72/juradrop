@@ -44,35 +44,19 @@ pub fn run() {
                             if state.sidecar.retry_count_value() == 0 {
                                 let prev = state.sidecar.increment_retry();
                                 if prev == 1 {
-                                    eprintln!(
-                                        "[juradrop] sidecar crashed; attempting one retry"
-                                    );
-                                    if let Err(e) =
-                                        state.sidecar.spawn(&app).await
-                                    {
-                                        eprintln!(
-                                            "[juradrop] retry spawn failed: {e}"
-                                        );
+                                    eprintln!("[juradrop] sidecar crashed; attempting one retry");
+                                    if let Err(e) = state.sidecar.spawn(&app).await {
+                                        eprintln!("[juradrop] retry spawn failed: {e}");
                                         *state.error_override.write() =
                                             Some(UserVisibleStatus::from(&e));
-                                        let _ = app.emit(
-                                            "juradrop://status",
-                                            state.snapshot(),
-                                        );
-                                    } else if let Err(e) = state
-                                        .sidecar
-                                        .wait_ready(Duration::from_secs(10))
-                                        .await
+                                        let _ = app.emit("juradrop://status", state.snapshot());
+                                    } else if let Err(e) =
+                                        state.sidecar.wait_ready(Duration::from_secs(10)).await
                                     {
-                                        eprintln!(
-                                            "[juradrop] retry wait_ready failed: {e}"
-                                        );
+                                        eprintln!("[juradrop] retry wait_ready failed: {e}");
                                         *state.error_override.write() =
                                             Some(UserVisibleStatus::from(&e));
-                                        let _ = app.emit(
-                                            "juradrop://status",
-                                            state.snapshot(),
-                                        );
+                                        let _ = app.emit("juradrop://status", state.snapshot());
                                     } else {
                                         // GAP-4: re-run the full post-ready
                                         // bootstrap (list_tags → model check →
@@ -81,17 +65,12 @@ pub fn run() {
                                         // retry would leave the app stuck in
                                         // LaddarNerModell with no pull
                                         // actually running.
-                                        after_sidecar_ready(
-                                            app.clone(),
-                                            state.inner().clone(),
-                                        )
-                                        .await;
+                                        after_sidecar_ready(app.clone(), state.inner().clone())
+                                            .await;
                                     }
                                 }
                             } else {
-                                eprintln!(
-                                    "[juradrop] retry budget exhausted; holding Crashed"
-                                );
+                                eprintln!("[juradrop] retry budget exhausted; holding Crashed");
                             }
                         }
                     });
@@ -134,11 +113,7 @@ pub fn run() {
 
                     match state.sidecar.wait_ready(Duration::from_secs(10)).await {
                         Ok(()) => {
-                            after_sidecar_ready(
-                                app_handle.clone(),
-                                state.inner().clone(),
-                            )
-                            .await;
+                            after_sidecar_ready(app_handle.clone(), state.inner().clone()).await;
                         }
                         Err(e) => {
                             eprintln!("[juradrop] sidecar wait_ready failed: {e}");
@@ -194,10 +169,9 @@ mod tests {
     fn capabilities_allowlist_is_minimal_per_spec() {
         let manifest = env!("CARGO_MANIFEST_DIR");
         let path = std::path::Path::new(manifest).join("capabilities/default.json");
-        let json = std::fs::read_to_string(&path)
-            .expect("capabilities/default.json must exist");
-        let cap: serde_json::Value = serde_json::from_str(&json)
-            .expect("capabilities/default.json must be valid JSON");
+        let json = std::fs::read_to_string(&path).expect("capabilities/default.json must exist");
+        let cap: serde_json::Value =
+            serde_json::from_str(&json).expect("capabilities/default.json must be valid JSON");
 
         let perms = cap
             .get("permissions")
@@ -205,8 +179,7 @@ mod tests {
             .expect("permissions array missing");
 
         // String permissions, sorted for deterministic comparison.
-        let mut string_perms: Vec<&str> =
-            perms.iter().filter_map(|v| v.as_str()).collect();
+        let mut string_perms: Vec<&str> = perms.iter().filter_map(|v| v.as_str()).collect();
         string_perms.sort();
 
         // Exactly these four core permissions — nothing more, nothing less.

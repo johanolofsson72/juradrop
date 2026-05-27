@@ -185,11 +185,9 @@ pub fn spawn_pull_task(app: AppHandle, state: AppState) {
         });
 
         // F1: enforce the spec.allium `model_pull_timeout_seconds: 300` ceiling.
-        let timed = tokio::time::timeout(
-            Duration::from_secs(MODEL_PULL_TIMEOUT_SECONDS),
-            pull_future,
-        )
-        .await;
+        let timed =
+            tokio::time::timeout(Duration::from_secs(MODEL_PULL_TIMEOUT_SECONDS), pull_future)
+                .await;
 
         match timed {
             Ok(Ok(())) => {} // Success — events already emitted by the callback.
@@ -200,9 +198,7 @@ pub fn spawn_pull_task(app: AppHandle, state: AppState) {
                 emit_status(&app, &state.snapshot());
             }
             Err(_elapsed) => {
-                eprintln!(
-                    "[juradrop] pull timed out after {MODEL_PULL_TIMEOUT_SECONDS}s"
-                );
+                eprintln!("[juradrop] pull timed out after {MODEL_PULL_TIMEOUT_SECONDS}s");
                 *state.model_status.write() = ModelStatus::DownloadFailed;
                 *state.progress.write() = None;
                 emit_status(&app, &state.snapshot());

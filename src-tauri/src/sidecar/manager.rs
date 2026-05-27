@@ -6,7 +6,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use parking_lot::RwLock;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tokio::time::sleep;
@@ -54,7 +54,7 @@ impl OllamaSidecar {
         *self.status.write() = s;
     }
 
-    pub async fn spawn(&self, app: &AppHandle) -> Result<(), SidecarError> {
+    pub async fn spawn<R: Runtime>(&self, app: &AppHandle<R>) -> Result<(), SidecarError> {
         // Pre-flight port check.
         if Self::port_busy(11434) {
             self.set_status(SidecarStatus::Crashed);
@@ -113,23 +113,17 @@ impl OllamaSidecar {
 
                     // Distinguish orderly shutdown from a crash: if the manager
                     // had already entered Stopping, the exit is expected.
-                    let was_stopping =
-                        sidecar_arc.status() == SidecarStatus::Stopping;
+                    let was_stopping = sidecar_arc.status() == SidecarStatus::Stopping;
                     if was_stopping {
                         sidecar_arc.set_status(SidecarStatus::Stopped);
-                        let _ = app_for_emit
-                            .emit("juradrop://sidecar-terminated", payload.code);
+                        let _ = app_for_emit.emit("juradrop://sidecar-terminated", payload.code);
                     } else {
                         sidecar_arc.set_status(SidecarStatus::Crashed);
-                        let _ = app_for_emit
-                            .emit("juradrop://sidecar-terminated", payload.code);
+                        let _ = app_for_emit.emit("juradrop://sidecar-terminated", payload.code);
                         // Retry signal — the lib.rs listener picks this up
                         // and decides whether to call spawn() again based
                         // on `retry_count`.
-                        let _ = app_for_emit.emit(
-                            "juradrop://sidecar-crashed",
-                            payload.code,
-                        );
+                        let _ = app_for_emit.emit("juradrop://sidecar-crashed", payload.code);
                     }
                     break;
                 }
