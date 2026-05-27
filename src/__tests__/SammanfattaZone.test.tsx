@@ -237,4 +237,86 @@ describe('SammanfattaZone', () => {
       expect(await findByText('Startar AI...')).toBeInTheDocument();
     });
   });
+
+  // T039 — disabled gate per non-Klar UserVisibleStatus variant. For
+  // each variant the zone MUST be disabled and the hint copy MUST be
+  // the same Swedish string the welcome card uses (single source of
+  // truth via statusMessage()). Parameterized so any new variant
+  // added to the spec 002 enum forces a corresponding test entry.
+  describe('disabled gate per UserVisibleStatus', () => {
+    type Variant = ReturnType<typeof useStatusStore.getState>['status']['visible'];
+    const cases: Array<{ variant: Variant; expected: string }> = [
+      { variant: 'startar', expected: 'Startar AI...' },
+      {
+        variant: 'begar_samtycke',
+        expected: 'Väntar på att du godkänner nedladdningen.',
+      },
+      { variant: 'laddar_ner_modell', expected: 'Laddar ner AI-modell...' },
+      {
+        variant: 'fel_kunde_inte_starta',
+        expected: 'AI-motorn kunde inte starta. Starta om JuraDrop.',
+      },
+      {
+        variant: 'fel_porten_upptagen',
+        expected:
+          'Ett annat AI-program använder anslutningen. Stäng det och starta om JuraDrop.',
+      },
+      {
+        variant: 'fel_disk_full',
+        expected: 'Inte tillräckligt med diskutrymme. Frigör minst 4 GB.',
+      },
+      {
+        variant: 'fel_modellnedladdning_avbroten',
+        expected: 'Modellnedladdningen avbröts. Försök igen.',
+      },
+      {
+        variant: 'fel_ovantat',
+        expected: 'Något gick fel med AI-motorn. Starta om JuraDrop.',
+      },
+      {
+        variant: 'modell_saknas_avbruten',
+        expected: 'AI-modell saknas. Starta om JuraDrop för att försöka igen.',
+      },
+    ];
+
+    cases.forEach(({ variant, expected }) => {
+      it(`zone is disabled and shows the welcome-card copy when visible="${variant}"`, () => {
+        setStatusVisible(variant);
+        render(<SammanfattaZone />);
+
+        // The zone must be visibly disabled.
+        const root = screen
+          .getByText('Sammanfatta')
+          .closest('section') as HTMLElement;
+        expect(root.getAttribute('data-disabled')).toBe('true');
+        expect(root.getAttribute('aria-disabled')).toBe('true');
+
+        // The hint copy is the same Swedish string the WelcomeCard uses.
+        expect(screen.getByText(expected)).toBeInTheDocument();
+
+        // The Avbryt button must not be present (we're not processing).
+        expect(
+          screen.queryByRole('button', { name: 'Avbryt' }),
+        ).not.toBeInTheDocument();
+      });
+    });
+
+    it('flipping to klar removes the disabled treatment', async () => {
+      setStatusVisible('startar');
+      const { rerender, findByText } = render(<SammanfattaZone />);
+      let root = screen.getByText('Sammanfatta').closest('section') as HTMLElement;
+      expect(root.getAttribute('data-disabled')).toBe('true');
+
+      setStatusVisible('klar');
+      // The zone snapshot's `disabled` field is false by default in
+      // the test seed; the Rust-side refresh_disabled would re-emit
+      // a fresh snapshot in production. The JS-side derivation
+      // (status.visible === 'klar') is enough to flip the gate.
+      setZone({ disabled: false });
+      rerender(<SammanfattaZone />);
+      root = screen.getByText('Sammanfatta').closest('section') as HTMLElement;
+      expect(root.getAttribute('data-disabled')).toBe('false');
+      expect(await findByText('Släpp ett .docx-dokument här')).toBeInTheDocument();
+    });
+  });
 });

@@ -79,6 +79,22 @@ pub fn run() {
                     });
                 });
 
+            // Spec 003 / T038 — reactive zone-disabled gate. The
+            // SammanfattaZone borrows the global sidecar status to
+            // decide whether to accept drops. When `juradrop://status`
+            // arrives (sidecar transitions to Ready / back to non-Ready),
+            // re-emit a `juradrop://sammanfatta` snapshot so the React
+            // layer's zone slice tracks the gate even when the zone
+            // itself hasn't done anything.
+            let status_listener_handle = app.handle().clone();
+            app.handle().listen("juradrop://status", move |_event| {
+                let app = status_listener_handle.clone();
+                if let Some(state) = app.try_state::<AppState>() {
+                    let ready = matches!(state.sidecar.status(), SidecarStatus::Ready);
+                    state.sammanfatta.refresh_disabled(&app, ready);
+                }
+            });
+
             // Boot the sidecar + initial status sync in a background task so
             // the WebView mounts quickly. The welcome card initially shows
             // "Startar AI..." (UserVisibleStatus::Startar) which matches the

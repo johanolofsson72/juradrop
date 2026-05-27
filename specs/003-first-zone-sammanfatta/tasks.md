@@ -108,14 +108,14 @@ description: "Task list for spec 003 — First drop zone (Sammanfatta)"
 
 ### Implementation for User Story 3
 
-- [ ] T036 [US3] In `src/components/SammanfattaZone.tsx`, compute `disabled` from `useStatusStore.status.visible !== 'klar'`. When `disabled === true`, apply a muted Tailwind treatment, drop the `onDrop` / `onDragOver` handlers (defense in depth), and show the Swedish hint matching the current `UserVisibleStatus` via the existing `statusMessage(visible)` helper from spec 002.
-- [ ] T037 [US3] In `src-tauri/src/zones/sammanfatta.rs::handle_drag_event`, double-check `app.state::<AppState>().sidecar.status() != Ready` and bail with `ZoneFailure::ZoneDisabled` before any extraction work. Defense-in-depth — the React layer also gates, but the Rust layer must enforce.
-- [ ] T038 [US3] Implement the reactive `disabled` recompute in `sammanfatta.rs`: listen to `juradrop://status` events (the spec 002 status emitter) and re-emit a `juradrop://sammanfatta` snapshot when the global status changes (per the spec.allium `SidecarStatusBecameReady` / `SidecarStatusBecameNotReady` rules).
+- [x] T036 [US3] In `src/components/SammanfattaZone.tsx`, compute `disabled` from `useStatusStore.status.visible !== 'klar'`. When `disabled === true`, apply a muted Tailwind treatment, drop the `onDrop` / `onDragOver` handlers (defense in depth), and show the Swedish hint matching the current `UserVisibleStatus` via the existing `statusMessage(visible)` helper from spec 002.
+- [x] T037 [US3] In `src-tauri/src/zones/sammanfatta.rs::handle_drag_event`, double-check `app.state::<AppState>().sidecar.status() != Ready` and bail with `ZoneFailure::ZoneDisabled` before any extraction work. Defense-in-depth — the React layer also gates, but the Rust layer must enforce.
+- [x] T038 [US3] Implement the reactive `disabled` recompute in `sammanfatta.rs`: listen to `juradrop://status` events (the spec 002 status emitter) and re-emit a `juradrop://sammanfatta` snapshot when the global status changes (per the spec.allium `SidecarStatusBecameReady` / `SidecarStatusBecameNotReady` rules).
 
 ### Tests for User Story 3
 
-- [ ] T039 [P] [US3] Extend `src/__tests__/SammanfattaZone.test.tsx`: for each non-`klar` `UserVisibleStatus` (startar, begar_samtycke, laddar_ner_modell, fel_kunde_inte_starta, fel_porten_upptagen, fel_disk_full, fel_ovantat, fel_modellnedladdning_avbroten, modell_saknas_avbruten), assert the zone is disabled and shows the matching Swedish hint.
-- [ ] T040 [P] [US3] Extend `src-tauri/tests/zone_sammanfatta_lifecycle.rs` with a test that forces the sidecar status to non-Ready, attempts a drop, asserts `ZoneFailure::ZoneDisabled` is returned and no extraction was attempted.
+- [x] T039 [P] [US3] Extend `src/__tests__/SammanfattaZone.test.tsx`: for each non-`klar` `UserVisibleStatus` (startar, begar_samtycke, laddar_ner_modell, fel_kunde_inte_starta, fel_porten_upptagen, fel_disk_full, fel_ovantat, fel_modellnedladdning_avbroten, modell_saknas_avbruten), assert the zone is disabled and shows the matching Swedish hint.
+- [x] T040 [P] [US3] Extend `src-tauri/tests/zone_sammanfatta_lifecycle.rs` with a test that forces the sidecar status to non-Ready, attempts a drop, asserts `ZoneFailure::ZoneDisabled` is returned and no extraction was attempted.
 
 **Checkpoint**: US3 done = zone tracks global status reactively, drops on a disabled zone fail closed with a Swedish hint.
 
