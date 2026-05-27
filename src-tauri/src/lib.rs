@@ -13,8 +13,8 @@ pub mod sidecar;
 pub mod zones;
 
 use sidecar::commands::{
-    after_sidecar_ready, cancel_consent, cancel_summary, get_status, give_consent,
-    run_roundtrip_dev, AppState,
+    after_sidecar_ready, cancel_consent, cancel_summary, dispatch_to_zone, get_status,
+    give_consent, run_roundtrip_dev, AppState,
 };
 use sidecar::consent;
 use sidecar::status::{SidecarStatus, UserVisibleStatus};
@@ -28,6 +28,7 @@ pub fn run() {
             cancel_consent,
             run_roundtrip_dev,
             cancel_summary,
+            dispatch_to_zone,
         ])
         .setup(|app| {
             let state = AppState::new();
@@ -92,7 +93,11 @@ pub fn run() {
                 let app = status_listener_handle.clone();
                 if let Some(state) = app.try_state::<AppState>() {
                     let ready = matches!(state.sidecar.status(), SidecarStatus::Ready);
-                    state.sammanfatta.refresh_disabled(&app, ready);
+                    // Spec 004 — fan out to all six zones so the disabled
+                    // gate flips in lock-step (FR-012 + DisabledGateAppliesToAllZones).
+                    for zone in state.zones.values() {
+                        zone.refresh_disabled(&app, ready);
+                    }
                 }
             });
 
@@ -184,45 +189,47 @@ pub fn run() {
     });
 }
 
-/// Spec 003 / T018 — translate Tauri's `DragDropEvent` into zone-snapshot
-/// emits or the dispatch pipeline call. Runs on the synchronous event
-/// thread; any async work is spun out via `tauri::async_runtime::spawn`.
+/// Spec 004 / T018 — translate Tauri's `DragDropEvent` into the
+/// `juradrop://file-dropped` event the WebView consumes. The
+/// elementFromPoint resolution lives in JS; this Rust handler is
+/// purely an OS-level → bridge-level translator. The position is
+/// converted from physical pixels (what Tauri gives us) to CSS pixels
+/// (what `document.elementFromPoint` expects).
 fn handle_drag_drop_event(app: &tauri::AppHandle, drag: DragDropEvent) {
-    use zones::snapshot::{ZoneSnapshot, ZoneState};
-
-    let Some(state) = app.try_state::<AppState>() else {
-        return;
-    };
-    let sidecar_ready = matches!(state.sidecar.status(), SidecarStatus::Ready);
+    use tauri::Manager;
+    // CSS-pixel position. Tauri gives us physical pixels in
+    // PhysicalPosition<f64>; divide by the main window's scale_factor
+    // to get the CSS coordinates document.elementFromPoint expects.
+    let scale = app
+        .get_webview_window("main")
+        .and_then(|w| w.scale_factor().ok())
+        .unwrap_or(1.0);
 
     match drag {
-        DragDropEvent::Enter { .. } => {
-            let _ = app.emit(
-                "juradrop://sammanfatta",
-                ZoneSnapshot {
-                    state: ZoneState::Dragover,
-                    disabled: !sidecar_ready,
-                    failure: None,
-                    job_id: None,
-                    progress_hint: None,
+        DragDropEvent::Drop { paths, position } => {
+            #[derive(serde::Serialize, Clone)]
+            struct FileDroppedPayload {
+                paths: Vec<std::path::PathBuf>,
+                position: CssPosition,
+            }
+            #[derive(serde::Serialize, Clone)]
+            struct CssPosition {
+                x: f64,
+                y: f64,
+            }
+            let payload = FileDroppedPayload {
+                paths,
+                position: CssPosition {
+                    x: position.x / scale,
+                    y: position.y / scale,
                 },
-            );
+            };
+            let _ = app.emit("juradrop://file-dropped", payload);
         }
-        DragDropEvent::Leave => {
-            // Drag left the window without dropping — return to idle.
-            let _ = app.emit("juradrop://sammanfatta", ZoneSnapshot::idle(!sidecar_ready));
-        }
-        DragDropEvent::Drop { paths, .. } => {
-            let zone = state.sammanfatta.clone();
-            let client = state.client.clone();
-            let app_clone = app.clone();
-            tauri::async_runtime::spawn(async move {
-                zone.handle_drop(app_clone, client, sidecar_ready, paths)
-                    .await;
-            });
-        }
-        // Mouse position updates over the zone — not load-bearing for the
-        // state machine, ignore.
+        // Enter / Over / Leave are routed by the WebView's own
+        // drag-tracking layer (set per-zone via React onDragOver +
+        // data-zone-id). Rust doesn't need to know which zone the
+        // cursor is over.
         _ => {}
     }
 }

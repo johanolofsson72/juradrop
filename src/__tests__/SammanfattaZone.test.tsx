@@ -1,19 +1,21 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { SammanfattaZone } from '../components/SammanfattaZone';
+import { SammanfattaZone } from '../components/DropZone';
 import { useStatusStore } from '@/lib/status-store';
 import type { ZoneSnapshot } from '@/lib/tauri-bridge';
 
 // T054 — mock the tauri-bridge so we can assert `cancelSummary` is
-// invoked with the right job id when Avbryt is activated.
+// invoked with the right (zoneId, jobId) when Avbryt is activated.
+// Spec 004 — the command now takes a zone_id parameter to scope the
+// cancel to a single zone (SC-006).
 const cancelSummaryMock = vi.fn();
 vi.mock('@/lib/tauri-bridge', async () => {
   const actual =
     await vi.importActual<typeof import('@/lib/tauri-bridge')>('@/lib/tauri-bridge');
   return {
     ...actual,
-    cancelSummary: (jobId: string) => {
-      cancelSummaryMock(jobId);
+    cancelSummary: (zoneId: string, jobId: string) => {
+      cancelSummaryMock(zoneId, jobId);
       return Promise.resolve();
     },
   };
@@ -29,6 +31,10 @@ vi.mock('@/lib/tauri-bridge', async () => {
 function setZone(overrides: Partial<ZoneSnapshot>) {
   useStatusStore.setState((s) => ({
     zone: { ...s.zone, ...overrides },
+    zones: {
+      ...s.zones,
+      sammanfatta: { ...s.zones.sammanfatta, ...overrides },
+    },
   }));
 }
 
@@ -40,22 +46,24 @@ function setStatusVisible(visible: ReturnType<typeof useStatusStore.getState>['s
 
 describe('SammanfattaZone', () => {
   beforeEach(() => {
-    useStatusStore.setState({
+    const idleSnap = {
+      state: 'idle' as const,
+      disabled: false,
+      failure: null,
+      job_id: null,
+      progress_hint: null,
+    };
+    useStatusStore.setState((s) => ({
       status: {
-        visible: 'klar',
-        sidecar: 'ready',
-        model: 'ready',
+        visible: 'klar' as const,
+        sidecar: 'ready' as const,
+        model: 'ready' as const,
         progress_percent: null,
-        consent: 'fortsatt',
+        consent: 'fortsatt' as const,
       },
-      zone: {
-        state: 'idle',
-        disabled: false,
-        failure: null,
-        job_id: null,
-        progress_hint: null,
-      },
-    });
+      zone: idleSnap,
+      zones: { ...s.zones, sammanfatta: idleSnap },
+    }));
   });
 
   it('renders the Swedish title "Sammanfatta"', () => {
@@ -65,7 +73,7 @@ describe('SammanfattaZone', () => {
 
   it('shows the idle hint and the [ docx ] signature label when idle and ready', () => {
     render(<SammanfattaZone />);
-    expect(screen.getByText('Släpp ett .docx-dokument här')).toBeInTheDocument();
+    expect(screen.getByText('Släpp ett .docx för sammanfattning')).toBeInTheDocument();
     expect(screen.getByText('[ docx ]')).toBeInTheDocument();
   });
 
@@ -149,7 +157,7 @@ describe('SammanfattaZone', () => {
       const { rerender, findByText, queryByText } = render(<SammanfattaZone />);
 
       // 1. idle
-      expect(await findByText('Släpp ett .docx-dokument här')).toBeInTheDocument();
+      expect(await findByText('Släpp ett .docx för sammanfattning')).toBeInTheDocument();
       expect(await findByText('[ docx ]')).toBeInTheDocument();
 
       // 2. dragover
@@ -187,7 +195,7 @@ describe('SammanfattaZone', () => {
         progress_hint: null,
       });
       rerender(<SammanfattaZone />);
-      expect(await findByText('Släpp ett .docx-dokument här')).toBeInTheDocument();
+      expect(await findByText('Släpp ett .docx för sammanfattning')).toBeInTheDocument();
       expect(await findByText('[ docx ]')).toBeInTheDocument();
     });
 
@@ -224,7 +232,7 @@ describe('SammanfattaZone', () => {
       expect(
         queryByText('AI-motorn svarade inte — försök igen'),
       ).not.toBeInTheDocument();
-      expect(await findByText('Släpp ett .docx-dokument här')).toBeInTheDocument();
+      expect(await findByText('Släpp ett .docx för sammanfattning')).toBeInTheDocument();
     });
 
     it('dragover → idle (drag-leave without drop) returns to the idle hint', async () => {
@@ -235,12 +243,12 @@ describe('SammanfattaZone', () => {
 
       setZone({ state: 'idle' });
       rerender(<SammanfattaZone />);
-      await findByText('Släpp ett .docx-dokument här');
+      await findByText('Släpp ett .docx för sammanfattning');
     });
 
     it('global status flipping to non-Klar disables the zone mid-idle', async () => {
       const { rerender, findByText } = render(<SammanfattaZone />);
-      await findByText('Släpp ett .docx-dokument här');
+      await findByText('Släpp ett .docx för sammanfattning');
 
       // AI flips to startar — zone borrows the welcome card copy.
       setStatusVisible('startar');
@@ -331,7 +339,7 @@ describe('SammanfattaZone', () => {
       rerender(<SammanfattaZone />);
       root = screen.getByText('Sammanfatta').closest('section') as HTMLElement;
       expect(root.getAttribute('data-disabled')).toBe('false');
-      expect(await findByText('Släpp ett .docx-dokument här')).toBeInTheDocument();
+      expect(await findByText('Släpp ett .docx för sammanfattning')).toBeInTheDocument();
     });
   });
 
@@ -392,7 +400,7 @@ describe('SammanfattaZone', () => {
       render(<SammanfattaZone />);
       fireEvent.click(screen.getByRole('button', { name: 'Avbryt' }));
       expect(cancelSummaryMock).toHaveBeenCalledTimes(1);
-      expect(cancelSummaryMock).toHaveBeenCalledWith(JOB_ID);
+      expect(cancelSummaryMock).toHaveBeenCalledWith('sammanfatta', JOB_ID);
     });
 
     it('invokes cancelSummary when activated via the Enter key', () => {
@@ -409,7 +417,7 @@ describe('SammanfattaZone', () => {
       // keyboard test asserts the same outcome end-to-end.
       fireEvent.keyDown(btn, { key: 'Enter', code: 'Enter' });
       fireEvent.click(btn); // mirrors the browser's Enter→click translation
-      expect(cancelSummaryMock).toHaveBeenCalledWith(JOB_ID);
+      expect(cancelSummaryMock).toHaveBeenCalledWith('sammanfatta', JOB_ID);
     });
 
     it('does NOT invoke cancelSummary when state has no job_id (defensive guard)', () => {

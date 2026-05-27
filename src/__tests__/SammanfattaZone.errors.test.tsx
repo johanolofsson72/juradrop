@@ -3,8 +3,8 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SammanfattaZone } from '../components/SammanfattaZone';
-import { SWEDISH_ZONE_ERROR } from '../components/SammanfattaZone.errors';
+import { SammanfattaZone } from '../components/DropZone';
+import { SWEDISH_ZONE_ERROR } from '../components/DropZone.errors';
 import { useStatusStore } from '@/lib/status-store';
 import type { ZoneFailure } from '@/lib/tauri-bridge';
 
@@ -40,37 +40,43 @@ function loadFixture(): Fixture {
 }
 
 function setStateForFailure(failure: ZoneFailure) {
-  useStatusStore.setState((s) => ({
-    status: { ...s.status, visible: 'klar' },
-    zone: {
+  useStatusStore.setState((s) => {
+    const errorSnap = {
       ...s.zone,
-      state: 'error',
+      state: 'error' as const,
       disabled: false,
       failure,
       job_id: 'test-job',
       progress_hint: null,
-    },
-  }));
+    };
+    return {
+      status: { ...s.status, visible: 'klar' as const },
+      zone: errorSnap,
+      zones: { ...s.zones, sammanfatta: errorSnap },
+    };
+  });
 }
 
 describe('SammanfattaZone — Swedish error copy (T047)', () => {
   beforeEach(() => {
-    useStatusStore.setState({
+    const idleSnap = {
+      state: 'idle' as const,
+      disabled: false,
+      failure: null,
+      job_id: null,
+      progress_hint: null,
+    };
+    useStatusStore.setState((s) => ({
       status: {
-        visible: 'klar',
-        sidecar: 'ready',
-        model: 'ready',
+        visible: 'klar' as const,
+        sidecar: 'ready' as const,
+        model: 'ready' as const,
         progress_percent: null,
-        consent: 'fortsatt',
+        consent: 'fortsatt' as const,
       },
-      zone: {
-        state: 'idle',
-        disabled: false,
-        failure: null,
-        job_id: null,
-        progress_hint: null,
-      },
-    });
+      zone: idleSnap,
+      zones: { ...s.zones, sammanfatta: idleSnap },
+    }));
   });
 
   const variants: ZoneFailure[] = [

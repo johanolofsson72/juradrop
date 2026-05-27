@@ -102,13 +102,20 @@ pub struct AppState {
     // BundledBinaryMissing, …) whose distinction is otherwise lost in the
     // (sidecar, model, consent) tuple.
     pub error_override: Arc<RwLock<Option<UserVisibleStatus>>>,
-    /// Spec 003 — first drop zone owning its single-flight job slot
-    /// and visible state machine.
-    pub sammanfatta: Arc<crate::zones::sammanfatta::SammanfattaZone>,
+    /// Spec 004 — six drop zones, one per ZoneId. Each owns its own
+    /// single-flight job slot, visible state machine, and event channel
+    /// (`juradrop://zone/<slug>`). Constructed at AppState::new and
+    /// never mutated afterwards.
+    pub zones: std::collections::HashMap<ZoneId, Arc<crate::zones::sammanfatta::DropZone>>,
 }
 
 impl AppState {
     pub fn new() -> Self {
+        use crate::zones::sammanfatta::DropZone;
+        let mut zones = std::collections::HashMap::with_capacity(ZoneId::ALL.len());
+        for id in ZoneId::ALL {
+            zones.insert(id, DropZone::new(id));
+        }
         Self {
             sidecar: OllamaSidecar::new(),
             client: Arc::new(OllamaClient::new()),
@@ -116,8 +123,13 @@ impl AppState {
             progress: Arc::new(RwLock::new(None)),
             consent: Arc::new(RwLock::new(ConsentRecord::default())),
             error_override: Arc::new(RwLock::new(None)),
-            sammanfatta: crate::zones::sammanfatta::DropZone::new(ZoneId::Sammanfatta),
+            zones,
         }
+    }
+
+    /// Spec 004 — convenience accessor for a single zone by id.
+    pub fn zone(&self, id: ZoneId) -> Option<&Arc<crate::zones::sammanfatta::DropZone>> {
+        self.zones.get(&id)
     }
 
     pub fn snapshot(&self) -> AppStatus {
@@ -300,14 +312,46 @@ pub async fn run_roundtrip_dev(_state: tauri::State<'_, AppState>) -> Result<u64
 }
 
 /// Spec 003 / T020 — cancel an in-flight Sammanfatta summarization.
-/// Idempotent: silent no-op when `job_id` doesn't match the current
-/// in-flight job (per `contracts/tauri-commands.md`).
+/// Idempotent: silent no-op when `zone_id`/`job_id` doesn't match the
+/// current in-flight job for that zone (per
+/// `specs/004-all-six-zones/contracts/tauri-commands.md`).
 #[tauri::command]
 pub async fn cancel_summary(
     state: tauri::State<'_, AppState>,
+    zone_id: ZoneId,
     job_id: String,
 ) -> Result<(), String> {
-    state.sammanfatta.cancel(&job_id);
+    if let Some(zone) = state.zones.get(&zone_id) {
+        zone.cancel(&job_id);
+    }
+    Ok(())
+}
+
+/// Spec 004 / T021 — route a file drop to the right zone. The WebView
+/// resolves the zone via `document.elementFromPoint(x, y)` after
+/// receiving the `juradrop://file-dropped` event and invokes this
+/// command. The path(s) flow through the Rust event payload + this
+/// command — never through the HTML5 drag-drop blob (privacy
+/// boundary).
+#[tauri::command]
+pub async fn dispatch_to_zone(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    zone_id: ZoneId,
+    paths: Vec<std::path::PathBuf>,
+) -> Result<(), String> {
+    let zone = state
+        .zones
+        .get(&zone_id)
+        .cloned()
+        .ok_or_else(|| format!("unknown zone_id: {zone_id:?}"))?;
+    let client = state.client.clone();
+    let sidecar_ready = matches!(state.sidecar.status(), SidecarStatus::Ready);
+    // Spawn so the invoke returns promptly; handle_drop itself spawns
+    // the dispatch internally, so this is mostly defensive.
+    tauri::async_runtime::spawn(async move {
+        zone.handle_drop(app, client, sidecar_ready, paths).await;
+    });
     Ok(())
 }
 

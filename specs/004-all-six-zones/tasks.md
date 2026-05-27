@@ -60,11 +60,11 @@ description: "Task list for spec 004 — All six drop zones (2×3 grid)"
 
 **Purpose**: Replace `state.sammanfatta: Arc<SammanfattaZone>` with `state.zones: HashMap<ZoneId, Arc<DropZone>>`.
 
-- [ ] T017 In `src-tauri/src/sidecar/commands.rs::AppState`, replace `pub sammanfatta: Arc<SammanfattaZone>` with `pub zones: std::collections::HashMap<ZoneId, Arc<DropZone>>`. Constructor builds one `DropZone::new(id)` per `ZoneId::ALL`. Add `pub fn zone(&self, id: ZoneId) -> Option<&Arc<DropZone>>` accessor.
-- [ ] T018 In `lib.rs::handle_drag_drop_event`, replace the direct `state.sammanfatta.handle_drop(...)` call with the new `juradrop://file-dropped` emit. Payload: `{ paths: PathBuf[], position: { x: f64, y: f64 } }` in CSS pixels (divide the OS position by `app.get_webview_window("main")?.scale_factor()?`). The WebView resolves the zone and calls `dispatch_to_zone(zone_id, paths)`.
-- [ ] T019 In `lib.rs`, register the new `dispatch_to_zone` and the modified `cancel_summary` commands per `contracts/tauri-commands.md`. Update `tauri::generate_handler![...]` accordingly.
-- [ ] T020 In `lib.rs::juradrop://status` listener (T038 from spec 003), iterate `state.zones.values()` and call `zone.refresh_disabled(&app, sidecar_ready)` for each. All six zones flip the disabled gate in lock-step.
-- [ ] T021 In `src-tauri/src/sidecar/commands.rs`, add the `dispatch_to_zone` command per `contracts/tauri-commands.md` and update `cancel_summary` to take `zone_id`.
+- [x] T017 In `src-tauri/src/sidecar/commands.rs::AppState`, replace `pub sammanfatta: Arc<SammanfattaZone>` with `pub zones: std::collections::HashMap<ZoneId, Arc<DropZone>>`. Constructor builds one `DropZone::new(id)` per `ZoneId::ALL`. Add `pub fn zone(&self, id: ZoneId) -> Option<&Arc<DropZone>>` accessor.
+- [x] T018 In `lib.rs::handle_drag_drop_event`, replace the direct `state.sammanfatta.handle_drop(...)` call with the new `juradrop://file-dropped` emit. Payload: `{ paths: PathBuf[], position: { x: f64, y: f64 } }` in CSS pixels (divide the OS position by `app.get_webview_window("main")?.scale_factor()?`). The WebView resolves the zone and calls `dispatch_to_zone(zone_id, paths)`.
+- [x] T019 In `lib.rs`, register the new `dispatch_to_zone` and the modified `cancel_summary` commands per `contracts/tauri-commands.md`. Update `tauri::generate_handler![...]` accordingly.
+- [x] T020 In `lib.rs::juradrop://status` listener (T038 from spec 003), iterate `state.zones.values()` and call `zone.refresh_disabled(&app, sidecar_ready)` for each. All six zones flip the disabled gate in lock-step.
+- [x] T021 In `src-tauri/src/sidecar/commands.rs`, add the `dispatch_to_zone` command per `contracts/tauri-commands.md` and update `cancel_summary` to take `zone_id`.
 
 **Checkpoint after T021**: build + cargo test --lib green. The Sammanfatta zone still works end-to-end; the new zones are wired but not yet covered by the React UI.
 
@@ -74,19 +74,19 @@ description: "Task list for spec 004 — All six drop zones (2×3 grid)"
 
 **Purpose**: Layout the 2×3 grid, generalise the SammanfattaZone component into a per-zone-id-driven DropZone.
 
-- [ ] T022 [P] Create `src/components/DropZone.identity.ts` per data-model.md — `ZONE_IDENTITIES` Record + `ZONE_ORDER` array. The TS mirror of `ZoneId::associated()`.
-- [ ] T023 [P] Rename `src/components/SammanfattaZone.tsx` → `src/components/DropZone.tsx`. The component takes a `zoneId: ZoneId` prop. Read title + hint + disclaimer flag from `ZONE_IDENTITIES[zoneId]`. The root `<section>` gains `data-zone-id={zoneId}` so the WebView's `elementFromPoint` walk can find it (FR-010a).
-- [ ] T024 [P] Rename `src/components/SammanfattaZone.errors.ts` → `src/components/DropZone.errors.ts`. Same `SWEDISH_ZONE_ERROR` map (no new variants).
-- [ ] T025 Update `src/lib/tauri-bridge.ts` per `contracts/tauri-commands.md` + `tauri-events.md`:
+- [x] T022 [P] Create `src/components/DropZone.identity.ts` per data-model.md — `ZONE_IDENTITIES` Record + `ZONE_ORDER` array. The TS mirror of `ZoneId::associated()`.
+- [x] T023 [P] Rename `src/components/SammanfattaZone.tsx` → `src/components/DropZone.tsx`. The component takes a `zoneId: ZoneId` prop. Read title + hint + disclaimer flag from `ZONE_IDENTITIES[zoneId]`. The root `<section>` gains `data-zone-id={zoneId}` so the WebView's `elementFromPoint` walk can find it (FR-010a).
+- [x] T024 [P] Rename `src/components/SammanfattaZone.errors.ts` → `src/components/DropZone.errors.ts`. Same `SWEDISH_ZONE_ERROR` map (no new variants).
+- [x] T025 Update `src/lib/tauri-bridge.ts` per `contracts/tauri-commands.md` + `tauri-events.md`:
   - `cancelSummary(zoneId, jobId)` — signature change.
   - `subscribeZone(zoneId, cb)` — listens to `juradrop://zone/<slug>`.
   - `dispatchToZone(zoneId, paths)` — new invoke wrapper.
   - `subscribeFileDropped(cb)` — listens to `juradrop://file-dropped`.
-- [ ] T026 Update `src/lib/status-store.ts`:
+- [x] T026 Update `src/lib/status-store.ts`:
   - `zone: ZoneSnapshot` → `zones: Record<ZoneId, ZoneSnapshot>`.
   - `setZone(snapshot)` → `setZone(zoneId, snapshot)`.
   - Initial state seeds every zone with `{ state: 'idle', disabled: true, failure: null, job_id: null, progress_hint: null }`.
-- [ ] T027 Update `src/App.tsx` to mount the 2×3 grid: render `ZONE_ORDER.map(id => <DropZone key={id} zoneId={id} />)` inside a `<section>` styled `grid grid-cols-3 md:grid-cols-2 sm:grid-cols-1 gap-4`. Subscribe to `juradrop://file-dropped` on mount; resolve the zone via `document.elementFromPoint` + `[data-zone-id]` walk; invoke `dispatchToZone(zoneId, paths)`. Also subscribe per-zone via `subscribeZone(id, snap => setZone(id, snap))` for every `ZoneId::ALL`.
+- [x] T027 Update `src/App.tsx` to mount the 2×3 grid: render `ZONE_ORDER.map(id => <DropZone key={id} zoneId={id} />)` inside a `<section>` styled `grid grid-cols-3 md:grid-cols-2 sm:grid-cols-1 gap-4`. Subscribe to `juradrop://file-dropped` on mount; resolve the zone via `document.elementFromPoint` + `[data-zone-id]` walk; invoke `dispatchToZone(zoneId, paths)`. Also subscribe per-zone via `subscribeZone(id, snap => setZone(id, snap))` for every `ZoneId::ALL`.
 
 **Checkpoint after T027**: `npm run tauri dev` shows the 2×3 grid. All six zones render their Swedish title + hint. Dragging a `.docx` onto any zone (except those whose path the React UI can resolve) triggers `dispatch_to_zone` and produces the right sidecar.
 

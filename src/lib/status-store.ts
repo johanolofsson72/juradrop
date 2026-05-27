@@ -3,6 +3,7 @@ import {
   cancelConsent as bridgeCancel,
   giveConsent as bridgeGive,
   type AppStatus,
+  type ZoneId,
   type ZoneSnapshot,
 } from './tauri-bridge';
 
@@ -14,34 +15,54 @@ const initialStatus: AppStatus = {
   consent: 'not_asked',
 };
 
-// Spec 003 — initial zone snapshot before any Rust-side emit lands.
-// `disabled: true` reflects the boot-time state — the zone is not
-// drop-ready until the spec 002 sidecar reaches `Klar`.
-const initialZone: ZoneSnapshot = {
+// Spec 004 — initial per-zone snapshot. `disabled: true` reflects
+// the boot-time state — every zone is disabled until the spec 002
+// sidecar reaches `Klar`.
+const seedSnapshot = (): ZoneSnapshot => ({
   state: 'idle',
   disabled: true,
   failure: null,
   job_id: null,
   progress_hint: null,
+});
+
+const initialZones: Record<ZoneId, ZoneSnapshot> = {
+  sammanfatta: seedSnapshot(),
+  tillengelska: seedSnapshot(),
+  tillsvenska: seedSnapshot(),
+  punktlista: seedSnapshot(),
+  anonymisera: seedSnapshot(),
+  forenkla: seedSnapshot(),
 };
 
 interface StatusStore {
   status: AppStatus;
+  zones: Record<ZoneId, ZoneSnapshot>;
+  // Spec 003 compat — `zone` keeps the Sammanfatta snapshot for the
+  // old test suite. Removed in T049 (Phase 7 cleanup) once spec 003
+  // tests are deleted/migrated.
   zone: ZoneSnapshot;
   setStatus: (next: AppStatus) => void;
   setProgress: (percent: number) => void;
-  setZone: (next: ZoneSnapshot) => void;
+  setZone: (id: ZoneId, next: ZoneSnapshot) => void;
   giveConsent: () => Promise<void>;
   cancelConsent: () => Promise<void>;
 }
 
 export const useStatusStore = create<StatusStore>((set) => ({
   status: initialStatus,
-  zone: initialZone,
+  zones: initialZones,
+  zone: initialZones.sammanfatta,
   setStatus: (next) => set({ status: next }),
   setProgress: (percent) =>
     set((s) => ({ status: { ...s.status, progress_percent: percent } })),
-  setZone: (next) => set({ zone: next }),
+  setZone: (id, next) =>
+    set((s) => ({
+      zones: { ...s.zones, [id]: next },
+      // Spec 003 compat — mirror the sammanfatta slot into the
+      // legacy `zone` field so the old tests keep working.
+      zone: id === 'sammanfatta' ? next : s.zone,
+    })),
   giveConsent: async () => {
     await bridgeGive();
   },

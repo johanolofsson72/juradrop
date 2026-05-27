@@ -84,14 +84,51 @@ export interface ZoneSnapshot {
   progress_hint: string | null;
 }
 
-/** Cancel an in-flight summarization. Idempotent — silent no-op when the
- *  passed `jobId` doesn't match the current in-flight job. */
-export async function cancelSummary(jobId: string): Promise<void> {
-  await invoke<void>('cancel_summary', { jobId });
+// =====================================================================
+// Spec 004 — six drop zones.
+// =====================================================================
+
+export type ZoneId =
+  | 'sammanfatta'
+  | 'tillengelska'
+  | 'tillsvenska'
+  | 'punktlista'
+  | 'anonymisera'
+  | 'forenkla';
+
+export interface FileDroppedPayload {
+  paths: string[];
+  position: { x: number; y: number };
 }
 
-/** Subscribe to drop-zone state-machine snapshots emitted on
- *  `juradrop://sammanfatta`. Returns the unlisten function. */
-export function subscribeZone(cb: (snap: ZoneSnapshot) => void): Promise<UnlistenFn> {
-  return listen<ZoneSnapshot>('juradrop://sammanfatta', (event) => cb(event.payload));
+/** Cancel an in-flight summarization on a specific zone. Idempotent —
+ *  silent no-op when (zoneId, jobId) doesn't match the current
+ *  in-flight job for that zone. */
+export async function cancelSummary(zoneId: ZoneId, jobId: string): Promise<void> {
+  await invoke<void>('cancel_summary', { zoneId, jobId });
+}
+
+/** Dispatch a file drop to a specific zone. The WebView resolves the
+ *  zone via `document.elementFromPoint` after the
+ *  `juradrop://file-dropped` event and invokes this command. */
+export async function dispatchToZone(zoneId: ZoneId, paths: string[]): Promise<void> {
+  await invoke<void>('dispatch_to_zone', { zoneId, paths });
+}
+
+/** Subscribe to per-zone state-machine snapshots on
+ *  `juradrop://zone/<slug>`. Returns the unlisten function. */
+export function subscribeZone(
+  zoneId: ZoneId,
+  cb: (snap: ZoneSnapshot) => void,
+): Promise<UnlistenFn> {
+  return listen<ZoneSnapshot>(`juradrop://zone/${zoneId}`, (event) => cb(event.payload));
+}
+
+/** Subscribe to the OS-level drag-drop event with CSS-pixel position.
+ *  The WebView uses this to look up which `[data-zone-id]` element
+ *  was under the cursor at drop time. */
+export function subscribeFileDropped(
+  cb: (payload: FileDroppedPayload) => void,
+): Promise<UnlistenFn> {
+  return listen<FileDroppedPayload>('juradrop://file-dropped', (event) => cb(event.payload));
 }
