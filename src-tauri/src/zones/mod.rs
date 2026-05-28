@@ -42,6 +42,9 @@ pub mod odt_extract;
 pub mod pages_extract;
 pub mod rtf_extract;
 
+// Spec 014 — Anonymisera output-side PII-residue sweep.
+pub mod pii_sweep;
+
 pub use errors::ZoneFailure;
 pub use extract::ExtractedText;
 pub use input_format::InputFormat;

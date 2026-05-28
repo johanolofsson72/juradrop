@@ -61,6 +61,10 @@ rtf-parser = "0.4"
 # binaries, no network. Used for the .pages legacy XML and .odt
 # content.xml walkers.
 quick-xml = "0.36"
+# Spec 014 — deterministic PII-residue sweep on Anonymisera output.
+# Already transitive (via several deps); promoted to direct. Pure local
+# string matching, no network, no new outbound surface (Principle I).
+regex = "1"
 
 [dev-dependencies]
 # T023 — integration tests in tests/ need tauri::test::mock_builder /

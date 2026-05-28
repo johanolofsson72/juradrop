@@ -1,0 +1,85 @@
+-- allium: 3
+--
+-- Spec 014 — anonymisera-pii-sweep
+-- Output-side deterministic PII-residue detection for the Anonymisera zone.
+
+enum PiiCategory { personnummer | email | phone }
+
+-- Counts of residual PII detected in a piece of text. Detection only —
+-- the sweep never edits the text it scans.
+value PiiFindings {
+    personnummer: Integer
+    email: Integer
+    phone: Integer
+    total: personnummer + email + phone
+    is_clean: total = 0
+
+    invariant NonNegative {
+        this.personnummer >= 0 and this.email >= 0 and this.phone >= 0
+    }
+}
+
+external entity ZoneId { }
+
+-- The model output for one Anonymisera dispatch, plus the sweep result
+-- and whether the warning paragraph was attached.
+entity AnonymiseraOutput {
+    text: String
+    findings: PiiFindings
+    warning_attached: Boolean
+
+    -- FR-007 / FR-008 — the warning is attached exactly when residue exists.
+    invariant WarningIffResidue {
+        this.warning_attached = (this.findings.total > 0)
+    }
+}
+
+config {
+    -- FR-006 — the sweep runs for this zone only.
+    swept_zone: String = "anonymisera"
+    -- Placeholders that must never be counted as residue (FR-005).
+    placeholder_prefixes: Set<String> = {`[Person`, `[Personnr`, `[Adress`, `[Telefon`, `[E-post`}
+    truncation_cap_chars: Integer = 24000
+}
+
+-- FR-001/FR-002/FR-003/FR-004 — pure, local, deterministic scan of OUTPUT text.
+rule ScanResidualPii {
+    when: AnonymiseraGenerated(output)
+    requires: output.zone = config.swept_zone
+    ensures:
+        output.findings = scan(output.text)
+        if output.findings.total > 0:
+            output.warning_attached = true
+        else:
+            output.warning_attached = false
+}
+
+-- FR-008 — clean output is byte-identical to the pre-014 sidecar.
+invariant CleanOutputUnchanged {
+    for o in AnonymiseraOutput where o.findings.is_clean:
+        o.warning_attached = false
+}
+
+-- FR-006 — only Anonymisera output is swept; no other zone gets a warning.
+invariant SweepScopedToAnonymisera {
+    for o in AnonymiseraOutput:
+        o.zone = config.swept_zone
+}
+
+-- Principle I — the sweep is a pure local string scan; it adds no outbound
+-- traffic and reads only the model output, never the user's input document.
+invariant SweepIsLocalOutputOnly {
+    for o in AnonymiseraOutput:
+        o.scans_input = false and o.emits_network = false
+}
+
+surface AnonymiseraSidecar {
+    facing user: LawStudent
+    context output: AnonymiseraOutput
+    exposes: output.findings
+}
+
+external entity LawStudent { }
+
+deferred PiiSweep.names_and_addresses   -- no deterministic pattern; stays the model's job + static disclaimer
+deferred PiiSweep.auto_redaction        -- detect-only by design (Clarification Q1)

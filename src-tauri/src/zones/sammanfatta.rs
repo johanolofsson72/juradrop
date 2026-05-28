@@ -23,6 +23,7 @@ use super::input_format::InputFormat;
 use super::job::DropJob;
 use super::md_write::build_sidecar as build_md_sidecar;
 use super::output_format::OutputFormat;
+use super::pii_sweep;
 use super::sidecar_path::{resolve_target_format, write_atomically};
 use super::snapshot::{JobOutcome, ZoneSnapshot, ZoneState};
 use super::txt_write::build_sidecar as build_txt_sidecar;
@@ -241,6 +242,22 @@ impl DropZone {
             self.finalize_with_cancellation(&app, job_id).await;
             return;
         }
+
+        // Spec 014 — Anonymisera output-side PII-residue sweep. Scan the
+        // model OUTPUT (never the input) for personnummer / e-post / telefon
+        // the model failed to redact; when found, prepend a Swedish warning
+        // as the first body paragraph. Detection only — the model text is
+        // never edited. Runs for Anonymisera only; every other zone keeps
+        // its output byte-identical.
+        let response_text = if self.id == ZoneId::Anonymisera {
+            let findings = pii_sweep::scan_residual_pii(&response_text);
+            match pii_sweep::warning_paragraph(&findings) {
+                Some(warning) => format!("{warning}\n\n{response_text}"),
+                None => response_text,
+            }
+        } else {
+            response_text
+        };
 
         // Step 4: build the output sidecar + write atomically. Both
         // per-zone — the writer uses the zone's header template +

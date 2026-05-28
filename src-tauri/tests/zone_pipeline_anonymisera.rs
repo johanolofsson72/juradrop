@@ -6,6 +6,8 @@ use juradrop_lib::zones::ZoneId;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn anonymisera_pipeline_writes_sidecar_with_placeholders() {
+    // Clean model output (all placeholders) — spec 014 SC-002: no warning
+    // paragraph is added, only the placeholders + static disclaimer.
     common::run_zone_pipeline(
         ZoneId::Anonymisera,
         "anonymisera-input.docx",
@@ -13,6 +15,23 @@ async fn anonymisera_pipeline_writes_sidecar_with_placeholders() {
          bosatt på [Adress 1], har kontaktat byrån. Motpart är [Person 2], [Personnr 2], \
          med adress [Adress 2].",
         &["[Person 1]", "[Personnr 1]", "[Adress 1]"],
+    )
+    .await;
+}
+
+// Spec 014 SC-001 — the model leaves a residual personnummer in the output;
+// the sweep MUST surface it in a Swedish warning paragraph in the sidecar.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn anonymisera_residual_personnummer_triggers_warning() {
+    common::run_zone_pipeline(
+        ZoneId::Anonymisera,
+        "anonymisera-input.docx",
+        "Klienten [Person 1] men personnummer 19010101-0101 står kvar i texten.",
+        &[
+            "Automatisk kontroll hittade möjlig kvarvarande information",
+            "1 personnummer",
+            "Granska och ta bort manuellt",
+        ],
     )
     .await;
 }
