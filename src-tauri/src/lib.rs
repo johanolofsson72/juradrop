@@ -142,15 +142,11 @@ pub fn run() {
             // parked and (b) no zone is processing. The check is cheap
             // and idempotent, so we don't try to filter for "transitions
             // to idle" specifically — every snapshot is a re-check.
-            for zone_slug in [
-                "sammanfatta",
-                "tillengelska",
-                "tillsvenska",
-                "punktlista",
-                "anonymisera",
-                "forenkla",
-            ] {
-                let channel = format!("juradrop://zone/{zone_slug}");
+            // Spec 013 — iterate over ZoneId::ALL instead of a hardcoded
+            // 6-slug array so future zone-set expansions are picked up
+            // automatically (e.g., the 9 zones from spec 013).
+            for zone in zones::ZoneId::ALL {
+                let channel = format!("juradrop://zone/{}", zone.slug());
                 let deferred_handle = app.handle().clone();
                 app.handle().listen(&channel, move |_event| {
                     let app = deferred_handle.clone();

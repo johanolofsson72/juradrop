@@ -383,12 +383,19 @@ mod tests {
             "juradrop://status",
             "juradrop://progress",
             "juradrop://sidecar-crashed",
+            "juradrop://sidecar-terminated",
+            // Spec 013 — 9 per-zone channels (was 6).
             "juradrop://zone/sammanfatta",
             "juradrop://zone/tillengelska",
             "juradrop://zone/tillsvenska",
             "juradrop://zone/punktlista",
             "juradrop://zone/anonymisera",
             "juradrop://zone/forenkla",
+            "juradrop://zone/kontakter",
+            "juradrop://zone/generera",
+            "juradrop://zone/kallor",
+            // Spec 010 — settings panel events.
+            "juradrop://settings/tier-download-requested",
         ];
         for existing in existing_channels {
             assert_ne!(

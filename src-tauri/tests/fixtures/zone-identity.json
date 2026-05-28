@@ -1,5 +1,5 @@
 {
-  "_comment": "Spec 004 / T035 + spec 005 FR-017 + spec 009 FR-011 — single source of truth for the six ZoneIdentity rows. The Rust side (src-tauri/src/zones/zone_id.rs) and the TS side (src/components/DropZone.identity.ts) both assert against this fixture in their drift-detection tests. Update all three together when changing any per-zone string. Spec 009 extended hint_copy for all six zones to list all seven supported input formats (.docx, .pdf, .txt, .md, .rtf, .pages, .odt) in a slash-separated form; the longest result (engelsk översättning) is 67 chars.",
+  "_comment": "Spec 004 / T035 + spec 005 FR-017 + spec 009 FR-011 + spec 013 — single source of truth for the nine ZoneIdentity rows. The Rust side (src-tauri/src/zones/zone_id.rs) and the TS side (src/components/DropZone.identity.ts) both assert against this fixture in their drift-detection tests. Update all three together when changing any per-zone string. Spec 013 added kontakter / generera / kallor (3×3 grid). Generera takes only .txt or .md instructions (different hint copy).",
   "sammanfatta": {
     "slug": "sammanfatta",
     "title": "Sammanfatta",
@@ -47,5 +47,29 @@
     "sidecar_suffix": "forenkla",
     "processing_hint": "Förenklar…",
     "has_disclaimer": true
+  },
+  "kontakter": {
+    "slug": "kontakter",
+    "title": "Plocka ut kontaktuppgifter",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för kontaktuppgifter",
+    "sidecar_suffix": "kontakter",
+    "processing_hint": "Plockar ut kontaktuppgifter…",
+    "has_disclaimer": false
+  },
+  "generera": {
+    "slug": "generera",
+    "title": "Generera juridisk text",
+    "hint_copy": "Släpp .txt eller .md med instruktioner för juridisk text",
+    "sidecar_suffix": "generera",
+    "processing_hint": "Genererar juridisk text…",
+    "has_disclaimer": true
+  },
+  "kallor": {
+    "slug": "kallor",
+    "title": "Källförteckning",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för källförteckning",
+    "sidecar_suffix": "kallor",
+    "processing_hint": "Bygger källförteckning…",
+    "has_disclaimer": false
   }
 }

@@ -46,25 +46,33 @@ const EXPECTED_ZONE_IDS: ZoneId[] = [
   'punktlista',
   'anonymisera',
   'forenkla',
+  // Spec 013 — three new zones (3×3 grid).
+  'kontakter',
+  'generera',
+  'kallor',
 ];
 
 describe('DropZone identity table', () => {
-  it('exposes exactly the six ZoneId variants — no extras', () => {
+  it('exposes exactly the nine ZoneId variants — no extras (spec 013)', () => {
     const keys = Object.keys(ZONE_IDENTITIES).sort();
     const expected = [...EXPECTED_ZONE_IDS].sort();
     expect(keys).toEqual(expected);
   });
 
-  it('ZONE_ORDER lists every zone exactly once in left-to-right reading order', () => {
+  it('ZONE_ORDER lists every zone exactly once in 3×3 reading order', () => {
     expect(ZONE_ORDER).toHaveLength(EXPECTED_ZONE_IDS.length);
     // Row 1 = sammanfatta, tillengelska, tillsvenska
     // Row 2 = punktlista, anonymisera, forenkla
+    // Row 3 = kontakter, generera, kallor
     expect(ZONE_ORDER[0]).toBe('sammanfatta');
     expect(ZONE_ORDER[1]).toBe('tillengelska');
     expect(ZONE_ORDER[2]).toBe('tillsvenska');
     expect(ZONE_ORDER[3]).toBe('punktlista');
     expect(ZONE_ORDER[4]).toBe('anonymisera');
     expect(ZONE_ORDER[5]).toBe('forenkla');
+    expect(ZONE_ORDER[6]).toBe('kontakter');
+    expect(ZONE_ORDER[7]).toBe('generera');
+    expect(ZONE_ORDER[8]).toBe('kallor');
   });
 
   it('every entry has every required field', () => {
@@ -79,9 +87,9 @@ describe('DropZone identity table', () => {
     });
   });
 
-  it('only Anonymisera and Förenkla carry the FR-013/014 disclaimer flag', () => {
+  it('Anonymisera, Förenkla, and Generera (spec 013) carry the disclaimer flag', () => {
     EXPECTED_ZONE_IDS.forEach((id) => {
-      const expected = id === 'anonymisera' || id === 'forenkla';
+      const expected = id === 'anonymisera' || id === 'forenkla' || id === 'generera';
       expect(ZONE_IDENTITIES[id].hasDisclaimer).toBe(expected);
     });
   });
@@ -135,13 +143,16 @@ describe('Cross-language identity drift (T035)', () => {
     });
   });
 
-  it('fixture has exactly 6 ZoneIdentity rows + 1 _comment field', () => {
+  it('fixture has exactly 9 ZoneIdentity rows + 1 _comment field (spec 013)', () => {
     const fixture = loadFixture();
     const keys = Object.keys(fixture).sort();
     expect(keys).toEqual([
       '_comment',
       'anonymisera',
       'forenkla',
+      'generera',
+      'kallor',
+      'kontakter',
       'punktlista',
       'sammanfatta',
       'tillengelska',

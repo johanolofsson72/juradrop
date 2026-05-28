@@ -1,15 +1,17 @@
 // Spec 004 / T003 — ZoneId discriminator + associated identity functions.
+// Spec 013 — expanded from 6 to 9 variants (added Kontakter, Generera, Kallor).
 //
-// Six unit variants, one per drop zone. Associated functions return
+// Nine unit variants, one per drop zone. Associated functions return
 // the per-zone slug, title, hint copy, sidecar suffix, header
 // paragraph template, system prompt, and optional disclaimer. Using
 // `match` on the enum makes every callsite exhaustive at compile time
-// — adding a seventh variant lights up every call site until handled.
+// — adding a tenth variant lights up every call site until handled.
 
 use serde::{Deserialize, Serialize};
 
 use crate::prompts::{
-    ANONYMISERA_SYSTEM_PROMPT, FORENKLA_SYSTEM_PROMPT, PUNKTLISTA_SYSTEM_PROMPT,
+    ANONYMISERA_SYSTEM_PROMPT, FORENKLA_SYSTEM_PROMPT, GENERERA_SYSTEM_PROMPT,
+    KALLOR_SYSTEM_PROMPT, KONTAKTER_SYSTEM_PROMPT, PUNKTLISTA_SYSTEM_PROMPT,
     SAMMANFATTA_SYSTEM_PROMPT, TILLENGELSKA_SYSTEM_PROMPT, TILLSVENSKA_SYSTEM_PROMPT,
 };
 
@@ -30,16 +32,27 @@ pub enum ZoneId {
     Anonymisera,
     #[serde(rename = "forenkla")]
     Forenkla,
+    // Spec 013 — three new zones expanding from 2×3 to 3×3 grid.
+    // Identifier uses ASCII-only Rust convention (Kallor not Källor).
+    #[serde(rename = "kontakter")]
+    Kontakter,
+    #[serde(rename = "generera")]
+    Generera,
+    #[serde(rename = "kallor")]
+    Kallor,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 6] = [
+    pub const ALL: [ZoneId; 9] = [
         ZoneId::Sammanfatta,
         ZoneId::TillEngelska,
         ZoneId::TillSvenska,
         ZoneId::Punktlista,
         ZoneId::Anonymisera,
         ZoneId::Forenkla,
+        ZoneId::Kontakter,
+        ZoneId::Generera,
+        ZoneId::Kallor,
     ];
 
     /// FR-003 — URL slug + filesystem-visible suffix base + module name.
@@ -51,6 +64,9 @@ impl ZoneId {
             ZoneId::Punktlista => "punktlista",
             ZoneId::Anonymisera => "anonymisera",
             ZoneId::Forenkla => "forenkla",
+            ZoneId::Kontakter => "kontakter",
+            ZoneId::Generera => "generera",
+            ZoneId::Kallor => "kallor",
         }
     }
 
@@ -63,15 +79,17 @@ impl ZoneId {
             ZoneId::Punktlista => "Punktlista",
             ZoneId::Anonymisera => "Anonymisera",
             ZoneId::Forenkla => "Förenkla",
+            ZoneId::Kontakter => "Plocka ut kontaktuppgifter",
+            ZoneId::Generera => "Generera juridisk text",
+            ZoneId::Kallor => "Källförteckning",
         }
     }
 
     /// FR-005 + spec 005 FR-017 + spec 009 FR-011 — per-zone Swedish
     /// hint copy. Spec 009 extended the format list to seven entries
     /// (.docx, .pdf, .txt, .md, .rtf, .pages, .odt) and switched to a
-    /// slash-separated presentation with the `ett` article dropped —
-    /// the longest result (engelsk översättning) is 67 chars, well
-    /// under the 80-char SwedishCopy cap from spec 003.
+    /// slash-separated presentation with the `ett` article dropped.
+    /// Spec 013 — Generera takes only .txt/.md instructions.
     pub fn hint_copy(self) -> &'static str {
         match self {
             ZoneId::Sammanfatta => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för sammanfattning",
@@ -84,11 +102,13 @@ impl ZoneId {
             ZoneId::Punktlista => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för punktlista",
             ZoneId::Anonymisera => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för anonymisering",
             ZoneId::Forenkla => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för klarspråk",
+            ZoneId::Kontakter => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för kontaktuppgifter",
+            ZoneId::Generera => "Släpp .txt eller .md med instruktioner för juridisk text",
+            ZoneId::Kallor => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för källförteckning",
         }
     }
 
     /// Per-zone Swedish present-tense verb shown during Processing.
-    /// "Sammanfattar…", "Översätter…", "Listar…", etc.
     pub fn processing_hint(self) -> &'static str {
         match self {
             ZoneId::Sammanfatta => "Sammanfattar…",
@@ -97,6 +117,9 @@ impl ZoneId {
             ZoneId::Punktlista => "Listar…",
             ZoneId::Anonymisera => "Anonymiserar…",
             ZoneId::Forenkla => "Förenklar…",
+            ZoneId::Kontakter => "Plockar ut kontaktuppgifter…",
+            ZoneId::Generera => "Genererar juridisk text…",
+            ZoneId::Kallor => "Bygger källförteckning…",
         }
     }
 
@@ -111,6 +134,9 @@ impl ZoneId {
             ZoneId::Punktlista => "punktlista",
             ZoneId::Anonymisera => "anonymiserad",
             ZoneId::Forenkla => "forenkla",
+            ZoneId::Kontakter => "kontakter",
+            ZoneId::Generera => "generera",
+            ZoneId::Kallor => "kallor",
         }
     }
 
@@ -125,6 +151,9 @@ impl ZoneId {
             ZoneId::Punktlista => "Punktlista över '{name}'",
             ZoneId::Anonymisera => "Anonymiserad version av '{name}'",
             ZoneId::Forenkla => "Förenklad version av '{name}'",
+            ZoneId::Kontakter => "Kontaktuppgifter från '{name}'",
+            ZoneId::Generera => "Genererad juridisk text från '{name}'",
+            ZoneId::Kallor => "Källförteckning för '{name}'",
         }
     }
 
@@ -137,12 +166,16 @@ impl ZoneId {
             ZoneId::Punktlista => PUNKTLISTA_SYSTEM_PROMPT,
             ZoneId::Anonymisera => ANONYMISERA_SYSTEM_PROMPT,
             ZoneId::Forenkla => FORENKLA_SYSTEM_PROMPT,
+            ZoneId::Kontakter => KONTAKTER_SYSTEM_PROMPT,
+            ZoneId::Generera => GENERERA_SYSTEM_PROMPT,
+            ZoneId::Kallor => KALLOR_SYSTEM_PROMPT,
         }
     }
 
     /// FR-013 + FR-014 — disclaimer paragraph inserted between the
-    /// FR-009 header pair and the body. Only present for Anonymise
-    /// and Förenkla; returns `None` for the other four.
+    /// FR-009 header pair and the body. Present for Anonymisera +
+    /// Forenkla (spec 004) + Generera (spec 013 — AI-generated legal
+    /// text needs review against authoritative sources).
     pub fn disclaimer_paragraph(self) -> Option<&'static str> {
         match self {
             ZoneId::Anonymisera => {
@@ -151,6 +184,9 @@ impl ZoneId {
             ZoneId::Forenkla => {
                 Some("Förenklad version — granska att inga juridiska poänger gick förlorade.")
             }
+            ZoneId::Generera => Some(
+                "AI-genererad text — kontrollera juridisk korrekthet mot källa innan användning.",
+            ),
             _ => None,
         }
     }
@@ -216,13 +252,18 @@ mod tests {
     }
 
     #[test]
-    fn only_anonymisera_and_forenkla_have_disclaimer() {
+    fn only_anonymisera_forenkla_and_generera_have_disclaimer() {
+        // Spec 013 expansion: Generera also gets a disclaimer because
+        // AI-generated legal text demands human review against a source.
         for z in ZoneId::ALL {
-            let expected = matches!(z, ZoneId::Anonymisera | ZoneId::Forenkla);
+            let expected = matches!(
+                z,
+                ZoneId::Anonymisera | ZoneId::Forenkla | ZoneId::Generera
+            );
             assert_eq!(
                 z.has_disclaimer(),
                 expected,
-                "{z:?} disclaimer presence drifted from FR-013/014"
+                "{z:?} disclaimer presence drifted from FR-013/014 (+ spec 013 generera)"
             );
         }
     }
@@ -249,5 +290,15 @@ mod tests {
         // R-008 + R-011 — "anonymiserad" not "anonymisera". Catches a
         // future PR that accidentally normalises to the verb stem.
         assert_eq!(ZoneId::Anonymisera.sidecar_suffix(), "anonymiserad");
+    }
+
+    #[test]
+    fn spec_013_has_exactly_nine_zones() {
+        // Spec 013 / FR-001 — pin the zone count + the canonical order
+        // so a future refactor can't silently drop or reorder.
+        assert_eq!(ZoneId::ALL.len(), 9);
+        assert_eq!(ZoneId::ALL[6], ZoneId::Kontakter);
+        assert_eq!(ZoneId::ALL[7], ZoneId::Generera);
+        assert_eq!(ZoneId::ALL[8], ZoneId::Kallor);
     }
 }

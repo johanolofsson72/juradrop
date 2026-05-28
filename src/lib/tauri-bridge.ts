@@ -99,7 +99,7 @@ export interface ZoneSnapshot {
 }
 
 // =====================================================================
-// Spec 004 — six drop zones.
+// Spec 004 — six drop zones. Spec 013 — expanded to nine.
 // =====================================================================
 
 export type ZoneId =
@@ -108,7 +108,11 @@ export type ZoneId =
   | 'tillsvenska'
   | 'punktlista'
   | 'anonymisera'
-  | 'forenkla';
+  | 'forenkla'
+  // Spec 013 — three new zones expanding from 2×3 to 3×3 grid.
+  | 'kontakter'
+  | 'generera'
+  | 'kallor';
 
 export interface FileDroppedPayload {
   paths: string[];

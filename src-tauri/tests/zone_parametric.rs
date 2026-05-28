@@ -95,16 +95,20 @@ fn every_zone_header_template_has_the_name_token() {
     }
 }
 
-/// Only Anonymisera and Förenkla produce a disclaimer paragraph
-/// (FR-013 + FR-014). The other four return None.
+/// Anonymisera, Förenkla, and (spec 013) Generera produce a
+/// disclaimer paragraph (FR-013 + FR-014 + spec 013 Generera).
+/// The other six return None.
 #[test]
-fn only_anonymisera_and_forenkla_have_disclaimers() {
+fn only_anonymisera_forenkla_and_generera_have_disclaimers() {
     for z in ZoneId::ALL {
-        let expected_some = matches!(z, ZoneId::Anonymisera | ZoneId::Forenkla);
+        let expected_some = matches!(
+            z,
+            ZoneId::Anonymisera | ZoneId::Forenkla | ZoneId::Generera
+        );
         assert_eq!(
             z.has_disclaimer(),
             expected_some,
-            "{z:?} disclaimer presence drifted from FR-013/014"
+            "{z:?} disclaimer presence drifted from FR-013/014 (+ spec 013 generera)"
         );
     }
 }
@@ -169,13 +173,13 @@ fn every_zone_identity_matches_the_cross_language_fixture() {
         );
     }
 
-    // Also assert key count — adding a seventh ZoneId variant without a
-    // fixture entry (or vice versa) fails here.
+    // Also assert key count — adding a tenth ZoneId variant without a
+    // fixture entry (or vice versa) fails here. Spec 013 expanded to 9.
     let obj = fixture.as_object().expect("fixture root must be object");
-    // 6 variants + 1 _comment = 7 keys.
+    // 9 variants + 1 _comment = 10 keys.
     assert_eq!(
         obj.len(),
-        7,
-        "fixture must list exactly 6 ZoneIdentity rows + 1 _comment"
+        10,
+        "fixture must list exactly 9 ZoneIdentity rows + 1 _comment"
     );
 }

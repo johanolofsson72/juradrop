@@ -45,9 +45,16 @@ const REQUIRED_EXTENSIONS = [
   '.odt',
 ] as const;
 
+// Spec 013 — `generera` takes only .txt/.md instructions, so it's
+// exempt from the 7-format slash-prefix invariant inherited from
+// spec 009. All OTHER zones still satisfy the full 7-format hint copy.
+const SEVEN_FORMAT_ZONES = Object.keys(ZONE_IDENTITIES).filter(
+  (id) => id !== 'generera',
+);
+
 describe('Spec 009 — hint copy lists all seven supported formats', () => {
-  it('every zone hint starts with the canonical slash-separated 7-format prefix', () => {
-    for (const id of Object.keys(ZONE_IDENTITIES)) {
+  it('every zone hint (except generera) starts with the canonical slash-separated 7-format prefix', () => {
+    for (const id of SEVEN_FORMAT_ZONES) {
       const entry = ZONE_IDENTITIES[id as keyof typeof ZONE_IDENTITIES];
       expect(
         entry.hintCopy.startsWith(HINT_PREFIX),
@@ -56,8 +63,8 @@ describe('Spec 009 — hint copy lists all seven supported formats', () => {
     }
   });
 
-  it('every zone hint contains all seven supported extensions', () => {
-    for (const id of Object.keys(ZONE_IDENTITIES)) {
+  it('every zone hint (except generera) contains all seven supported extensions', () => {
+    for (const id of SEVEN_FORMAT_ZONES) {
       const entry = ZONE_IDENTITIES[id as keyof typeof ZONE_IDENTITIES];
       REQUIRED_EXTENSIONS.forEach((ext) => {
         expect(
@@ -135,9 +142,9 @@ describe('Spec 009 — long-tail Swedish error strings', () => {
 });
 
 describe('Spec 009 — long-tail zone identity fixture mirror', () => {
-  it('every zone identity fixture row uses the slash-separated hint prefix', () => {
+  it('every zone identity fixture row (except generera) uses the slash-separated hint prefix', () => {
     const fixture = JSON.parse(fs.readFileSync(IDENTITY_FIXTURE, 'utf-8'));
-    for (const id of Object.keys(ZONE_IDENTITIES)) {
+    for (const id of SEVEN_FORMAT_ZONES) {
       const row = fixture[id];
       expect(row, `${id} missing from fixture`).toBeTruthy();
       expect(row.hint_copy.startsWith(HINT_PREFIX)).toBe(true);

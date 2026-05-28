@@ -1,4 +1,4 @@
-// Spec 004 / T022 — per-zone identity (TS mirror of ZoneId).
+// Spec 004 / T022 + spec 013 — per-zone identity (TS mirror of ZoneId).
 //
 // Mirror of Rust's `ZoneId::associated()` functions. Drift between
 // the two sides is caught by a drift-assertion vitest test that
@@ -65,9 +65,35 @@ export const ZONE_IDENTITIES = {
     processingHint: 'Förenklar…',
     hasDisclaimer: true,
   },
+  // Spec 013 — three new zones (3×3 grid)
+  kontakter: {
+    slug: 'kontakter',
+    title: 'Plocka ut kontaktuppgifter',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för kontaktuppgifter',
+    sidecarSuffix: 'kontakter',
+    processingHint: 'Plockar ut kontaktuppgifter…',
+    hasDisclaimer: false,
+  },
+  generera: {
+    slug: 'generera',
+    title: 'Generera juridisk text',
+    hintCopy: 'Släpp .txt eller .md med instruktioner för juridisk text',
+    sidecarSuffix: 'generera',
+    processingHint: 'Genererar juridisk text…',
+    hasDisclaimer: true,
+  },
+  kallor: {
+    slug: 'kallor',
+    title: 'Källförteckning',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för källförteckning',
+    sidecarSuffix: 'kallor',
+    processingHint: 'Bygger källförteckning…',
+    hasDisclaimer: false,
+  },
 } as const satisfies Record<ZoneId, ZoneIdentity>;
 
-/// Reading order across the 2×3 grid (row 1 then row 2).
+/// Reading order across the 3×3 grid (row 1, row 2, row 3).
+/// Spec 013 expanded the order from 6 to 9 zones.
 export const ZONE_ORDER: readonly ZoneId[] = [
   'sammanfatta',
   'tillengelska',
@@ -75,4 +101,7 @@ export const ZONE_ORDER: readonly ZoneId[] = [
   'punktlista',
   'anonymisera',
   'forenkla',
+  'kontakter',
+  'generera',
+  'kallor',
 ];

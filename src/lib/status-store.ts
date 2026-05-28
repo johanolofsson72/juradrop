@@ -33,6 +33,10 @@ const initialZones: Record<ZoneId, ZoneSnapshot> = {
   punktlista: seedSnapshot(),
   anonymisera: seedSnapshot(),
   forenkla: seedSnapshot(),
+  // Spec 013 — three new zones (3×3 grid).
+  kontakter: seedSnapshot(),
+  generera: seedSnapshot(),
+  kallor: seedSnapshot(),
 };
 
 interface StatusStore {

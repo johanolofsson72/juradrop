@@ -11,6 +11,9 @@
 
 pub mod anonymisera;
 pub mod forenkla;
+pub mod generera;
+pub mod kallor;
+pub mod kontakter;
 pub mod punktlista;
 pub mod sammanfatta;
 pub mod tillengelska;
@@ -18,6 +21,9 @@ pub mod tillsvenska;
 
 pub use anonymisera::ANONYMISERA_SYSTEM_PROMPT;
 pub use forenkla::FORENKLA_SYSTEM_PROMPT;
+pub use generera::GENERERA_SYSTEM_PROMPT;
+pub use kallor::KALLOR_SYSTEM_PROMPT;
+pub use kontakter::KONTAKTER_SYSTEM_PROMPT;
 pub use punktlista::PUNKTLISTA_SYSTEM_PROMPT;
 pub use sammanfatta::SAMMANFATTA_SYSTEM_PROMPT;
 pub use tillengelska::TILLENGELSKA_SYSTEM_PROMPT;
