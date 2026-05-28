@@ -38,6 +38,10 @@ pub fn run() {
         // .sig signature against the embedded pubkey before installing
         // any downloaded update (FR-015).
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Spec 016 — native file picker for the click-to-browse fallback.
+        // OS dialog only; capability scoped to file-open (no save, no
+        // arbitrary fs). Used by the per-zone "Välj fil" affordance.
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             get_status,
             give_consent,

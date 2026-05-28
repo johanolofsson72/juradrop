@@ -133,6 +133,31 @@ export async function dispatchToZone(zoneId: ZoneId, paths: string[]): Promise<v
   await invoke<void>('dispatch_to_zone', { zoneId, paths });
 }
 
+/** Spec 016 — accepted file extensions per zone, for the native picker
+ *  filter. Generera takes only instruction files; every other zone takes
+ *  the full spec-009 set. Mirrors the formats the hint copy advertises. */
+export function formatFilterFor(zoneId: ZoneId): string[] {
+  return zoneId === 'generera'
+    ? ['txt', 'md']
+    : ['docx', 'pdf', 'txt', 'md', 'rtf', 'pages', 'odt'];
+}
+
+/** Spec 016 — open the native file picker filtered to the zone's accepted
+ *  formats and dispatch the chosen file through the same path a drop uses.
+ *  A cancelled picker (null) dispatches nothing. The accessible /
+ *  keyboard-reachable alternative to OS drag-drop. */
+export async function pickFileForZone(zoneId: ZoneId): Promise<void> {
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const selected = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: 'Dokument', extensions: formatFilterFor(zoneId) }],
+  });
+  if (typeof selected === 'string') {
+    await dispatchToZone(zoneId, [selected]);
+  }
+}
+
 /** Subscribe to per-zone state-machine snapshots on
  *  `juradrop://zone/<slug>`. Returns the unlisten function. */
 export function subscribeZone(

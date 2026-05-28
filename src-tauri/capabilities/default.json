@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Spec 002 — adds shell sidecar (scoped to bundled ollama binary) and event/app core permissions. Spec 010 — adds shell.open scoped to the GitHub Releases URL for the About-section link. No filesystem, no http, no shell beyond the bundled binary and the scoped URL.",
+  "description": "Spec 002 — adds shell sidecar (scoped to bundled ollama binary) and event/app core permissions. Spec 010 — adds shell.open scoped to the GitHub Releases URL for the About-section link. Spec 016 — adds dialog:allow-open for the per-zone native file picker (file-open only; no save, no arbitrary fs read). No http, no shell beyond the bundled binary and the scoped URL.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -19,6 +19,7 @@
       "allow": [
         { "url": "https://github.com/johanolofsson72/juradrop/releases" }
       ]
-    }
+    },
+    "dialog:allow-open"
   ]
 }

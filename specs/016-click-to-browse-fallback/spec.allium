@@ -1,0 +1,55 @@
+-- allium: 3
+--
+-- Spec 016 — click-to-browse-fallback
+-- An accessible native-file-picker entry point per zone, routing through the
+-- existing dispatch. Additive to drag-drop; no new processing logic.
+
+external entity ZoneId { }
+external entity DropZone { disabled: Boolean }
+
+config {
+    -- Generera takes instruction files only; every other zone the full set.
+    generera_filter: Set<String> = {`txt`, `md`}
+    default_filter: Set<String> = {`docx`, `pdf`, `txt`, `md`, `rtf`, `pages`, `odt`}
+}
+
+-- The transient file-picker action. Not a persistent entity with a state
+-- machine — it opens, the user picks or cancels, it's gone.
+rule PickFileForZone {
+    when: ActivatePicker(zone)
+    requires: zone.disabled = false
+    ensures:
+        let chosen = NativeOpenDialog(filter: filter_for(zone), multiple: false)
+        if chosen != null:
+            DispatchToZone(zone: zone, path: chosen)
+}
+
+-- FR-006 — cancelling picks nothing and dispatches nothing.
+rule CancelPickerIsNoop {
+    when: ActivatePicker(zone)
+    requires: NativeOpenDialog_result = null
+    ensures: not DispatchToZone(zone: zone)
+}
+
+-- FR-004 — the affordance is gated exactly like the drop surface.
+invariant PickerGatedLikeDrop {
+    for z in DropZone where z.disabled:
+        not PickerEnabled(z)
+}
+
+-- FR-007 / Principle I — the native picker adds no outbound traffic; it
+-- only surfaces a path the user explicitly chose.
+invariant PickerHasNoNetwork {
+    NativeOpenDialog.emits_network = false
+}
+
+surface ZoneCard {
+    facing user: LawStudent
+    context zone: ZoneId
+    provides: ActivatePicker(zone) when zone.disabled = false
+    exposes: zone
+}
+
+external entity LawStudent { }
+
+deferred FilePicker.multi_select   -- one file per zone, matches the drop contract

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import {
   cancelSummary,
+  pickFileForZone,
   subscribeZone,
   type ZoneFailure,
   type ZoneId,
@@ -53,6 +54,13 @@ export function DropZone({ zoneId }: DropZoneProps) {
 
   const handleCancel = () => {
     if (zoneSnap.job_id) void cancelSummary(zoneId, zoneSnap.job_id);
+  };
+
+  // Spec 016 — open the native file picker for this zone (accessible
+  // alternative to drag-drop). No-op while the zone is disabled.
+  const handlePick = () => {
+    if (disabled) return;
+    void pickFileForZone(zoneId);
   };
 
   // (state, failure, disabled) → the Swedish phrase the live region reads.
@@ -145,6 +153,28 @@ export function DropZone({ zoneId }: DropZoneProps) {
           ].join(' ')}
         >
           Avbryt
+        </button>
+      )}
+
+      {/* Spec 016 — keyboard/accessible alternative to drag-drop. Sibling
+          of the cancel link; opens the native picker. Hidden during
+          processing (the cancel link owns that slot). */}
+      {zoneSnap.state !== 'processing' && (
+        <button
+          type="button"
+          onClick={handlePick}
+          disabled={disabled}
+          aria-label={`Välj fil för ${identity.title}`}
+          data-zone-pick={zoneId}
+          className={[
+            'mt-3 text-xs font-normal underline-offset-4',
+            'text-muted-foreground transition-colors duration-150',
+            disabled
+              ? 'cursor-not-allowed opacity-40'
+              : 'cursor-pointer hover:text-foreground hover:underline focus-visible:text-foreground focus-visible:underline focus-visible:outline-none',
+          ].join(' ')}
+        >
+          Välj fil
         </button>
       )}
     </section>
