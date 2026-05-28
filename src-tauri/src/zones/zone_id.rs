@@ -256,10 +256,7 @@ mod tests {
         // Spec 013 expansion: Generera also gets a disclaimer because
         // AI-generated legal text demands human review against a source.
         for z in ZoneId::ALL {
-            let expected = matches!(
-                z,
-                ZoneId::Anonymisera | ZoneId::Forenkla | ZoneId::Generera
-            );
+            let expected = matches!(z, ZoneId::Anonymisera | ZoneId::Forenkla | ZoneId::Generera);
             assert_eq!(
                 z.has_disclaimer(),
                 expected,

@@ -179,7 +179,9 @@ impl DropZone {
                 return;
             }
         };
-        let output_format = OutputFormat::mirror_from(input_format);
+        // Spec 013 FR-003 — zone-aware: Generera always writes .docx
+        // (generates a document, not a transform of the input).
+        let output_format = OutputFormat::for_zone(self.id, input_format);
 
         // Step 1: extract text. Runs synchronously because the
         // extractors (docx-rs, pdf-extract, std::fs) don't expose

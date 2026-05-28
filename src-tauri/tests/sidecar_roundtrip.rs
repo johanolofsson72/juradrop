@@ -85,7 +85,11 @@ fn stage_ollama_binary() {
 /// 30 s of issuing the `generate` call. The wall-clock budget covers
 /// model load (cold ≤ 30 s on M-series per spec SC-004).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires the bundled Ollama to spawn + gemma3:4b to be locally cached"]
+// HARDWARE: needs the bundled Ollama to spawn + gemma3:4b locally cached
+// (5–30s model load). The only genuinely hardware-bound test after the
+// spec-013 un-ignore audit (US3 / FR-013 / SC-004). Run explicitly:
+//   cargo test --test sidecar_roundtrip -- --ignored
+#[ignore = "HARDWARE: requires bundled Ollama + gemma3:4b locally cached"]
 async fn sidecar_roundtrip_gemma3_4b() {
     if existing_ollama_responding().await {
         eprintln!(

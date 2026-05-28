@@ -57,7 +57,21 @@ impl OllamaClient {
     /// project-wide `BASE_URL`. Principle I requires this to remain
     /// `127.0.0.1`; any change must be reviewed against `.specify/memory
     /// /constitution.md`.
+    ///
+    /// Spec 013 FR-015 — debug-only test seam: in debug builds ONLY, a
+    /// non-empty `JURADROP_OLLAMA_URL` env var overrides the base URL so
+    /// the e2e smoke test can point the live construction path at a mock.
+    /// Release builds NEVER read the env var (Principle I /
+    /// `ReleaseUsesLocalhostOnly`) — the loopback URL is hardcoded.
     pub fn new() -> Self {
+        #[cfg(debug_assertions)]
+        {
+            if let Ok(url) = std::env::var("JURADROP_OLLAMA_URL") {
+                if !url.is_empty() {
+                    return Self::with_base_url(url);
+                }
+            }
+        }
         Self::with_base_url(BASE_URL.to_string())
     }
 
@@ -238,11 +252,38 @@ impl PullLine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Env-var tests touch a process-global, so any test that calls
+    // `new()` (which reads JURADROP_OLLAMA_URL in debug) must serialize
+    // against the seam test. Shared lock; poisoning is irrelevant here.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn client_uses_loopback_base_url() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("JURADROP_OLLAMA_URL");
         let c = OllamaClient::new();
         assert!(c.base_url().starts_with("http://127.0.0.1"));
+    }
+
+    // Spec 013 FR-015 — debug-only seam: a non-empty JURADROP_OLLAMA_URL
+    // overrides the base URL in debug builds; an empty/unset var falls
+    // back to the loopback default. (Release behavior — env var always
+    // ignored — is asserted structurally by the source-grep invariant in
+    // tests/ + the #[cfg(debug_assertions)] gate around the read.)
+    #[test]
+    fn debug_seam_overrides_base_url_when_env_set() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("JURADROP_OLLAMA_URL", "http://127.0.0.1:54321");
+        let c = OllamaClient::new();
+        // In debug builds (cargo test default profile) the seam is active.
+        assert_eq!(c.base_url(), "http://127.0.0.1:54321");
+        // Empty value must NOT override — falls back to loopback default.
+        std::env::set_var("JURADROP_OLLAMA_URL", "");
+        let c2 = OllamaClient::new();
+        assert_eq!(c2.base_url(), BASE_URL);
+        std::env::remove_var("JURADROP_OLLAMA_URL");
     }
 
     #[test]

@@ -12,8 +12,8 @@
 //      (FR-024 / SC-004 / Allium SourceFileImmutable).
 //   4. The whole abort-to-idle cycle fits in the SC-008 1 s budget.
 //
-// Marked `#[ignore]` because Tauri test mocks are heavy. Run via:
-//   cargo test --test zone_cancel -- --ignored --nocapture
+// Spec 013 (US3 / FR-013) — UN-IGNORED. Both tests run in ~0.3s against
+// the wiremock + Tauri mock harness; they now run on every `cargo test`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -62,7 +62,6 @@ fn current_job_id(zone: &DropZone) -> Option<String> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires Tauri mock app + wiremock; run with --ignored"]
 async fn cancel_mid_inference_leaves_no_sidecar_and_source_byte_identical() {
     // 1. Wiremock with a 3-second delay so we have a long window to
     //    cancel during.
@@ -188,7 +187,6 @@ async fn cancel_mid_inference_leaves_no_sidecar_and_source_byte_identical() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires Tauri mock app; run with --ignored"]
 async fn cancel_with_unknown_job_id_is_idempotent_noop() {
     // Verifies the FR-027 + contracts/tauri-commands.md "idempotent
     // no-op" contract: cancelling a stale id while a different job

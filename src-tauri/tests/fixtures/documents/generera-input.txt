@@ -1,0 +1,9 @@
+[TESTDATA — fiktiva uppgifter]
+Skapa en uppsägning av hyreskontrakt enligt 12 kap. jordabalken.
+- Hyresgäst: Anna Andersson, Storgatan 1, 111 22 Stockholm
+- Hyresvärd: Fastighets AB Eken, org.nr 556000-0000
+- Objekt: lägenhet om 2 rok på Storgatan 1
+- Grund: uppsägning för villkorsändring
+- Avflyttningsdatum: 2026-09-30
+- Ange uppsägningstid och hänvisa till relevant lagrum
+- Avsluta med datum och plats för underskrift

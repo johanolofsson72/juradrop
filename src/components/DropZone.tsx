@@ -9,6 +9,7 @@ import {
 import { useStatusStore, statusMessage } from '@/lib/status-store';
 import { SWEDISH_ZONE_ERROR } from './DropZone.errors';
 import { ZONE_IDENTITIES } from './DropZone.identity';
+import { ZoneHelpPopover } from './ZoneHelpPopover';
 
 // Spec 003 / T021 + spec 004 / T023 — per-zone drop zone component.
 //
@@ -89,6 +90,9 @@ export function DropZone({ zoneId }: DropZoneProps) {
       ].join(' ')}
       style={{ minHeight: '14rem' }}
     >
+      {/* FR-018 — per-zone help popover, top-right corner. */}
+      <ZoneHelpPopover zoneId={zoneId} />
+
       {(zoneSnap.state === 'idle' || disabled) && (
         <span
           aria-hidden="true"
@@ -162,6 +166,13 @@ function dragoverVerb(zoneId: ZoneId): string {
       return 'anonymisera';
     case 'forenkla':
       return 'förenkla';
+    // Spec 013 — three new zones.
+    case 'kontakter':
+      return 'plocka ut kontaktuppgifter';
+    case 'generera':
+      return 'generera juridisk text';
+    case 'kallor':
+      return 'göra källförteckning';
   }
 }
 

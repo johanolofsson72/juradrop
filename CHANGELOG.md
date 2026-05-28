@@ -7,12 +7,20 @@ Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/), och p
 ## [Unreleased]
 
 ### Added
+- Tre nya dropzoner (spec 013) — rutnätet växer från 2×3 till 3×3:
+  - **Plocka ut kontaktuppgifter** — listar namn, adresser, personnummer, telefon och e-post var för sig.
+  - **Generera juridisk text** — skriver ett utkast utifrån en kort instruktion (`.txt`/`.md`); sparas alltid som `.docx`.
+  - **Källförteckning** — samlar lagar, rättsfall och litteratur i en förteckning.
+- Hjälpsystem (spec 013): en `(?)`-ikon på varje zonkort med en kort förklaring, plus en hjälp-ikon i fönsterlisten som öppnar en panel med längre förklaringar för alla nio zoner.
+- Riktiga dokumentfixturer (spec 013): nio zon-representativa `.docx`/`.txt`-dokument och sex tvärformatsprober (`.docx/.pdf/.txt/.md/.rtf/.odt`) med samma kanoniska svenska stycke. Fyller en nio specar gammal lucka — innan fanns inte en enda `.docx`/`.pdf`/`.rtf`/`.odt` i repot.
 - `LICENSE`-fil i rotkatalogen (MIT-licens, copyright Johan Olofsson 2026). README-skylten pekar nu på en riktig fil istället för 404.
 - `docs/`-katalog med `screenshots/` (platshållarbilder fram till v0.1.0-taggen) och `beta-test-runbook.md` (svensk en-sidesguide för betatestare).
 - `CHANGELOG.md` (den här filen).
 
 ### Changed
-- README:s statussektion uppdaterad: specs 001-011 listas som klara, spec 012 (polish + beta-prep) markeras som pågående.
+- Konstitutionen bumpad 1.0.0 → 1.1.0 (spec 013, MINOR — materiell utökning från sex till nio zoner). Ingen princip försvagad.
+- Zon-pipeline-integrationstesterna som varit `#[ignore]`'ade sedan spec 003 körs nu på varje `cargo test` (de tar ~0,3 s, inte "dyrt" som den gamla kommentaren påstod). Bara `sidecar_roundtrip` är kvar ignorerad, märkt `// HARDWARE:`.
+- README:s statussektion uppdaterad: specs 001-012 listas som klara, spec 013 (nio zoner + fixturer) markeras som pågående.
 - Föråldrade `spec 001`-referenser i `npm`-instruktioner och installationssektionen borttagna eller omformulerade till att spegla den nuvarande signerade DMG-pipelinen (spec 006) och de hardenade fel-tillstånden (spec 011).
 
 ## [0.1.0] - YYYY-MM-DD

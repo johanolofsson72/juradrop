@@ -11,9 +11,9 @@
 
 ## Vad är JuraDrop?
 
-JuraDrop är en macOS-app för svenska juridikstudenter. Dra ett Word- eller PDF-dokument till en av sex zoner i fönstret, så bearbetar en lokal AI (Ollama) dokumentet och sparar resultatet bredvid originalet.
+JuraDrop är en macOS-app för svenska juridikstudenter. Dra ett Word- eller PDF-dokument till en av nio zoner i fönstret, så bearbetar en lokal AI (Ollama) dokumentet och sparar resultatet bredvid originalet.
 
-**Sex zoner i v1.0:**
+**Nio zoner:**
 
 | Zon | Vad den gör |
 |---|---|
@@ -23,6 +23,11 @@ JuraDrop är en macOS-app för svenska juridikstudenter. Dra ett Word- eller PDF
 | **Punktlista** | Plockar ut nyckelpunkter som listpunkter |
 | **Anonymisera** | Ersätter namn, adresser och personnummer med `[Person 1]`, `[Adress 1]`, `[Personnr 1]` |
 | **Förenkla** | Skriver om juridisk svenska i klarspråk |
+| **Plocka ut kontaktuppgifter** | Listar namn, adresser, personnummer, telefon och e-post var för sig |
+| **Generera juridisk text** | Skriver ett utkast utifrån en kort instruktion (`.txt`/`.md`) |
+| **Källförteckning** | Samlar lagar, rättsfall och litteratur i en förteckning |
+
+Varje zon har en `(?)`-ikon med en kort förklaring, och hjälp-ikonen uppe till höger öppnar en panel som listar alla nio zoner.
 
 ## Varför?
 
@@ -37,9 +42,9 @@ JuraDrop löser det med arkitektur, inte löften:
 
 ## Status
 
-Polish-prep inför första publika release. Specs 001–011 är klara (Tauri-bootstrap, lokal Ollama-sidecar, första dropzon, alla sex zoner, fler indataformat, signering + CI, auto-uppdaterare, välkomstguide, `.rtf`/`.pages`/`.odt`, inställningspanel, felåterhämtning). Spec 012 (den här) lägger till `LICENSE`, `CHANGELOG.md`, en `docs/`-mapp med skärmdumpsplatshållare och en svensk betatest-guide. Nästa steg är att tagga `v0.1.0` och låta GitHub Actions producera den första signerade DMG:n.
+Polish-prep inför första publika release. Specs 001–012 är klara (Tauri-bootstrap, lokal Ollama-sidecar, första dropzon, alla sex zoner, fler indataformat, signering + CI, auto-uppdaterare, välkomstguide, `.rtf`/`.pages`/`.odt`, inställningspanel, felåterhämtning, polish + beta-prep). Spec 013 (den här) utökar från sex till nio zoner, lägger till ett hjälpsystem, och fyller den nio specar gamla luckan i testtäckningen med riktiga dokumentfixturer och körbara zon-pipeline-integrationstester. Nästa steg är att tagga `v0.1.0` och låta GitHub Actions producera den första signerade DMG:n.
 
-Huvudfönstret visar ett 2×3-rutnät av sex tematiska dropzoner: **Sammanfatta**, **Till engelska**, **Till svenska**, **Punktlista**, **Anonymisera** och **Förenkla**. Varje zon tar emot sju format: `.docx`, `.pdf`, `.txt`, `.md`, `.rtf`, `.pages` och `.odt`. Resultatfilen följer indataformatet där det går (`.txt` in → `.txt` ut, `.md` in → `.md` ut bevarar Markdown-strukturen). Långsvansformaten — `.rtf`, `.pages` och `.odt` — sparas alltid som `.docx`-sidofil (ingen ren Rust-skrivare finns). Moderna Apple Pages-filer (v5+, IWA-format) tas emot men kan misslyckas vid extraktion; JuraDrop säger det rakt ut med felmeddelandet `Kunde inte läsa .pages-filen` istället för att låtsas att inget hände. Appen extraherar texten lokalt, skickar den till modellen som väljs i inställningspanelen (Snabb / Smart / Stor — standardvalet är `gemma3:4b`) på `127.0.0.1:11434` med en zon-specifik svensk systemprompt, och sparar resultatet som `<originalnamn>.<zon>.<format>` bredvid originalet. Krypterade PDF:er, bildbaserade PDF:er utan textlager och korrupta långsvansfiler ger tydliga svenska felmeddelanden istället för att tyst misslyckas. Anonymisera- och Förenkla-filerna får en svensk varningstext om AI-modellens begränsningar. Om AI-sidekicken kraschar startas den om automatiskt en gång; vid en andra krasch visas svenska felet `AI-motorn svarar inte. Starta om JuraDrop.` istället för en stack trace. **Inget av dokumentinnehållet lämnar din Mac** — den enda utgående trafiken är fortfarande modellnedladdningen från `ollama.com` (en gång) och Tauri-uppdateraren. CI har dessutom en spärr som vägrar bygget om någon `sentry`/`plausible`/`posthog`/etc. dyker upp bland beroendena. Se [`specs/INDEX.md`](specs/INDEX.md) för spec-historiken.
+Huvudfönstret visar ett 3×3-rutnät av nio tematiska dropzoner: **Sammanfatta**, **Till engelska**, **Till svenska**, **Punktlista**, **Anonymisera**, **Förenkla**, **Plocka ut kontaktuppgifter**, **Generera juridisk text** och **Källförteckning**. Varje zon tar emot sju format: `.docx`, `.pdf`, `.txt`, `.md`, `.rtf`, `.pages` och `.odt`. Resultatfilen följer indataformatet där det går (`.txt` in → `.txt` ut, `.md` in → `.md` ut bevarar Markdown-strukturen). Långsvansformaten — `.rtf`, `.pages` och `.odt` — sparas alltid som `.docx`-sidofil (ingen ren Rust-skrivare finns). Moderna Apple Pages-filer (v5+, IWA-format) tas emot men kan misslyckas vid extraktion; JuraDrop säger det rakt ut med felmeddelandet `Kunde inte läsa .pages-filen` istället för att låtsas att inget hände. Appen extraherar texten lokalt, skickar den till modellen som väljs i inställningspanelen (Snabb / Smart / Stor — standardvalet är `gemma3:4b`) på `127.0.0.1:11434` med en zon-specifik svensk systemprompt, och sparar resultatet som `<originalnamn>.<zon>.<format>` bredvid originalet. Krypterade PDF:er, bildbaserade PDF:er utan textlager och korrupta långsvansfiler ger tydliga svenska felmeddelanden istället för att tyst misslyckas. Anonymisera- och Förenkla-filerna får en svensk varningstext om AI-modellens begränsningar. Om AI-sidekicken kraschar startas den om automatiskt en gång; vid en andra krasch visas svenska felet `AI-motorn svarar inte. Starta om JuraDrop.` istället för en stack trace. **Inget av dokumentinnehållet lämnar din Mac** — den enda utgående trafiken är fortfarande modellnedladdningen från `ollama.com` (en gång) och Tauri-uppdateraren. CI har dessutom en spärr som vägrar bygget om någon `sentry`/`plausible`/`posthog`/etc. dyker upp bland beroendena. Se [`specs/INDEX.md`](specs/INDEX.md) för spec-historiken.
 
 ### Skärmdumpar
 
@@ -47,7 +52,7 @@ Huvudfönstret visar ett 2×3-rutnät av sex tematiska dropzoner: **Sammanfatta*
 
 | Zonrutnätet (mörkt läge) | Välkomstguide (modellnedladdning) | Inställningspanel |
 |---|---|---|
-| ![Sex zoners rutnät](docs/screenshots/zone-grid-dark.png) | ![Välkomstguide](docs/screenshots/welcome-wizard-download.png) | ![Inställningspanel](docs/screenshots/settings-panel.png) |
+| ![Nio zoners rutnät](docs/screenshots/zone-grid-dark.png) | ![Välkomstguide](docs/screenshots/welcome-wizard-download.png) | ![Inställningspanel](docs/screenshots/settings-panel.png) |
 
 Releasekedjan är automatiserad: en `git push --tags` på `vX.Y.Z` triggar GitHub Actions, som bygger en universal `.app`, signerar med Developer ID, notariserar via Apple och laddar upp en signerad DMG som ett utkast under [Releases](https://github.com/johanolofsson72/juradrop/releases). Utkastet publiceras manuellt efter en smoke-test på en ren Mac. Inbyggd Tauri-uppdaterare hämtar nya versioner med signaturverifiering.
 
@@ -143,7 +148,7 @@ That's it. No analytics, no crash reports that include document text, no cloud L
 | [`README.md`](README.md) | You are here |
 | [`PROJECT-BRIEF.md`](PROJECT-BRIEF.md) | Architecture, target users, decisions, risks |
 | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Nine governing principles (privacy, zero-CLI, native feel, …) |
-| [`design-system/MASTER.md`](design-system/MASTER.md) | Colors, typography, motion, the six drop zones |
+| [`design-system/MASTER.md`](design-system/MASTER.md) | Colors, typography, motion, the nine drop zones |
 | [`specs/INDEX.md`](specs/INDEX.md) | Spec register — what's planned, in order |
 | [`.claude/docs/deployment.md`](.claude/docs/deployment.md) | Apple Developer setup, signing, notarization, CI |
 | [`CLAUDE.md`](CLAUDE.md) | Working instructions for Claude Code in this repo |

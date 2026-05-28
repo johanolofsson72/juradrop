@@ -14,6 +14,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::input_format::InputFormat;
+use super::zone_id::ZoneId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -41,6 +42,19 @@ impl OutputFormat {
             InputFormat::Rtf => Self::Docx,
             InputFormat::Pages => Self::Docx,
             InputFormat::Odt => Self::Docx,
+        }
+    }
+
+    /// Spec 013 FR-003 / analyze F2 — zone-aware output resolution.
+    /// `Generera` produces a freshly generated legal *document*, so it
+    /// ALWAYS writes a `.docx` sidecar regardless of the `.txt`/`.md`
+    /// instruction-file input (the spec-005 input-mirror rule does not
+    /// apply to a generation zone). Every other zone mirrors the input
+    /// via `mirror_from`.
+    pub const fn for_zone(zone: ZoneId, input: InputFormat) -> Self {
+        match zone {
+            ZoneId::Generera => Self::Docx,
+            _ => Self::mirror_from(input),
         }
     }
 
@@ -128,6 +142,36 @@ mod tests {
         // until this match is updated.
         for input in InputFormat::ALL {
             let _ = OutputFormat::mirror_from(input);
+        }
+    }
+
+    #[test]
+    fn generera_always_outputs_docx_regardless_of_input() {
+        // Spec 013 FR-003 / analyze F2 — generation zone ignores the
+        // input-mirror rule; .txt/.md instructions still yield .docx.
+        for input in InputFormat::ALL {
+            assert_eq!(
+                OutputFormat::for_zone(ZoneId::Generera, input),
+                OutputFormat::Docx,
+                "Generera must output docx for input {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_generera_zones_mirror_input() {
+        // Every non-Generera zone defers to mirror_from.
+        for zone in ZoneId::ALL {
+            if zone == ZoneId::Generera {
+                continue;
+            }
+            for input in InputFormat::ALL {
+                assert_eq!(
+                    OutputFormat::for_zone(zone, input),
+                    OutputFormat::mirror_from(input),
+                    "zone {zone:?} input {input:?} must mirror"
+                );
+            }
         }
     }
 

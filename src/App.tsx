@@ -4,6 +4,8 @@ import { ConsentModal } from '@/components/ConsentModal';
 import { DropZone } from '@/components/DropZone';
 import { ZONE_ORDER } from '@/components/DropZone.identity';
 import { GearIcon } from '@/components/GearIcon';
+import { HelpIcon } from '@/components/HelpIcon';
+import { HelpPanel } from '@/components/HelpPanel';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { UpdateIndicator } from '@/components/UpdateIndicator';
 import { UpdateRetryFootnote } from '@/components/UpdateRetryFootnote';
@@ -12,6 +14,7 @@ import { ensureSettingsSubscription, useSettingsStore } from '@/lib/settings-sto
 import { useStatusStore } from '@/lib/status-store';
 import { ensureUpdateStatusSubscription } from '@/lib/update-store';
 import { useCmdComma } from '@/lib/use-cmd-comma';
+import { useHelpPanel } from '@/lib/use-help-panel';
 import { useSettingsPanel } from '@/lib/use-settings-panel';
 import { useWizardState } from '@/lib/use-wizard-state';
 import {
@@ -100,9 +103,21 @@ export function App() {
     if (inTauri) ensureSettingsSubscription();
   }, []);
   const settingsPanel = useSettingsPanel();
+  // Spec 013 — help panel + mutual exclusion (FR-023): at most one
+  // slide-in panel open at a time. Opening one closes the other.
+  const helpPanel = useHelpPanel();
+  const openSettings = useCallback(() => {
+    helpPanel.closePanel();
+    settingsPanel.openPanel();
+  }, [helpPanel, settingsPanel]);
+  const openHelp = useCallback(() => {
+    settingsPanel.closePanel();
+    helpPanel.openPanel();
+  }, [helpPanel, settingsPanel]);
   const toggleSettingsPanel = useCallback(() => {
+    helpPanel.closePanel();
     settingsPanel.togglePanel();
-  }, [settingsPanel]);
+  }, [helpPanel, settingsPanel]);
   useCmdComma(toggleSettingsPanel);
   // Refresh tier pull state when the spec 008 wizard finishes a pull
   // (status flips to klar). Cheap re-fetch on every status update.
@@ -141,10 +156,10 @@ export function App() {
       <UpdateRetryFootnote />
       {/* Spec 010 — settings panel + gear icon. Both mounted in both
           paths; gear self-disables during wizard/restart-confirm. */}
-      <GearIcon
-        enabled={settingsPanel.gearIconEnabled}
-        onClick={settingsPanel.openPanel}
-      />
+      {/* Spec 013 — chrome help icon (left of gear) + help panel. */}
+      <HelpIcon enabled={helpPanel.helpIconEnabled} onClick={openHelp} />
+      <GearIcon enabled={settingsPanel.gearIconEnabled} onClick={openSettings} />
+      <HelpPanel visibility={helpPanel.visibility} onClose={helpPanel.closePanel} />
       <SettingsPanel
         visibility={settingsPanel.visibility}
         onClose={settingsPanel.closePanel}

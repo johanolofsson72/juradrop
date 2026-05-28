@@ -1,0 +1,282 @@
+-- allium: 3
+--
+-- Spec 013 — nine-zones-and-real-fixtures
+-- Elicited from specs/013-nine-zones-and-real-fixtures/spec.md (clarified, 7 Q&A).
+-- Backfilled after phase-1 commit 0f3381b per register reconciliation 2026-05-28.
+--
+-- Behavior surface formalized here:
+--   1. ZoneId expanded 6 -> 9 (Kontakter, Generera, Kallor).
+--   2. Help system: per-zone (?) popover + chrome-bar (?) slide-in HelpPanel.
+--   3. Slide-in panel mutual exclusion (HelpPanel xor SettingsPanel).
+--   4. Help button modal-gating (disabled while any modal/wizard up).
+--   5. Zone pipeline contract (drop -> extract -> prompt -> generate -> write).
+--   6. Debug-only JURADROP_OLLAMA_URL test seam.
+-- Fixtures, integration tests, and the constitution bump are verification
+-- scaffolding — pinned here as invariants, not runtime rules.
+
+enum ZoneId {
+    sammanfatta | tillengelska | tillsvenska | punktlista | anonymisera
+    | forenkla | kontakter | generera | kallor
+}
+
+enum InputFormat { docx | pdf | txt | md | rtf | pages | odt }
+
+-- The nine zones, in canonical grid order. Variant order = grid position.
+-- kontakter/generera/kallor are the spec-013 additions at positions 6/7/8.
+value ZoneIdentity {
+    id: ZoneId
+    slug: String                       -- matches ZoneId serde rename, ASCII
+    title: String                      -- Swedish, shown in card header
+    hint_copy: String                  -- Swedish drop hint
+    sidecar_suffix: String             -- e.g. `.anonymisera`
+    has_disclaimer_paragraph: Boolean  -- true for anonymisera, forenkla, generera
+
+    invariant SlugIsAscii { this.slug.matches(`^[a-z]+$`) }
+    -- NOTE: sidecar_suffix is NOT always the slug. Anonymisera writes the
+    -- past-participle "anonymiserad" (reads better as a filename). The
+    -- suffix is ASCII and unique across zones, but it is its own field.
+    invariant SuffixIsAscii { this.sidecar_suffix.matches(`^[a-z]+$`) }
+}
+
+-- FR-021 / FR-016a — two Swedish help strings per zone, char-budgeted,
+-- mirrored byte-for-byte between Rust ZONE_HELP_STRINGS and the TS constant
+-- via the zone-help-strings.json drift fixture.
+value ZoneHelp {
+    id: ZoneId
+    short: String   -- <= 80 chars, popover body
+    long: String    -- <= 300 chars, HelpPanel body, 2-3 sentences
+
+    invariant ShortBudget { this.short.length <= 80 }
+    invariant LongBudget { this.long.length <= 300 }
+    invariant ShortNonEmpty { this.short.length > 0 }
+    invariant LongNonEmpty { this.long.length > 0 }
+}
+
+-- FR-018 — per-zone help popover. CSS-absolute, no portal. One per card.
+entity ZonePopover {
+    zone: ZoneId
+    open: Boolean
+
+    transitions open {
+        false -> true     -- click (?) icon
+        true -> false     -- click again, Esc, or outside-click
+    }
+}
+
+-- FR-019/FR-020/FR-023 — chrome-bar slide-in help panel listing all 9 zones.
+-- Mirrors spec 010 SettingsPanel mechanics (scrim, Esc, close-X, outside-click).
+entity HelpPanel {
+    open: Boolean
+    width_px: Integer = 380
+
+    transitions open {
+        false -> true     -- click chrome-bar (?) icon (when enabled)
+        true -> false     -- Esc, close-X, outside-click, or settings panel opening
+    }
+
+    invariant FixedWidth { this.width_px = 380 }
+}
+
+-- spec 010 — referenced for mutual-exclusion + chrome-bar ordering.
+external entity SettingsPanel { open: Boolean }
+
+-- spec 008 / 007 / 010 — modal/wizard surfaces that gate the help button.
+external entity FirstRunWizard { active: Boolean }
+external entity UpdateRestartConfirm { visible: Boolean }
+
+-- The zone-processing pipeline. One dispatch per dropped file per zone.
+-- status mirrors the spec 003 DropZone state machine, unchanged here.
+entity ZoneDispatch {
+    zone: ZoneId
+    source_path: String
+    source_sha256: String              -- pinned at drop, must never change
+    input_format: InputFormat
+    extracted_text: String when status = processing | success
+    sidecar_path: String when status = success
+    status: idle | processing | success | error
+
+    transitions status {
+        idle -> processing
+        processing -> success
+        processing -> error
+        success -> idle
+        error -> idle
+    }
+
+    invariant SourceImmutable { this.source_sha256 = this.source_sha256_at_drop }
+    invariant SidecarSuffixMatchesZone {
+        status = success implies
+            this.sidecar_path.contains(this.zone.sidecar_suffix)
+    }
+}
+
+-- FR-009/FR-010 — the canonical 200-char Swedish probe paragraph, byte-pinned.
+config {
+    canonical_extraction_probe_text: String
+    extraction_probe_formats: Set<InputFormat> = {docx, pdf, txt, md, rtf, odt}
+    zone_count: Integer = 9
+    constitution_version: String = "1.1.0"
+    truncation_cap_chars: Integer = 24000   -- spec 005, unchanged
+}
+
+-- FR-015 — debug-only Ollama URL override. The ONLY way the base URL differs
+-- from the hardcoded localhost. Release builds ignore the env var entirely.
+config {
+    default_ollama_url: String = `http://127.0.0.1:11434`
+    ollama_url_env_var: String = `JURADROP_OLLAMA_URL`
+}
+
+-- ---- Rules: help-system interaction ----
+
+rule OpenZonePopover {
+    when: ClickZoneHelpIcon(popover)
+    requires: popover.open = false
+    ensures: popover.open = true
+}
+
+rule CloseZonePopover {
+    when: DismissZonePopover(popover)   -- second click, Esc, or outside-click
+    requires: popover.open = true
+    ensures: popover.open = false
+}
+
+-- FR-022 — chrome-bar help button is disabled while any modal/wizard is up.
+rule OpenHelpPanel {
+    when: ClickChromeHelpIcon()
+    requires:
+        FirstRunWizard.active = false
+        UpdateRestartConfirm.visible = false
+    ensures:
+        HelpPanel.open = true
+        SettingsPanel.open = false       -- FR-023 mutual exclusion
+}
+
+rule CloseHelpPanel {
+    when: DismissHelpPanel()             -- Esc, close-X, or outside-click
+    requires: HelpPanel.open = true
+    ensures: HelpPanel.open = false
+}
+
+-- FR-023 (other direction) — opening settings closes help first. The symmetric
+-- guarantee is enforced structurally by invariant AtMostOneSlideInPanel below;
+-- SettingsPanel is external (spec 010) so its open-rule is not redefined here.
+
+-- ---- Rules: zone pipeline ----
+
+rule DispatchToZone {
+    when: DropFileOnZone(zone, path)
+    requires: InputFormat.detectable(path)
+    ensures:
+        let d = ZoneDispatch.created(zone: zone, source_path: path, status: processing)
+        d.source_sha256 = sha256(path)
+}
+
+-- FR-011 — successful dispatch writes a sidecar; source bytes never change.
+rule ZoneDispatchSucceeds {
+    when: dispatch: ZoneDispatch.status transitions_to success
+    ensures:
+        dispatch.sidecar_path != null
+        dispatch.sidecar_path.contains(ZoneIdentity(dispatch.zone).sidecar_suffix)
+        sha256(dispatch.source_path) = dispatch.source_sha256
+}
+
+-- FR-009a/FR-012a — .pages on the probe path may fail with the named error.
+rule PagesProbeFailureMode {
+    when: ExtractPages(path)
+    requires: path.extension = "pages"
+    ensures:
+        ExtractionSucceeded(text: config.canonical_extraction_probe_text)
+        or PagesParseError()
+}
+
+-- ---- Global invariants ----
+
+-- FR-023 — at most one slide-in panel visible at any time.
+invariant AtMostOneSlideInPanel {
+    not (HelpPanel.open = true and SettingsPanel.open = true)
+}
+
+-- SC-001 / FR-001 — exactly nine zones, no more no fewer.
+invariant ExactlyNineZones {
+    ZoneId.all.count = config.zone_count
+}
+
+-- FR-003 — disclaimer carriers are exactly anonymisera, forenkla, generera.
+invariant DisclaimerZonesPinned {
+    for z in ZoneIdentity:
+        z.has_disclaimer_paragraph = (z.id in {anonymisera, forenkla, generera})
+}
+
+-- SC-007 / FR-008 — every fixture containing personal data carries the marker.
+invariant FixturePersonalDataFlagged {
+    for f in FixtureDocument where f.contains_personal_data:
+        f.content.contains("[TESTDATA — fiktiva uppgifter]")
+}
+
+-- SC-004 / FR-013 — no test stays #[ignore]'d without a one-line reason.
+invariant IgnoredTestsJustified {
+    for t in IntegrationTest where t.ignored:
+        t.has_hardware_reason_comment
+}
+
+-- SC-005 / FR-005/FR-006 — constitution pinned at the MINOR-bumped version.
+invariant ConstitutionVersionBumped {
+    Constitution.version = config.constitution_version
+}
+
+-- Principle I — debug-only seam never weakens release privacy posture.
+invariant ReleaseUsesLocalhostOnly {
+    not debug_assertions implies
+        SidecarClient.base_url = config.default_ollama_url
+}
+
+-- ---- Test scaffolding entities (verification surface, not runtime) ----
+
+entity FixtureDocument {
+    path: String
+    format: InputFormat
+    contains_personal_data: Boolean
+    content: String
+}
+
+entity IntegrationTest {
+    name: String
+    ignored: Boolean
+    has_hardware_reason_comment: Boolean
+}
+
+external entity Constitution { version: String }
+external entity SidecarClient { base_url: String }
+
+-- MockOllamaServer — the wiremock::MockServer (already a dev-dep since spec 003).
+-- Clarification Q4's hand-rolled-mock plan was superseded during /plan: wiremock
+-- is already present and the existing zone tests pass with it in 0.28s.
+entity MockOllamaServer {
+    bound_port: Integer        -- 127.0.0.1:0 -> OS-assigned random port
+    last_request_body: String?
+}
+
+-- ---- Surfaces ----
+
+surface ZoneCard {
+    facing user: LawStudent
+    context zone: ZoneId
+    provides: DropFileOnZone(zone, path)
+    exposes: zone
+}
+
+surface ChromeBar {
+    facing user: LawStudent
+    -- canonical left-to-right order: help, gear (settings), update-indicator
+    provides: ClickChromeHelpIcon() when FirstRunWizard.active = false and UpdateRestartConfirm.visible = false
+    exposes: HelpPanel.open
+}
+
+external entity LawStudent { }
+
+-- ---- Deferred / open ----
+-- Apple IWA is proprietary; full .pages extraction needs a user-exported fixture
+-- (src-tauri/tests/extraction_probe.rs). Real-Ollama periodic validation is a
+-- separate slow-test suite (src-tauri/tests/) — mocked-Ollama is sufficient here.
+deferred ExtractionProbe.pages_full_extraction
+deferred ZonePipeline.real_ollama_periodic_validation

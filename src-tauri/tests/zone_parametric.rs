@@ -101,10 +101,7 @@ fn every_zone_header_template_has_the_name_token() {
 #[test]
 fn only_anonymisera_forenkla_and_generera_have_disclaimers() {
     for z in ZoneId::ALL {
-        let expected_some = matches!(
-            z,
-            ZoneId::Anonymisera | ZoneId::Forenkla | ZoneId::Generera
-        );
+        let expected_some = matches!(z, ZoneId::Anonymisera | ZoneId::Forenkla | ZoneId::Generera);
         assert_eq!(
             z.has_disclaimer(),
             expected_some,

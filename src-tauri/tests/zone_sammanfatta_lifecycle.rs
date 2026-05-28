@@ -9,9 +9,10 @@
 //   - The source .docx is byte-identical (SHA-256) before vs after
 //     the drop (FR-024 / SC-004 / Allium SourceFileImmutable).
 //
-// Marked `#[ignore]` because the Tauri test harness spins up an event
-// runtime that's expensive. Run via:
-//   cargo test --test zone_sammanfatta_lifecycle -- --ignored
+// Spec 013 (US3 / FR-013) — UN-IGNORED. The prior `#[ignore]` claimed
+// the Tauri mock harness was "expensive"; measurement showed all 6 tests
+// run in ~0.3s, so they now run on every `cargo test`. wiremock is already
+// a dev-dependency; no harness rewrite was needed.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -48,7 +49,6 @@ fn write_fixture_docx(dir: &std::path::Path, text: &str) -> PathBuf {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires Tauri mock app + wiremock; run with --ignored"]
 async fn drop_docx_writes_sidecar_and_leaves_source_byte_identical() {
     // 1. Wiremock the /api/generate endpoint with a Swedish-looking
     //    response. This keeps the test deterministic and avoids
@@ -130,7 +130,6 @@ async fn drop_docx_writes_sidecar_and_leaves_source_byte_identical() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires Tauri mock app + wiremock; run with --ignored"]
 async fn disabled_zone_rejects_drop_without_calling_model() {
     // No wiremock - the model MUST NOT be called when disabled.
     let app = mock_builder()
@@ -163,7 +162,6 @@ async fn disabled_zone_rejects_drop_without_calling_model() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires Tauri mock app; run with --ignored"]
 async fn non_docx_drop_emits_invalid_format_and_does_not_call_model() {
     let app = mock_builder()
         .plugin(tauri_plugin_shell::init())
@@ -197,7 +195,6 @@ async fn non_docx_drop_emits_invalid_format_and_does_not_call_model() {
 /// sidecar lands in the same directory with the right `.sammanfatta`
 /// suffix derived from the exotic stem.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires Tauri mock app + wiremock; run with --ignored"]
 async fn drop_with_exotic_chars_in_path_produces_correctly_named_sidecar() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -290,7 +287,6 @@ async fn drop_with_exotic_chars_in_path_produces_correctly_named_sidecar() {
 /// future refactor that reorders the dispatch can't accidentally
 /// drop a partial sidecar after a model failure.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires Tauri mock app + wiremock; run with --ignored"]
 async fn dispatch_failure_leaves_no_sidecar_on_disk() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
@@ -356,7 +352,6 @@ async fn dispatch_failure_leaves_no_sidecar_on_disk() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "requires Tauri mock app; run with --ignored"]
 async fn multi_file_drop_emits_multiple_files_failure() {
     let app = mock_builder()
         .plugin(tauri_plugin_shell::init())
