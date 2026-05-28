@@ -99,7 +99,7 @@ async fn cancel_mid_inference_leaves_no_sidecar_and_source_byte_identical() {
     //    we return immediately and the dispatch's wiremock call is
     //    queued behind the 3 s delay.
     zone.clone()
-        .handle_drop(handle, client, true, vec![source.clone()])
+        .handle_drop(handle, client, true, "gemma3:4b", vec![source.clone()])
         .await;
 
     // 5. Wait briefly for the dispatch to actually be in flight (the

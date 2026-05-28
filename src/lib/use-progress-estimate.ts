@@ -19,7 +19,11 @@ const DEFAULT_STALE_MS = 5_000;
 // "Väntar på nätverk…" flip under the FR-007 5 s target. With 1000 ms
 // the worst case was ~6 s; with 500 ms it's ~5.5 s.
 const STALE_POLL_INTERVAL_MS = 500;
-const ESTIMATED_TOTAL_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB ≈ gemma3:4b size
+// Approximate disk footprint of the default Smart-tier model. Spec 010
+// puts the canonical mapping in src-tauri/src/settings/tier_map.rs;
+// this constant is only used as a "we have to multiply percent by
+// something" denominator so a rough estimate is fine.
+const ESTIMATED_TOTAL_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB approx
 
 export interface ProgressEstimate {
   lastPct: number;

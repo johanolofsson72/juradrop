@@ -9,10 +9,15 @@ use std::time::Duration;
 use tauri::{DragDropEvent, Emitter, Listener, Manager, RunEvent, WindowEvent};
 
 pub mod prompts;
+pub mod settings;
 pub mod sidecar;
 pub mod updater;
 pub mod zones;
 
+use settings::commands::{
+    get_app_version, get_settings, get_tier_pull_state, init_settings_state, set_model_tier,
+    trigger_tier_download,
+};
 use sidecar::commands::{
     after_sidecar_ready, cancel_consent, cancel_model_pull, cancel_summary, dispatch_to_zone,
     get_status, give_consent, run_roundtrip_dev, AppState,
@@ -47,10 +52,21 @@ pub fn run() {
             dismiss_update_indicator,
             // Spec 008 — first-run-wizard Cancel-button command.
             cancel_model_pull,
+            // Spec 010 — settings panel.
+            get_settings,
+            set_model_tier,
+            get_tier_pull_state,
+            trigger_tier_download,
+            get_app_version,
         ])
         .setup(|app| {
             let state = AppState::new();
             app.manage(state.clone());
+
+            // Spec 010 / T002 — load persisted settings + manage state.
+            // Done BEFORE the sidecar bootstrap so the dispatch path can
+            // read the active tier from frame zero.
+            init_settings_state(app.handle());
 
             // T045 / F4 — SidecarOneRetry. The drain task in manager.rs emits
             // `juradrop://sidecar-crashed` on unexpected exit; this listener
@@ -362,22 +378,25 @@ mod tests {
             "capabilities allowlist drifted from spec.allium CapabilityAllowlistMinimal"
         );
 
-        // Plus exactly one scoped object permission: shell:allow-spawn
-        // limited to the bundled ollama binary. No other scoped permissions
-        // are allowed.
+        // Plus exactly two scoped object permissions:
+        //   1. shell:allow-spawn — limited to the bundled ollama binary
+        //      (spec 002).
+        //   2. shell:allow-open — limited to the single GitHub Releases
+        //      URL the spec 010 About-section button uses.
+        // No other scoped permissions are allowed.
         let object_perms: Vec<&serde_json::Value> =
             perms.iter().filter(|v| v.is_object()).collect();
         assert_eq!(
             object_perms.len(),
-            1,
-            "expected exactly one scoped permission (shell:allow-spawn for ollama)"
+            2,
+            "expected exactly two scoped permissions (shell:allow-spawn for ollama, shell:allow-open for GitHub Releases URL)"
         );
-        let spawn = object_perms[0];
-        assert_eq!(
-            spawn.get("identifier").and_then(|v| v.as_str()),
-            Some("shell:allow-spawn"),
-            "scoped permission must be shell:allow-spawn"
-        );
+
+        // First scoped permission: spec 002 — shell:allow-spawn for ollama.
+        let spawn = object_perms
+            .iter()
+            .find(|v| v.get("identifier").and_then(|i| i.as_str()) == Some("shell:allow-spawn"))
+            .expect("shell:allow-spawn entry must exist");
         let allow = spawn
             .get("allow")
             .and_then(|v| v.as_array())
@@ -397,6 +416,28 @@ mod tests {
             entry.get("sidecar").and_then(|v| v.as_bool()),
             Some(true),
             "ollama must be configured as a sidecar (not an arbitrary command)"
+        );
+
+        // Second scoped permission: spec 010 — shell:allow-open for the
+        // pinned GitHub Releases URL only.
+        let open = object_perms
+            .iter()
+            .find(|v| v.get("identifier").and_then(|i| i.as_str()) == Some("shell:allow-open"))
+            .expect("shell:allow-open entry must exist (spec 010 About link)");
+        let open_allow = open
+            .get("allow")
+            .and_then(|v| v.as_array())
+            .expect("shell:allow-open must have an allow array");
+        assert_eq!(
+            open_allow.len(),
+            1,
+            "shell:allow-open allow list must be a single entry (GitHub Releases URL only)"
+        );
+        let open_entry = &open_allow[0];
+        assert_eq!(
+            open_entry.get("url").and_then(|v| v.as_str()),
+            Some("https://github.com/johanolofsson72/juradrop/releases"),
+            "shell:allow-open URL must match the pinned spec 010 constant"
         );
     }
 }

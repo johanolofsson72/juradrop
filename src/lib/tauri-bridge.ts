@@ -214,3 +214,49 @@ export function subscribeUpdateStatus(
 ): Promise<UnlistenFn> {
   return listen<UpdateStatus>('juradrop://update-status', (event) => cb(event.payload));
 }
+
+// ============================================================
+// Spec 010 — settings panel wrappers + event channel.
+// ============================================================
+
+import type {
+  ModelTier,
+  SettingsSnapshot,
+  TierPullState,
+} from './settings-types';
+
+export async function getSettings(): Promise<SettingsSnapshot> {
+  return invoke<SettingsSnapshot>('get_settings');
+}
+
+export async function setModelTier(tier: ModelTier): Promise<void> {
+  await invoke<void>('set_model_tier', { tier });
+}
+
+export async function getTierPullState(): Promise<TierPullState> {
+  return invoke<TierPullState>('get_tier_pull_state');
+}
+
+export async function triggerTierDownload(tier: ModelTier): Promise<void> {
+  await invoke<void>('trigger_tier_download', { tier });
+}
+
+export async function getAppVersion(): Promise<string> {
+  return invoke<string>('get_app_version');
+}
+
+export interface TierDownloadRequest {
+  tier: ModelTier;
+  model_id: string;
+}
+
+/** Subscribe to the `Ladda ned` intent channel. The spec 008 wizard
+ *  picks this up and runs the existing model-pull flow. */
+export function subscribeTierDownloadRequested(
+  cb: (req: TierDownloadRequest) => void,
+): Promise<UnlistenFn> {
+  return listen<TierDownloadRequest>(
+    'juradrop://settings/tier-download-requested',
+    (event) => cb(event.payload),
+  );
+}

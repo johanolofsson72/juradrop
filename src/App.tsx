@@ -1,13 +1,18 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { WelcomeCard } from '@/components/WelcomeCard';
 import { ConsentModal } from '@/components/ConsentModal';
 import { DropZone } from '@/components/DropZone';
 import { ZONE_ORDER } from '@/components/DropZone.identity';
+import { GearIcon } from '@/components/GearIcon';
+import { SettingsPanel } from '@/components/SettingsPanel';
 import { UpdateIndicator } from '@/components/UpdateIndicator';
 import { UpdateRetryFootnote } from '@/components/UpdateRetryFootnote';
 import { Wizard } from '@/components/Wizard';
+import { ensureSettingsSubscription, useSettingsStore } from '@/lib/settings-store';
 import { useStatusStore } from '@/lib/status-store';
 import { ensureUpdateStatusSubscription } from '@/lib/update-store';
+import { useCmdComma } from '@/lib/use-cmd-comma';
+import { useSettingsPanel } from '@/lib/use-settings-panel';
 import { useWizardState } from '@/lib/use-wizard-state';
 import {
   dispatchToZone,
@@ -86,6 +91,27 @@ export function App() {
   // stay mounted in both paths since they're top/bottom-right overlays.
   const wizardPhase = useWizardState();
 
+  // Spec 010 — settings panel. Subscribe to persisted snapshot on
+  // first mount; the panel-visibility hook owns the slide-in state
+  // machine. The gear icon stays mounted in both wizard and zone-grid
+  // paths but auto-disables itself while the wizard is up (FR-005a).
+  useEffect(() => {
+    const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    if (inTauri) ensureSettingsSubscription();
+  }, []);
+  const settingsPanel = useSettingsPanel();
+  const toggleSettingsPanel = useCallback(() => {
+    settingsPanel.togglePanel();
+  }, [settingsPanel]);
+  useCmdComma(toggleSettingsPanel);
+  // Refresh tier pull state when the spec 008 wizard finishes a pull
+  // (status flips to klar). Cheap re-fetch on every status update.
+  const statusVisible = useStatusStore((s) => s.status.visible);
+  const refreshSettings = useSettingsStore((s) => s.refresh);
+  useEffect(() => {
+    if (statusVisible === 'klar') void refreshSettings();
+  }, [statusVisible, refreshSettings]);
+
   return (
     <main className="min-h-screen bg-background p-6 text-foreground">
       {wizardPhase !== 'hidden' ? (
@@ -113,6 +139,16 @@ export function App() {
           not disturb the 2×3 grid layout. */}
       <UpdateIndicator />
       <UpdateRetryFootnote />
+      {/* Spec 010 — settings panel + gear icon. Both mounted in both
+          paths; gear self-disables during wizard/restart-confirm. */}
+      <GearIcon
+        enabled={settingsPanel.gearIconEnabled}
+        onClick={settingsPanel.openPanel}
+      />
+      <SettingsPanel
+        visibility={settingsPanel.visibility}
+        onClose={settingsPanel.closePanel}
+      />
     </main>
   );
 }

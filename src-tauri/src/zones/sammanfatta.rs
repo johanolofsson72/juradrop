@@ -71,6 +71,7 @@ impl DropZone {
         app: AppHandle<R>,
         client: Arc<OllamaClient>,
         sidecar_ready: bool,
+        model_id: &'static str,
         paths: Vec<PathBuf>,
     ) {
         // FR-012 — refuse drops on disabled zone (defense in depth).
@@ -145,11 +146,13 @@ impl DropZone {
         );
 
         // Run the dispatch in a tokio task so the caller (the
-        // DragDrop event handler) returns promptly.
+        // DragDrop event handler) returns promptly. Spec 010 / FR-010 —
+        // the model_id is pinned at dispatch entry; in-flight runs are
+        // immune to tier switches that happen mid-flight.
         let zone = self.clone();
         let app_clone = app.clone();
         tauri::async_runtime::spawn(async move {
-            zone.dispatch(app_clone, client, source, job_id, cancel_token)
+            zone.dispatch(app_clone, client, source, model_id, job_id, cancel_token)
                 .await;
         });
     }
@@ -161,6 +164,7 @@ impl DropZone {
         app: AppHandle<R>,
         client: Arc<OllamaClient>,
         source: PathBuf,
+        model_id: &'static str,
         job_id: Uuid,
         cancel_token: tokio_util::sync::CancellationToken,
     ) {
@@ -213,7 +217,7 @@ impl DropZone {
 
         // Step 3: call the model, racing the cancel token.
         let response = tokio::select! {
-            r = client.generate("gemma3:4b", prompt) => r,
+            r = client.generate(model_id, prompt) => r,
             _ = cancel_token.cancelled() => {
                 self.finalize_with_cancellation(&app, job_id).await;
                 return;

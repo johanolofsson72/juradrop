@@ -400,6 +400,7 @@ pub async fn cancel_summary(
 pub async fn dispatch_to_zone(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
+    settings: tauri::State<'_, crate::settings::snapshot::SettingsState>,
     zone_id: ZoneId,
     paths: Vec<std::path::PathBuf>,
 ) -> Result<(), String> {
@@ -410,10 +411,13 @@ pub async fn dispatch_to_zone(
         .ok_or_else(|| format!("unknown zone_id: {zone_id:?}"))?;
     let client = state.client.clone();
     let sidecar_ready = matches!(state.sidecar.status(), SidecarStatus::Ready);
-    // Spawn so the invoke returns promptly; handle_drop itself spawns
-    // the dispatch internally, so this is mostly defensive.
+    // Spec 010 / T011 — pin the active model_id at dispatch time so
+    // in-flight runs are immune to tier switches (FR-010 +
+    // InFlightRunsImmuneToTierSwitch invariant).
+    let model_id = settings.active_model_id();
     tauri::async_runtime::spawn(async move {
-        zone.handle_drop(app, client, sidecar_ready, paths).await;
+        zone.handle_drop(app, client, sidecar_ready, model_id, paths)
+            .await;
     });
     Ok(())
 }

@@ -87,7 +87,7 @@ async fn drop_docx_writes_sidecar_and_leaves_source_byte_identical() {
     //    task — wait for the success snapshot via the side-effect
     //    of the sidecar landing on disk.
     zone.clone()
-        .handle_drop(handle, client, true, vec![source.clone()])
+        .handle_drop(handle, client, true, "gemma3:4b", vec![source.clone()])
         .await;
 
     // 5. Poll for the sidecar file (the dispatch is async — give it
@@ -149,7 +149,7 @@ async fn disabled_zone_rejects_drop_without_calling_model() {
     let source = write_fixture_docx(dir.path(), "Text.");
 
     // sidecar_ready: false → ZoneFailure::ZoneDisabled snapshot, no dispatch.
-    zone.handle_drop(handle, client, false, vec![source.clone()])
+    zone.handle_drop(handle, client, false, "gemma3:4b", vec![source.clone()])
         .await;
 
     // Give the (non-existent) dispatch a moment to NOT happen.
@@ -179,7 +179,7 @@ async fn non_docx_drop_emits_invalid_format_and_does_not_call_model() {
     let fake_pdf = dir.path().join("document.pdf");
     std::fs::write(&fake_pdf, b"%PDF-1.5 not a real pdf").unwrap();
 
-    zone.handle_drop(handle, client, true, vec![fake_pdf.clone()])
+    zone.handle_drop(handle, client, true, "gemma3:4b", vec![fake_pdf.clone()])
         .await;
 
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -237,7 +237,7 @@ async fn drop_with_exotic_chars_in_path_produces_correctly_named_sidecar() {
     let sha_before = sha256_of(&source);
 
     zone.clone()
-        .handle_drop(handle, client, true, vec![source.clone()])
+        .handle_drop(handle, client, true, "gemma3:4b", vec![source.clone()])
         .await;
 
     // Wait for the sidecar.
@@ -312,7 +312,7 @@ async fn dispatch_failure_leaves_no_sidecar_on_disk() {
     let sha_before = sha256_of(&source);
 
     zone.clone()
-        .handle_drop(handle, client, true, vec![source.clone()])
+        .handle_drop(handle, client, true, "gemma3:4b", vec![source.clone()])
         .await;
 
     // Wait for the dispatch to complete (transition out of Processing).
@@ -373,7 +373,7 @@ async fn multi_file_drop_emits_multiple_files_failure() {
     let b = dir.path().join("b.docx");
     std::fs::copy(&a, &b).unwrap();
 
-    zone.handle_drop(handle, client, true, vec![a.clone(), b])
+    zone.handle_drop(handle, client, true, "gemma3:4b", vec![a.clone(), b])
         .await;
 
     tokio::time::sleep(Duration::from_millis(200)).await;

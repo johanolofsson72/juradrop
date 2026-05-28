@@ -1,0 +1,704 @@
+-- allium: 3
+
+-- Formal spec for spec 010: settings panel (gear-icon slide-in).
+-- Source: specs/010-settings-panel/spec.md
+-- Elicited: 2026-05-28
+--
+-- This file EXTENDS specs 003/004/005/007/008. The DropZone state
+-- machine, the six-way ZoneId, the DropJob outcome graph, the privacy
+-- boundary, the auto-updater state machine, and the first-run wizard
+-- state machine — all unchanged. Spec 010 grafts a small new entity
+-- (SettingsSnapshot) onto the existing dispatch path and surfaces a
+-- panel UI alongside (not on top of) the existing zone grid.
+--
+-- What changes here is:
+--   1. A new persisted entity (SettingsFile / SettingsSnapshot) holding
+--      exactly one user choice — the active model tier.
+--   2. A new ModelTier enum (Snabb | Smart | Stor) mapping centrally to
+--      Ollama model IDs (llama3.2:1b, gemma3:4b, gemma3:12b).
+--   3. A new panel visibility state machine on the React side
+--      (4 states: closed | opening | open | closing).
+--   4. A new chrome affordance: the gear icon in the top-right chrome
+--      bar, sitting left of the spec 007 update indicator.
+--   5. A change to the zone-dispatch contract: the model ID is now
+--      looked up from SettingsSnapshot at dispatch time instead of the
+--      hard-coded DEFAULT_MODEL constant.
+--   6. The gear icon + Cmd+, shortcut are GATED by a new predicate —
+--      disabled while any spec 007 / spec 008 modal is currently up.
+--   7. Zero new outbound network surface. Settings file contains zero
+--      bytes of user content, zero document paths, zero analytics IDs.
+--   8. Cross-language drift fixture (zone-error-strings.json sibling)
+--      gains panel string keys.
+
+-- ============================================================
+-- External entities (defined by spec 002 / 003 / 004 / 007 / 008)
+-- ============================================================
+
+-- Defined in specs/004-all-six-zones/spec.allium; re-declared here
+-- because Allium has no `external enum` or cross-file `use` keyword.
+external entity DropZone {
+    id: ZoneId
+    visible_state: idle | dragover | processing | success | error
+}
+
+-- Defined in specs/003-first-zone-sammanfatta/spec.allium and extended
+-- in spec 005 / 008 / 009. Spec 010 adds `dispatched_model_id` as the
+-- model ID locked in at dispatch time (FR-010 invariant).
+external entity DropJob {
+    id: String
+    source_path: String
+    outcome: in_flight | success | failure | cancelled
+    dispatched_model_id: String         -- pinned at dispatch time (FR-010)
+}
+
+-- Defined in specs/002-ollama-sidecar-poc/spec.allium. Base URL
+-- constraint inherited; no change in spec 010.
+external entity OllamaClient {
+    base_url: String                    -- always `http://127.0.0.1:11434`
+}
+
+-- Defined in specs/008-first-run-wizard/spec.allium. Spec 010 reads
+-- the `visible` flag as a gate for the gear-icon disabled predicate.
+external entity FirstRunWizard {
+    visible: Boolean                    -- spec 008
+}
+
+-- Defined in specs/007-auto-updater/spec.allium (deferred-restart
+-- confirm dialog). Spec 010 reads `visible` as the second gate for
+-- the gear-icon disabled predicate.
+external entity UpdateRestartConfirm {
+    visible: Boolean                    -- spec 007 deferred-restart dialog
+}
+
+-- Defined in specs/003-first-zone-sammanfatta/spec.allium. Used by
+-- the SwedishCopyForPanelStrings invariant below.
+external entity SwedishCopy {
+    text: String
+}
+
+-- Re-declared locally (Allium has no `external enum`).
+enum ZoneId {
+    sammanfatta | tillengelska | tillsvenska | punktlista | anonymisera | forenkla
+}
+
+-- ============================================================
+-- New enums
+-- ============================================================
+
+-- FR-006 — the three named tiers, in display order. Lowercase serde
+-- form (snabb / smart / stor) on the wire; capitalised labels in UI.
+enum ModelTier {
+    snabb | smart | stor
+}
+
+-- FR-019 / FR-020 — schema version sentinel for forward-compat. v1 is
+-- the only currently-valid value. Any other integer triggers the
+-- malformed-file fallback path.
+enum SchemaVersion {
+    v1
+}
+
+-- Panel visibility state machine — React-side only. Intentionally
+-- 4-state to coalesce repeated open intents (FR-026). The `opening`
+-- and `closing` states gate animation; `open` is the steady state.
+enum PanelVisibility {
+    closed | opening | open | closing
+}
+
+-- ============================================================
+-- Value objects
+-- ============================================================
+
+-- FR-019 + FR-021 + FR-023 — the on-disk persistence schema. EXACTLY
+-- two fields. No telemetry IDs, no analytics keys, no user content,
+-- no document paths, no zone history, no tier-change history.
+-- Anything beyond these two fields is a Principle I violation.
+value SettingsFile {
+    schema_version: SchemaVersion
+    model_tier: ModelTier
+}
+
+-- FR-007 + FR-008 — in-memory mirror of SettingsFile. Lives in Zustand
+-- on the React side and a Rust mirror on the Tauri side. The Rust copy
+-- is the single source of truth at dispatch time (FR-009).
+value SettingsSnapshot {
+    schema_version: SchemaVersion
+    model_tier: ModelTier
+}
+
+-- FR-006 — the central mapping. Lives in ONE place in src-tauri/. The
+-- frontend receives a typed enum, never the raw model ID string.
+-- Hard-coding any of these IDs in React is a design violation.
+value TierMapping {
+    snabb_model_id: String              -- = `llama3.2:1b`  (~1.3 GB)
+    smart_model_id: String              -- = `gemma3:4b`    (~3.3 GB)
+    stor_model_id: String               -- = `gemma3:12b`   (~8.1 GB)
+}
+
+-- ============================================================
+-- New entities
+-- ============================================================
+
+-- FR-002 / FR-003 / FR-026 — the panel itself. Identity is irrelevant
+-- (there's only ever zero or one open panel), so this is modelled as
+-- a singleton entity for transition clarity.
+entity SettingsPanel {
+    visibility: closed | opening | open | closing
+
+    transitions visibility {
+        closed -> opening               -- FR-001 gear click, FR-003 Cmd+,
+        opening -> open                 -- animation completes
+        open -> closing                 -- FR-003 close-X / Esc / outside / Cmd+,
+        closing -> closed               -- animation completes
+        opening -> closing              -- FR-003 Esc mid-animation (reverse)
+        closing -> opening              -- repeated open intent during closing
+        terminal: closed                -- closed is the resting state on quit; panel never reaches a permanent terminal
+    }
+}
+
+-- ============================================================
+-- Config / fixed boundaries
+-- ============================================================
+
+config {
+    -- FR-006 — pinned tier→model-ID mapping. Single source of truth.
+    snabb_model_id: String = `llama3.2:1b`
+    smart_model_id: String = `gemma3:4b`
+    stor_model_id: String = `gemma3:12b`
+
+    -- FR-007 — default for a fresh install.
+    default_model_tier: ModelTier = smart
+
+    -- FR-019 — current schema version.
+    current_schema_version: SchemaVersion = v1
+
+    -- FR-019 — fixed file name inside `app_data_dir`. No alternative,
+    -- no override, no environment variable.
+    settings_filename: String = `settings.json`
+
+    -- FR-011 — helper sentence cap, same as zone hint cap.
+    helper_copy_max_chars: Integer = 80
+
+    -- FR-015 — system-appearance reflection budget.
+    appearance_reflection_ms: Integer = 500
+
+    -- SC-001 — tier→effective-on-next-dispatch budget.
+    tier_apply_budget_ms: Integer = 2000
+
+    -- FR-017 — pinned URL for the About → GitHub link.
+    github_releases_url: String = `https://github.com/johanolofsson72/juradrop/releases`
+}
+
+-- ============================================================
+-- Rules — panel lifecycle
+-- ============================================================
+
+-- FR-001 + FR-005a — opening the panel via the gear icon. REQUIRES
+-- that no blocking modal/wizard is up; otherwise the click is a no-op
+-- (handled by the disabled-button predicate, not this rule).
+rule OpenPanelViaGear {
+    when: GearIconClicked()
+    requires:
+        FirstRunWizard.visible = false and
+        UpdateRestartConfirm.visible = false and
+        SettingsPanel.visibility in {closed, closing}
+    ensures:
+        SettingsPanel.visibility = opening
+}
+
+-- FR-003 — Cmd+, is a toggle. Open when closed/closing, close when
+-- open/opening. The disabled-while-modal-up gate (FR-005a) applies.
+rule TogglePanelViaCmdComma {
+    when: CmdCommaPressed()
+    requires:
+        FirstRunWizard.visible = false and
+        UpdateRestartConfirm.visible = false
+    ensures:
+        if SettingsPanel.visibility in {closed, closing}:
+            SettingsPanel.visibility = opening
+        if SettingsPanel.visibility in {open, opening}:
+            SettingsPanel.visibility = closing
+}
+
+-- FR-003 — any of: close-X click, Esc key, click on scrim outside the
+-- panel. All three converge on the same close transition. Esc fires
+-- regardless of which focused element it was pressed from (FR-025).
+rule ClosePanel {
+    when: PanelDismissRequested(source)
+    requires: SettingsPanel.visibility in {open, opening}
+    ensures: SettingsPanel.visibility = closing
+}
+
+-- Animation completion is a state transition driven by the React
+-- animation engine, not user input. Represented as an internal event.
+rule AnimationCompleted {
+    when: PanelAnimationEnded(target)
+    ensures:
+        if target = open: SettingsPanel.visibility = open
+        if target = closed: SettingsPanel.visibility = closed
+}
+
+-- ============================================================
+-- Rules — tier selection + persistence
+-- ============================================================
+
+-- FR-008 + FR-009 — user clicks a tier radio. Persist synchronously
+-- (from the user's POV — disk write happens before the next paint).
+-- The Rust SettingsSnapshot mirror updates atomically with the file.
+rule SelectTier {
+    when: TierRadioClicked(new_tier)
+    requires: SettingsPanel.visibility = open
+    ensures:
+        SettingsSnapshot.model_tier = new_tier
+        SettingsFile.created(
+            schema_version: v1,
+            model_tier: new_tier
+        )
+}
+
+-- FR-008 — restore from disk on app launch. Missing file → defaults.
+-- Malformed file → defaults + debug-only console warning (no Swedish
+-- error surfaced to the user). Unknown schema_version (forward-compat)
+-- treated same as malformed.
+rule RestoreSettingsOnLaunch {
+    when: AppStarted()
+    ensures:
+        let file = LoadSettingsFile()
+        if file = null:
+            SettingsSnapshot.model_tier = default_model_tier
+            SettingsSnapshot.schema_version = current_schema_version
+        if file != null and file.is_malformed:
+            SettingsSnapshot.model_tier = default_model_tier
+            SettingsSnapshot.schema_version = current_schema_version
+            DebugWarn(message: `settings.json malformed, falling back to default`)
+        if file != null and not file.is_malformed and file.schema_version = v1:
+            SettingsSnapshot.model_tier = file.model_tier
+            SettingsSnapshot.schema_version = v1
+}
+
+-- FR-009 + FR-010 — every zone dispatch reads the CURRENT snapshot at
+-- dispatch time. In-flight runs are NOT re-dispatched when the user
+-- switches tier; only the NEXT dispatch sees the new tier.
+rule DispatchZoneRunWithCurrentTier {
+    when: ZoneDispatchRequested(zone, source)
+    ensures:
+        let tier = SettingsSnapshot.model_tier
+        let model_id = TierMappingLookup(tier)
+        DropJob.created(
+            source_path: source.path,
+            dispatched_model_id: model_id,
+            outcome: in_flight
+        )
+}
+
+-- FR-012 (post-Principle-III reconciliation) — unpulled tiers are NOT
+-- selectable as radios. The panel shows a `Ladda ned` button instead.
+-- The radio remains disabled until the model is pulled. This rule
+-- formalises the predicate that the React layer uses to decide
+-- between radio-mode and download-button-mode rendering per tier.
+rule TierRadioIsOnlyEnabledIfModelPulled {
+    when: TierRowRendered(tier)
+    ensures:
+        if OllamaModelIsPulled(TierMappingLookup(tier)):
+            TierRowMode(tier) = radio_selectable
+        else:
+            TierRowMode(tier) = download_button
+}
+
+-- FR-012 — clicking `Ladda ned` on an unpulled tier hands control to
+-- the spec 008 first-run wizard with the corresponding model ID.
+-- The selection itself is NOT committed at click time; it is committed
+-- only after the wizard reports success (see TierAutoSelectAfterPull).
+rule LaddaNedTriggersWizardImmediately {
+    when: LaddaNedClicked(tier)
+    requires: not OllamaModelIsPulled(TierMappingLookup(tier))
+    ensures:
+        FirstRunWizardInvoked(
+            target_model: TierMappingLookup(tier)
+        )
+}
+
+-- FR-012 — after a successful pull triggered from the panel, the
+-- target tier is auto-selected (zero extra clicks for the user).
+rule TierAutoSelectAfterPull {
+    when: ModelPullCompleted(model_id, source: panel_triggered, target_tier)
+    requires: OllamaModelIsPulled(model_id)
+    ensures:
+        SettingsSnapshot.model_tier = target_tier
+        SettingsFile.created(
+            schema_version: v1,
+            model_tier: target_tier
+        )
+}
+
+-- FR-012 — on pull failure or cancel, the previously-selected tier
+-- stays active. No partial state, no auto-rollback to default.
+rule PullFailureKeepsPreviousTier {
+    when: ModelPullFailed(model_id, source: panel_triggered, previous_tier)
+    ensures:
+        SettingsSnapshot.model_tier = previous_tier
+}
+
+-- ============================================================
+-- Rules — appearance
+-- ============================================================
+
+-- FR-013 + FR-015 — the appearance row is a pure projection of the
+-- OS state. No persistence, no override, no event handler on the
+-- user side. The OS change event drives a re-render within 500 ms.
+rule AppearanceRowReflectsSystem {
+    when: SystemAppearanceChanged(new_value)
+    requires: SettingsPanel.visibility in {open, opening}
+    ensures:
+        AppearanceRowText =
+            if new_value = light: `Ljust läge (följer systemet)`
+            else if new_value = dark: `Mörkt läge (följer systemet)`
+}
+
+-- ============================================================
+-- Rules — About / GitHub link
+-- ============================================================
+
+-- FR-017 — the link opens the URL in the OS default browser via
+-- shell.open. No webview, no in-app navigation, no new window in
+-- the JuraDrop app surface.
+rule OpenGitHubReleasesInDefaultBrowser {
+    when: AboutGitHubLinkClicked()
+    requires: SettingsPanel.visibility = open
+    ensures:
+        ShellOpen(url: github_releases_url)
+        not WebviewOpened(url: github_releases_url)
+        not JuraDropWindowNavigated()
+}
+
+-- ============================================================
+-- Rules — gating / disabled state
+-- ============================================================
+
+-- FR-005a — the gear icon is disabled (visually + functionally)
+-- whenever any blocking modal/wizard is up. Click events do not
+-- propagate; hover affordance is suppressed.
+rule GearIconDisabledWhileBlockingModalUp {
+    when: GearIconRendered()
+    ensures:
+        if FirstRunWizard.visible = true or UpdateRestartConfirm.visible = true:
+            GearIconState = disabled
+        else:
+            GearIconState = enabled
+}
+
+-- ============================================================
+-- Invariants
+-- ============================================================
+
+invariant SettingsFileHasExactlyTwoFields {
+    -- FR-019 + FR-021 + FR-023 — the on-disk JSON object has exactly
+    -- two top-level keys: `schema_version` and `model_tier`. Any
+    -- additional key is a Principle I violation. Round-trip test in
+    -- src-tauri/ asserts against a strict schema fixture.
+    for f in SettingsFiles:
+        f.serialised_keys = {`schema_version`, `model_tier`} and
+        f.serialised_keys.count = 2
+}
+
+invariant SettingsFileNeverContainsUserContent {
+    -- FR-023 + Principle I — the file MUST NOT contain any of:
+    -- document content, document path, zone history, tier-change
+    -- history, analytics identifier. Encoded as a denylist scan over
+    -- the serialised form.
+    for f in SettingsFiles:
+        not f.serialised.contains_any({
+            DocumentText, DocumentPath, ZoneHistory, TierChangeHistory, AnalyticsId
+        })
+}
+
+invariant ExactlyOneTierSelectedAtAllTimes {
+    -- FR-007 — there is always exactly one active tier. The snapshot
+    -- can never be in an unset/null state at runtime.
+    SettingsSnapshot.model_tier in {snabb, smart, stor} and
+    SettingsSnapshot.model_tier != null
+}
+
+invariant SelectableSetEqualsPulledSet {
+    -- FR-012 + Principle III — only pulled tiers are selectable as
+    -- radios. Unpulled tiers render as download buttons and are NOT
+    -- in the selectable set. The constitution requires "selection
+    -- only between locally-pulled models" — this invariant enforces
+    -- that requirement at the UI layer.
+    for tier in ModelTier.variants:
+        if OllamaModelIsPulled(TierMappingLookup(tier)):
+            TierRowMode(tier) = radio_selectable
+        else:
+            TierRowMode(tier) = download_button
+}
+
+invariant SmartTierAlwaysPulledAfterFirstRun {
+    -- FR-012a — the spec 008 wizard pulls Smart (gemma3:4b) on first
+    -- launch. After first launch, the Smart tier is always pulled
+    -- and selectable. Therefore at least one tier is always selectable
+    -- after first run completes, regardless of Snabb/Stor pull state.
+    if FirstRunWizardCompleted = true:
+        OllamaModelIsPulled(smart_model_id) = true
+}
+
+invariant TierMapIsCentralizedAndPinned {
+    -- FR-006 — the tier→model-ID mapping lives in ONE place and is
+    -- pinned to the Clarification Q1 values. The React layer MUST
+    -- receive the typed enum, never the raw model ID string.
+    for map in TierMappings:
+        map.snabb_model_id = snabb_model_id and
+        map.smart_model_id = smart_model_id and
+        map.stor_model_id = stor_model_id
+}
+
+invariant ModelIdStringsNeverHardCodedInFrontend {
+    -- FR-006 corollary — the three model ID literals appear nowhere
+    -- in src/ (TypeScript / React). They only live in the central
+    -- Rust mapping and are exposed to the frontend as typed enum
+    -- variants. Enforced by a grep test in CI.
+    for ts_file in FrontendSource:
+        not ts_file.contains(`llama3.2:1b`) and
+        not ts_file.contains(`gemma3:4b`) and
+        not ts_file.contains(`gemma3:12b`)
+}
+
+invariant DispatchUsesSnapshotNotConstant {
+    -- FR-009 + FR-010 — every DropJob's dispatched_model_id equals the
+    -- TierMappingLookup of the snapshot AT THE MOMENT OF DISPATCH.
+    -- In-flight runs keep their original model_id even if the
+    -- snapshot mutates mid-flight.
+    for job in DropJobs:
+        job.dispatched_model_id in {snabb_model_id, smart_model_id, stor_model_id}
+}
+
+invariant InFlightRunsImmuneToTierSwitch {
+    -- FR-010 — a tier switch DURING an in-flight run does not change
+    -- the run's outcome, model, or output bytes. The cutover boundary
+    -- is the NEXT dispatch. Encoded as: the dispatched_model_id is
+    -- locked at creation time; tier-radio click events that fire
+    -- after creation cannot mutate the in-flight job's recorded
+    -- model_id.
+    for job in DropJobs where job.outcome = in_flight:
+        job.dispatched_model_id_at_creation = job.dispatched_model_id
+}
+
+invariant PanelOpenDoesNotAffectInFlightJobs {
+    -- FR-005 + SC-006 — opening or closing the panel while a zone run
+    -- is in-flight does not alter the run's outcome (byte-identical
+    -- sidecar output regardless of panel visibility).
+    for job in DropJobs:
+        job.output_bytes = job.output_bytes_panel_closed and
+        job.outcome = job.outcome_panel_closed
+}
+
+invariant NoOutboundCallsFromPanel {
+    -- FR-022 + Principle I — no panel interaction (open, close, tier
+    -- select, GitHub link click) triggers any HTTP request, any DNS
+    -- lookup, any TCP connect, except the OS-level shell.open which
+    -- is a process spawn, not an outbound socket from JuraDrop.
+    -- The download path (FR-012) is owned by the spec 008 wizard,
+    -- not by this panel.
+    PanelInteractions.all(p =>
+        p.outbound_http_calls.count = 0 and
+        p.outbound_dns_lookups.count = 0
+    )
+}
+
+invariant AppearanceSectionIsReadOnly {
+    -- FR-014 — no interactive control in the appearance section.
+    -- Asserted at the DOM-shape level: zero descendants of the
+    -- appearance section root that are inputs, buttons, selects,
+    -- or have `role="switch"`.
+    for section in PanelSections where section.id = appearance:
+        section.interactive_descendants.count = 0
+}
+
+invariant AboutSectionIsStatic {
+    -- FR-018 — no state-mutating affordance in About. Only the
+    -- GitHub link, which is a navigation (shell.open), not a
+    -- state mutation.
+    for section in PanelSections where section.id = about:
+        section.state_mutating_descendants.count = 0
+}
+
+invariant GearIconAndCmdCommaDisabledTogether {
+    -- FR-005a — the gear icon and Cmd+, shortcut share the same
+    -- disabled predicate. If one is disabled, both are disabled.
+    -- Prevents the user from bypassing the gear-disabled state via
+    -- the keyboard shortcut. Encoded as boolean equality.
+    GearIconEnabled = CmdCommaShortcutEnabled
+}
+
+invariant SwedishCopyForPanelStrings {
+    -- FR-024 + spec 003 SwedishCopy contract — every user-facing
+    -- panel string is in Swedish, non-empty, ≤ 80 chars (for helper
+    -- sentences and the appearance row), and free of the literal
+    -- ASCII string `Error:`.
+    for s in PanelUserStrings:
+        s.locale = `sv-SE` and
+        s.text.length > 0 and
+        not s.text.starts_with(`Error:`)
+}
+
+invariant TierHelperCopyPinned {
+    -- FR-011 (post-clarification Q3) — the three helper sentences are
+    -- byte-pinned. Any change requires a spec update. The 80-char cap
+    -- is enforced; current lengths are 44 / 51 / 58.
+    PanelHelperCopy(snabb) = `Snabbast och minst. Bra för korta texter.` and
+    PanelHelperCopy(smart) = `Standardvalet. Bra balans mellan fart och kvalitet.` and
+    PanelHelperCopy(stor) = `Bästa kvaliteten. Tar längre tid och mer plats på disken.` and
+    PanelHelperCopy(snabb).length <= helper_copy_max_chars and
+    PanelHelperCopy(smart).length <= helper_copy_max_chars and
+    PanelHelperCopy(stor).length <= helper_copy_max_chars
+}
+
+invariant AppearanceCopyPinned {
+    -- FR-013 — exactly two possible values for the appearance row.
+    -- Both ≤ 80 chars (current: 27 / 26).
+    AppearanceRowText in {
+        `Ljust läge (följer systemet)`,
+        `Mörkt läge (följer systemet)`
+    }
+}
+
+invariant GitHubReleasesUrlPinned {
+    -- FR-017 — the URL is hard-coded to the project's GitHub
+    -- Releases page. No querystring, no fragment, no env override.
+    AboutGitHubLinkUrl = github_releases_url
+}
+
+invariant CrossLanguageDriftFixtureCoversPanelStrings {
+    -- FR-026 / SC-007 — the cross-language drift test (T035 lineage)
+    -- extends to cover every panel string. Adding a string to one
+    -- side without the other fails CI.
+    for s in PanelUserStrings:
+        FixtureLookup(`zone-error-strings.json`, key: s.key) = s.text and
+        RustLookup(`SettingsPanelStrings`, key: s.key) = s.text and
+        TypeScriptLookup(`SETTINGS_PANEL_STRINGS`, key: s.key) = s.text
+}
+
+invariant PanelStateMachineHasNoTerminalState {
+    -- The panel can open and close indefinitely; modelling it with a
+    -- terminal state would be wrong. The state machine is trivial
+    -- (4 states, 6 transitions) — does not justify /tla on this spec.
+    not exists s in PanelVisibility.terminal_states
+}
+
+invariant CoalescedRepeatedOpenIntents {
+    -- FR-026 (chrome group) — repeated open intents in rapid succession
+    -- (multiple Cmd+, presses, repeated gear clicks) do NOT stack the
+    -- panel, do NOT animate twice, do NOT produce a separate window.
+    -- At most one panel instance exists at any time.
+    SettingsPanelInstances.count <= 1
+}
+
+invariant GearLeftOfUpdateIndicator {
+    -- Clarification Q5 — the gear icon sits to the LEFT of the spec 007
+    -- update indicator in the top-right chrome bar. Both share the
+    -- existing 32 px chrome strip; no new layout region is invented.
+    -- Encoded as: the gear's x-coordinate is strictly less than the
+    -- update indicator's, and both share the same chrome row.
+    ChromeBarLayout.gear_icon.x < ChromeBarLayout.update_indicator.x and
+    ChromeBarLayout.gear_icon.row = ChromeBarLayout.update_indicator.row
+}
+
+invariant SettingsFilePathFromTauriApi {
+    -- FR-019 — the settings file path is resolved via Tauri's
+    -- app_data_dir / app_config_dir API. No hard-coded
+    -- `~/Library/Application Support/...` literal anywhere in the
+    -- codebase. Prevents Tauri version drift from breaking
+    -- persistence silently. Enforced by a grep test in CI.
+    for source_file in BackendSource:
+        not source_file.contains(`~/Library/Application Support`) and
+        not source_file.contains(`/Library/Application Support`)
+}
+
+invariant DispatchModelIdMatchesActiveTier {
+    -- FR-009 + SC-001 — every NEW dispatch uses the model_id that
+    -- corresponds to the snapshot's tier AT DISPATCH TIME. The
+    -- mutation is immediate from the snapshot's perspective (FR-008);
+    -- the only excluded class is in-flight runs, which are governed
+    -- by InFlightRunsImmuneToTierSwitch. Encoded as a per-dispatch
+    -- equality between recorded model_id and tier_at_dispatch.
+    for dispatch in ZoneDispatches:
+        dispatch.model_id = TierMappingLookup(dispatch.tier_at_dispatch)
+}
+
+invariant StateMachineUnchangedFromSpec009 {
+    -- The DropZone visible_state machine is byte-identical to spec 009
+    -- (which inherited from 005/004/003). Spec 010 adds NO new states,
+    -- NO new transitions, NO new event channels on the zones.
+    -- The only NEW state machine is the panel-visibility one above,
+    -- which is intentionally trivial (no /tla).
+    for z in DropZones:
+        z.visible_state in {idle, dragover, processing, success, error}
+}
+
+invariant OnlyLoopbackOutboundFromBackend {
+    -- FR-022 + Principle I — spec 010 introduces no new HTTP-client
+    -- imports, no new Tauri allowlist origins. The Ollama client base
+    -- URL constraint inherited from spec 002 still holds.
+    for c in OllamaClients:
+        c.base_url = `http://127.0.0.1:11434`
+}
+
+invariant PanelStringsUseSwedishCopyValue {
+    -- FR-024 — every user-facing string in the panel is wrapped in a
+    -- SwedishCopy value (inherited from spec 003). This is the same
+    -- type that gates ZoneFailure messages, so the existing SwedishCopy
+    -- invariants (non-empty, ≤ 80 chars where applicable, no `Error:`
+    -- prefix) apply uniformly.
+    for s in PanelUserStrings:
+        s as SwedishCopy
+}
+
+-- ============================================================
+-- Surfaces
+-- ============================================================
+
+actor LawStudent { identified_by: `the local user` }
+
+surface SettingsPanelSurface {
+    facing viewer: LawStudent
+    context panel: SettingsPanel where viewer.identified_by = `the local user`
+    provides:
+        GearIconClicked()
+            when panel.visibility in {closed, closing}
+                and FirstRunWizard.visible = false
+                and UpdateRestartConfirm.visible = false
+        CmdCommaPressed()
+            when FirstRunWizard.visible = false
+                and UpdateRestartConfirm.visible = false
+        PanelDismissRequested(source)
+            when panel.visibility in {open, opening}
+        TierRadioClicked(new_tier)
+            when panel.visibility = open
+        AboutGitHubLinkClicked()
+            when panel.visibility = open
+    exposes:
+        panel.visibility
+        SettingsSnapshot.model_tier
+        AppearanceRowText
+        AboutGitHubLinkUrl
+}
+
+-- ============================================================
+-- Deferred
+-- ============================================================
+
+deferred PerZoneTierOverride                  -- one global tier ships now; per-zone (e.g. Snabb for translation, Stor for summarisation) would need a new entity. Lives in src-tauri/src/settings/ once implemented.
+deferred ManualAppearanceOverride             -- FR-014 forbids; if revisited, requires constitutional amendment to Principle VI. Would land in src/components/SettingsPanel/Appearance/.
+deferred SettingsExportImport                 -- the file is one tiny JSON object; if a user wants to move it, they can copy it manually from app_data_dir (src-tauri/src/settings/file_io.rs).
+deferred TierBenchmarkingUI                   -- showing tokens/sec per tier in the panel would need timing instrumentation. Would live in src/components/SettingsPanel/ModelTier/ plus a sidecar timing channel.
+deferred BackgroundModelPrefetch              -- FR-012 rejects this; if revisited, requires Principle I review (silent outbound traffic). Would touch src-tauri/src/sidecar/.
+deferred LicenseTextInlineDisplay             -- the About row shows the short license line; a full MIT text panel is deferred — link is sufficient for due diligence. Would live in src/components/SettingsPanel/About/LicenseText.tsx.
+deferred PanelStateMachineFormalisation       -- /tla is skipped on this light-track spec; the 4-state panel-visibility machine is trivial enough to verify by unit test. Would live alongside src-tauri/tests/update_invariants.rs.
+
+-- ============================================================
+-- Open questions
+-- ============================================================
+
+-- (No open questions remain — the five clarifications were auto-picked
+-- and integrated into spec.md on 2026-05-28. Model IDs, helper copy,
+-- gear placement, gear-disabled-while-modal predicate, and download
+-- timing are all pinned by Clarifications Q1–Q5 above.)
