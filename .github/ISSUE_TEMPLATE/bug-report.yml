@@ -1,0 +1,147 @@
+name: 🐞 Buggrapport
+description: Rapportera en bugg i JuraDrop. Tack för att du hjälper till.
+title: "[Bugg] "
+labels:
+  - bug
+  - beta
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tack för att du rapporterar en bugg. Fyll i formuläret nedan så blir det
+        lättare att reproducera och fixa.
+
+        **Bilägg inte själva dokumentet** — det innehåller troligen privilegierad
+        information. En textbeskrivning räcker, plus det exakta svenska
+        felmeddelandet om appen visade ett.
+
+  - type: dropdown
+    id: zone
+    attributes:
+      label: Vilken zon (eller annan del av appen)?
+      description: Var i appen hände det?
+      options:
+        - Sammanfatta
+        - Till engelska
+        - Till svenska
+        - Punktlista
+        - Anonymisera
+        - Förenkla
+        - Inställningspanel (kugghjulet)
+        - Välkomstguide (första start / modellnedladdning)
+        - Auto-uppdaterare
+        - Övrigt
+    validations:
+      required: true
+
+  - type: dropdown
+    id: format
+    attributes:
+      label: Vilket filformat (om relevant)?
+      options:
+        - .docx
+        - .pdf
+        - .txt
+        - .md
+        - .rtf
+        - .pages
+        - .odt
+        - Inte relevant
+    validations:
+      required: true
+
+  - type: input
+    id: file_size
+    attributes:
+      label: Ungefärlig filstorlek
+      description: Bara en uppskattning räcker. Exempel — "150 KB", "2 MB", "ett par sidor".
+      placeholder: "t.ex. 200 KB"
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Vad du förväntade dig
+      description: Vad trodde du skulle hända när du gjorde det du gjorde?
+      placeholder: "Jag trodde att en sammanfattning skulle skapas som .docx-fil bredvid originalet."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Vad som faktiskt hände
+      description: |
+        Beskriv vad du såg. Om appen visade ett felmeddelande, klistra in den
+        exakta texten (alltid på svenska). Skärmdumpar är välkomna —
+        **MEN inte av dokumentinnehållet**, bara av app-fönstret.
+      placeholder: |
+        Zonen blev röd och visade texten "AI-motorn svarade inte — försök igen".
+        Sidofilen skapades aldrig.
+    validations:
+      required: true
+
+  - type: input
+    id: app_version
+    attributes:
+      label: JuraDrop-version
+      description: Klicka på kugghjulet uppe till höger → "Om JuraDrop" för att se versionen.
+      placeholder: "t.ex. 0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS-version
+      description: Apple-menyn → "Om den här datorn" → versionsnumret längst upp.
+      placeholder: "t.ex. macOS 14.5 (Sonoma)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mac_chip
+    attributes:
+      label: Apple Silicon eller Intel?
+      description: Står i samma "Om den här datorn"-fönster.
+      options:
+        - Apple Silicon (M1, M2, M3, M4, ...)
+        - Intel
+        - Vet inte
+    validations:
+      required: true
+
+  - type: textarea
+    id: model_tier
+    attributes:
+      label: Vilken modell-nivå var aktiv?
+      description: Om du har bytt nivå i inställningspanelen — vilken var aktiv när buggen hände?
+      placeholder: "Standardvalet (Smart) / Snabb / Stor / Vet inte"
+    validations:
+      required: false
+
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Reproduktionssteg (om du minns)
+      description: |
+        Punktlista av vad du gjorde, i ordning. Om buggen hände första gången du
+        provade — skriv det. Om den händer varje gång — skriv det också.
+      placeholder: |
+        1. Startade JuraDrop
+        2. Öppnade ett .docx-dokument på 50 sidor
+        3. Drog det till Sammanfatta-zonen
+        4. Väntade ca 30 sekunder
+        5. Zonen blev röd
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy_confirm
+    attributes:
+      label: Integritetsbekräftelse
+      description: Snabb bekräftelse innan du skickar.
+      options:
+        - label: Jag har INTE bilagt själva dokumentet (eller någon skärmdump som visar dokumentinnehåll). JuraDrop samlar in noll data — vi vill hålla det så även i buggrapporten.
+          required: true

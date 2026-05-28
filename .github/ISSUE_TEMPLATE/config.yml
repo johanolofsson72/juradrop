@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Betatest-guide
+    url: https://github.com/johanolofsson72/juradrop/blob/main/docs/beta-test-runbook.md
+    about: Läs igenom betatest-guiden innan du rapporterar — frågor och vanliga problem täcks där.
