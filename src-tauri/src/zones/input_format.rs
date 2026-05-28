@@ -1,9 +1,14 @@
-// Spec 005 — InputFormat enum + extension-based detection (FR-009).
+// Spec 005 / 009 — InputFormat enum + extension-based detection (FR-009).
 //
 // The dispatcher resolves an `InputFormat` from the dropped file's
 // lowercase extension. The choice drives which extractor module runs
-// (docx_extract, pdf_extract, txt_extract, md_extract) and indirectly
-// which writer runs (via OutputFormat::mirror_from).
+// (docx_extract, pdf_extract, txt_extract, md_extract, rtf_extract,
+// pages_extract, odt_extract) and indirectly which writer runs
+// (via OutputFormat::mirror_from).
+//
+// Spec 009 added three long-tail variants (Rtf, Pages, Odt). The
+// existing four (Docx, Pdf, Txt, Md) keep their identifiers, serde
+// rename, and semantics. Total variant count is pinned at 7.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -15,12 +20,16 @@ pub enum InputFormat {
     Pdf,
     Txt,
     Md,
+    // Spec 009 — long-tail formats.
+    Rtf,
+    Pages,
+    Odt,
 }
 
 impl InputFormat {
-    /// FR-009 — detect the format from a file path's lowercase extension.
-    /// Returns `None` for any extension outside the supported set;
-    /// the dispatch maps that to `ZoneFailure::UnsupportedFormat` (FR-010).
+    /// FR-009 + FR-002 — detect the format from a file path's lowercase
+    /// extension. Returns `None` for any extension outside the supported
+    /// set; the dispatch maps that to `ZoneFailure::InvalidFormat` (FR-010).
     pub fn detect_from_path(path: &Path) -> Option<Self> {
         let ext = path.extension()?.to_str()?.to_lowercase();
         match ext.as_str() {
@@ -28,6 +37,9 @@ impl InputFormat {
             "pdf" => Some(Self::Pdf),
             "txt" => Some(Self::Txt),
             "md" => Some(Self::Md),
+            "rtf" => Some(Self::Rtf),
+            "pages" => Some(Self::Pages),
+            "odt" => Some(Self::Odt),
             _ => None,
         }
     }
@@ -38,10 +50,21 @@ impl InputFormat {
             Self::Pdf => "pdf",
             Self::Txt => "txt",
             Self::Md => "md",
+            Self::Rtf => "rtf",
+            Self::Pages => "pages",
+            Self::Odt => "odt",
         }
     }
 
-    pub const ALL: [Self; 4] = [Self::Docx, Self::Pdf, Self::Txt, Self::Md];
+    pub const ALL: [Self; 7] = [
+        Self::Docx,
+        Self::Pdf,
+        Self::Txt,
+        Self::Md,
+        Self::Rtf,
+        Self::Pages,
+        Self::Odt,
+    ];
 }
 
 #[cfg(test)]
@@ -67,6 +90,19 @@ mod tests {
             InputFormat::detect_from_path(&PathBuf::from("d.md")),
             Some(InputFormat::Md)
         );
+        // Spec 009 — long-tail formats.
+        assert_eq!(
+            InputFormat::detect_from_path(&PathBuf::from("e.rtf")),
+            Some(InputFormat::Rtf)
+        );
+        assert_eq!(
+            InputFormat::detect_from_path(&PathBuf::from("f.pages")),
+            Some(InputFormat::Pages)
+        );
+        assert_eq!(
+            InputFormat::detect_from_path(&PathBuf::from("g.odt")),
+            Some(InputFormat::Odt)
+        );
     }
 
     #[test]
@@ -87,11 +123,34 @@ mod tests {
             InputFormat::detect_from_path(&PathBuf::from("Case.DocX")),
             Some(InputFormat::Docx)
         );
+        // Spec 009 — long-tail formats.
+        assert_eq!(
+            InputFormat::detect_from_path(&PathBuf::from("File.RTF")),
+            Some(InputFormat::Rtf)
+        );
+        assert_eq!(
+            InputFormat::detect_from_path(&PathBuf::from("Letter.Pages")),
+            Some(InputFormat::Pages)
+        );
+        assert_eq!(
+            InputFormat::detect_from_path(&PathBuf::from("Notes.OdT")),
+            Some(InputFormat::Odt)
+        );
     }
 
     #[test]
     fn rejects_unsupported_extensions() {
-        for path in &["foo.rtf", "foo.pages", "foo.odt", "foo.html", "foo.tar.gz"] {
+        // Spec 009 removed .rtf, .pages, .odt from this list — they are
+        // now supported. .doc (Word 97 binary), .epub, .html, .csv,
+        // .eml, and the .tar.gz double-extension stay rejected.
+        for path in &[
+            "foo.doc",
+            "foo.epub",
+            "foo.html",
+            "foo.csv",
+            "foo.eml",
+            "foo.tar.gz",
+        ] {
             assert_eq!(InputFormat::detect_from_path(&PathBuf::from(path)), None);
         }
     }
@@ -117,6 +176,19 @@ mod tests {
             InputFormat::detect_from_path(&PathBuf::from("mydoc.bak.pdf")),
             Some(InputFormat::Pdf)
         );
+        // Spec 009 — analogous for the long-tail formats.
+        assert_eq!(
+            InputFormat::detect_from_path(&PathBuf::from("draft.bak.rtf")),
+            Some(InputFormat::Rtf)
+        );
+        assert_eq!(
+            InputFormat::detect_from_path(&PathBuf::from("project.old.pages")),
+            Some(InputFormat::Pages)
+        );
+        assert_eq!(
+            InputFormat::detect_from_path(&PathBuf::from("notes.backup.odt")),
+            Some(InputFormat::Odt)
+        );
     }
 
     #[test]
@@ -131,6 +203,6 @@ mod tests {
     fn all_constant_lists_every_variant_exactly_once() {
         use std::collections::HashSet;
         let unique: HashSet<_> = InputFormat::ALL.iter().collect();
-        assert_eq!(unique.len(), 4);
+        assert_eq!(unique.len(), 7);
     }
 }

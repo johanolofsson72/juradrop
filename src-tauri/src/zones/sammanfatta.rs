@@ -91,13 +91,23 @@ impl DropZone {
             return; // empty drop — defensive, shouldn't happen
         };
 
-        // FR-013 — non-.docx.
-        if !source
+        // Spec 005 FR-010 + spec 009 FR-019 — extension routing.
+        //   1. Directory-form `.pages` (legacy macOS, pre-v5) bundles
+        //      route to InvalidFormat BEFORE any zip-extraction is
+        //      attempted. The user did not drop a file in the modern
+        //      sense; "best-effort extraction" cannot meaningfully apply.
+        //   2. Any extension outside the 7-format supported set
+        //      surfaces InvalidFormat (FR-010).
+        let lower_ext = source
             .extension()
             .and_then(|s| s.to_str())
-            .map(|s| s.eq_ignore_ascii_case("docx"))
-            .unwrap_or(false)
-        {
+            .map(|s| s.to_lowercase());
+        if lower_ext.as_deref() == Some("pages") && source.is_dir() {
+            self.emit_failure(&app, ZoneFailure::InvalidFormat);
+            self.schedule_error_clear(&app);
+            return;
+        }
+        if InputFormat::detect_from_path(&source).is_none() {
             self.emit_failure(&app, ZoneFailure::InvalidFormat);
             self.schedule_error_clear(&app);
             return;

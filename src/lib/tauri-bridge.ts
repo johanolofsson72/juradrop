@@ -84,7 +84,11 @@ export type ZoneFailure =
   | 'save_error'
   // Spec 005 — two new variants for the four-format input matrix.
   | 'no_extractable_text'
-  | 'unsupported_encoding';
+  | 'unsupported_encoding'
+  // Spec 009 — format-named long-tail variants.
+  | 'rtf_parse_error'
+  | 'pages_parse_error'
+  | 'odt_parse_error';
 
 export interface ZoneSnapshot {
   state: ZoneState;

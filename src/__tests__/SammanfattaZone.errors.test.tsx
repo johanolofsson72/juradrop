@@ -32,6 +32,13 @@ interface Fixture {
   empty_text: string;
   model_error: string;
   save_error: string;
+  // Spec 005 — PDF-only + .txt/.md-encoding variants.
+  no_extractable_text: string;
+  unsupported_encoding: string;
+  // Spec 009 — format-named long-tail variants.
+  rtf_parse_error: string;
+  pages_parse_error: string;
+  odt_parse_error: string;
 }
 
 function loadFixture(): Fixture {
@@ -89,6 +96,13 @@ describe('SammanfattaZone — Swedish error copy (T047)', () => {
     'empty_text',
     'model_error',
     'save_error',
+    // Spec 005 — PDF-only + .txt/.md-encoding variants.
+    'no_extractable_text',
+    'unsupported_encoding',
+    // Spec 009 — format-named long-tail variants.
+    'rtf_parse_error',
+    'pages_parse_error',
+    'odt_parse_error',
   ];
 
   variants.forEach((failure) => {
@@ -169,6 +183,13 @@ describe('Cross-language Swedish copy drift (T048)', () => {
       'empty_text',
       'model_error',
       'save_error',
+      // Spec 005 — PDF-only + .txt/.md-encoding variants.
+      'no_extractable_text',
+      'unsupported_encoding',
+      // Spec 009 — format-named long-tail variants.
+      'rtf_parse_error',
+      'pages_parse_error',
+      'odt_parse_error',
     ];
 
     expectedKeys.forEach((key) => {
@@ -176,10 +197,11 @@ describe('Cross-language Swedish copy drift (T048)', () => {
     });
   });
 
-  it('SWEDISH_ZONE_ERROR has exactly the 11 expected ZoneFailure keys (no extras)', () => {
+  it('SWEDISH_ZONE_ERROR has exactly the 14 expected ZoneFailure keys (no extras)', () => {
     // Spec 003 introduced 9 variants; spec 005 added two more
     // (no_extractable_text + unsupported_encoding) for the four-format
-    // input matrix.
+    // input matrix; spec 009 added three format-named long-tail
+    // variants (rtf_parse_error, pages_parse_error, odt_parse_error).
     const tsKeys = Object.keys(SWEDISH_ZONE_ERROR).sort();
     const expected = [
       'empty_text',
@@ -187,8 +209,11 @@ describe('Cross-language Swedish copy drift (T048)', () => {
       'model_error',
       'multiple_files',
       'no_extractable_text',
+      'odt_parse_error',
+      'pages_parse_error',
       'parse_error',
       'password_protected',
+      'rtf_parse_error',
       'save_error',
       'unsupported_encoding',
       'zone_busy',

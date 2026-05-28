@@ -1,0 +1,585 @@
+-- allium: 3
+
+-- Formal spec for spec 009: long-tail input formats (.rtf, .pages, .odt).
+-- Source: specs/009-long-tail-formats/spec.md
+-- Elicited: 2026-05-28
+--
+-- This file EXTENDS spec 003/004/005/008. The DropZone state machine, the
+-- six-way ZoneId, the visible-state machine, the DropJob outcome graph,
+-- the atomic-write invariants, the source-immutability invariant, the
+-- privacy boundary, and the global disabled gate — all unchanged.
+--
+-- What changes here is:
+--   1. InputFormat gains 3 new variants (rtf, pages, odt) — 7 total.
+--   2. OutputFormat gains 2 new variants (rtf, odt) IF a pure-Rust writer
+--      is available — fallback to docx otherwise. Pages always → docx.
+--   3. ZoneFailure gains 3 new format-named variants: rtf_parse_error,
+--      pages_parse_error, odt_parse_error. Each ≤ 80 chars, snake_case,
+--      Swedish copy `Kunde inte läsa <ext>-filen`.
+--   4. The InvalidFormat Swedish copy updates to list all 7 formats.
+--   5. Hint copy in every zone lists all 7 formats, slash-separated,
+--      ≤ 80 chars.
+--   6. The 24,000-char truncation cap from spec 005 applies uniformly.
+--   7. Directory-form .pages bundles route to InvalidFormat, NOT the
+--      format-named error (FR-019).
+--   8. Long-tail password-protected files collapse into the format-named
+--      error, NOT the spec-003 PasswordProtected variant (FR-008).
+--   9. Zero new outbound network surface.
+--   10. Cross-language drift fixture (zone-error-strings.json) gains 3
+--       new keys + the updated invalid_format value.
+
+-- ============================================================
+-- External entities (defined by spec 002 / 003 / 004 / 005)
+-- ============================================================
+
+external entity DropZone {
+    id: ZoneId
+    visible_state: idle | dragover | processing | success | error
+}
+
+external entity DropJob {
+    id: String
+    source_path: String
+    outcome: in_flight | success | failure | cancelled
+    truncated: Boolean
+}
+
+external entity OllamaClient {
+    base_url: String
+}
+
+external entity SwedishCopy {
+    text: String
+}
+
+external entity SourceDocument {
+    path: String
+    sha256_before: String
+    extension: String
+    is_directory: Boolean        -- TRUE for legacy .pages bundles saved as folders
+}
+
+-- Re-declared locally because Allium has no `external enum` keyword.
+-- Same six-way shape as spec 004 ZoneId.
+enum ZoneId {
+    sammanfatta | tillengelska | tillsvenska | punktlista | anonymisera | forenkla
+}
+
+-- Re-declared locally. Same shape as spec 005 ZoneIdentity, with the
+-- spec-009 hint_copy update (slash-separated 7-format list).
+value ZoneIdentity {
+    id: ZoneId
+    slug: String
+    title: String
+    hint_copy: String
+    sidecar_suffix: String
+    has_disclaimer_paragraph: Boolean
+}
+
+-- ============================================================
+-- Enums — extended
+-- ============================================================
+
+-- Extended from 4 to 7 variants. Existing 4 (docx, pdf, txt, md) keep
+-- their identifiers and serde-lowercase form; 3 new variants appended.
+enum InputFormat {
+    docx | pdf | txt | md | rtf | pages | odt
+}
+
+-- Extended from 3 to potentially 5 writable formats. The rtf and odt
+-- variants are conditional on a pure-Rust writer being available
+-- (see ResearchOutcome below); if absent, the mirror rule falls back
+-- to docx for those input formats.
+enum OutputFormat {
+    docx | txt | md | rtf | odt
+}
+
+-- Extended failure set. Inherited variants are unchanged; 3 new
+-- format-named long-tail variants appended.
+enum ZoneFailure {
+    invalid_format                 -- inherited (spec 003), copy updated for 7 formats
+    multiple_files                 -- inherited (spec 003)
+    zone_busy                      -- inherited (spec 003)
+    zone_disabled                  -- inherited (spec 003)
+    parse_error                    -- inherited (spec 003), .docx-specific
+    password_protected             -- inherited (spec 003), .docx + .pdf only
+    empty_text                     -- inherited (spec 003), applies to all 7 formats
+    model_error                    -- inherited (spec 003)
+    save_error                     -- inherited (spec 003)
+    no_extractable_text            -- inherited (spec 005), .pdf-only
+    unsupported_encoding           -- inherited (spec 005), .txt / .md only
+    rtf_parse_error                -- NEW: any failure reading .rtf — `Kunde inte läsa .rtf-filen`
+    pages_parse_error              -- NEW: any failure reading .pages — `Kunde inte läsa .pages-filen`
+    odt_parse_error                -- NEW: any failure reading .odt — `Kunde inte läsa .odt-filen`
+}
+
+-- Outcome of the plan.md crate-availability research. Drives FR-009's
+-- "if a pure-Rust writer is available" branch. Pinned at plan time.
+enum WriterAvailability {
+    rtf_writer_available             -- a pure-Rust .rtf emitter exists with stable enough API
+    rtf_writer_unavailable           -- fall back to .docx for .rtf input
+    odt_writer_available             -- a pure-Rust .odt emitter exists with stable enough API
+    odt_writer_unavailable           -- fall back to .docx for .odt input
+}
+
+-- ============================================================
+-- Value objects
+-- ============================================================
+
+-- Inherited from spec 005, unchanged. New formats produce the same
+-- ExtractedText shape (raw, was_truncated, was_partial, frontmatter).
+-- frontmatter is null for all long-tail formats (md-only).
+external entity ExtractedText {
+    raw: String
+    was_truncated: Boolean
+    was_partial: Boolean
+    frontmatter: String?
+}
+
+-- Inherited from spec 005, extended with rtf/pages/odt input formats
+-- and the writer-availability dependency on OutputFormat resolution.
+value SidecarPlan {
+    source_path: String
+    input_format: InputFormat
+    output_format: OutputFormat
+    output_path: String
+    zone_id: ZoneId
+}
+
+-- ============================================================
+-- Config / fixed boundaries
+-- ============================================================
+
+config {
+    truncation_char_cap: Integer = 24000         -- inherited from spec 005 / spec 003 FR-019
+    supported_input_extensions_count: Integer = 7
+    supported_output_extensions_count_max: Integer = 5
+    supported_output_extensions_count_min: Integer = 3
+    hint_copy_max_chars: Integer = 80
+    error_copy_max_chars: Integer = 80
+    pages_section_join: String = `\n\n`
+    pages_paragraph_join: String = `\n`
+}
+
+-- ============================================================
+-- Rules — format detection (extended to 7 formats)
+-- ============================================================
+
+-- FR-002 — extension-only detection, lowercased before matching.
+-- Extends spec 005 DetectInputFormat with 3 new branches.
+rule DetectInputFormatSeven {
+    when: FileDropped(zone, source)
+    requires:
+        source.is_directory = false and
+        source.extension.to_lower in {`docx`, `pdf`, `txt`, `md`, `rtf`, `pages`, `odt`}
+    ensures:
+        let lower = source.extension.to_lower
+        InputFormatResolved(
+            source: source,
+            format:
+                if lower = `docx`: docx
+                else if lower = `pdf`: pdf
+                else if lower = `txt`: txt
+                else if lower = `md`: md
+                else if lower = `rtf`: rtf
+                else if lower = `pages`: pages
+                else if lower = `odt`: odt
+        )
+}
+
+-- FR-012 + FR-019 — unsupported extension OR directory-form .pages
+-- bundle. The directory case is routed here (NOT to pages_parse_error)
+-- because there is no file to attempt extraction on.
+rule UnsupportedOrPagesDirectoryMapsToInvalidFormat {
+    when: FileDropped(zone, source)
+    requires:
+        source.extension.to_lower not in {`docx`, `pdf`, `txt`, `md`, `rtf`, `pages`, `odt`}
+        or (source.extension.to_lower = `pages` and source.is_directory = true)
+    ensures:
+        zone.visible_state = error
+        ZoneFailureRaised(
+            zone: zone,
+            failure: invalid_format,
+            message: SwedishCopy(text: `Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf, .pages eller .odt`)
+        )
+}
+
+-- FR-009 — extended mirror rule. PDF → DOCX exception preserved from
+-- spec 005. Pages → DOCX always (proprietary, never written back).
+-- RTF and ODT mirror their input IFF a pure-Rust writer is available;
+-- otherwise fall back to DOCX (same fallback path as PDF).
+rule MirrorOutputExtensionSeven {
+    when: SidecarPlanResolved(plan)
+    ensures:
+        plan.output_format =
+            if plan.input_format = docx: docx
+            else if plan.input_format = pdf: docx
+            else if plan.input_format = txt: txt
+            else if plan.input_format = md: md
+            else if plan.input_format = rtf:
+                if WriterAvailabilityOf(rtf) = rtf_writer_available: rtf
+                else: docx
+            else if plan.input_format = pages: docx
+            else if plan.input_format = odt:
+                if WriterAvailabilityOf(odt) = odt_writer_available: odt
+                else: docx
+}
+
+-- ============================================================
+-- Rules — RTF extraction
+-- ============================================================
+
+-- FR-003 — happy-path RTF extraction. Embedded objects and images are
+-- skipped silently (their presence does NOT trigger rtf_parse_error).
+-- Headers, footers, footnotes, and tracked-change markup follow the
+-- same "text runs only" rule.
+rule ExtractRtfHappyPath {
+    when: ExtractionStarted(source, input_format: rtf)
+    requires: RtfParseSucceeded(source)
+    ensures:
+        let raw = RtfTextRunsInOrder(source).collapse_blank_lines
+        ExtractedText.created(
+            raw: raw,
+            was_truncated: raw.length > truncation_char_cap,
+            was_partial: false,
+            frontmatter: null
+        )
+}
+
+-- FR-006 — any RTF parse failure maps to the format-named error.
+-- Includes: corruption, unknown control words, encrypted, exotic dialect.
+-- The Display impl MUST NOT include the source file name (FR-017).
+rule RtfFailureMapsToFormatNamedError {
+    when: ExtractionStarted(source, input_format: rtf)
+    requires: not RtfParseSucceeded(source)
+    ensures:
+        ZoneFailureRaised(
+            zone: source.zone,
+            failure: rtf_parse_error,
+            message: SwedishCopy(text: `Kunde inte läsa .rtf-filen`)
+        )
+}
+
+-- ============================================================
+-- Rules — Pages extraction
+-- ============================================================
+
+-- FR-004 — happy-path Pages extraction. Zip bundle (Pages v5+), reads
+-- the bundled XML / IWA, joins paragraphs with `\n` and sections with
+-- `\n\n`. Headers/footers/footnotes inline in document order, no
+-- `Sidhuvud:` / `Sidfot:` prefix.
+rule ExtractPagesHappyPath {
+    when: ExtractionStarted(source, input_format: pages)
+    requires:
+        source.is_directory = false and
+        PagesParseSucceeded(source)
+    ensures:
+        let raw = PagesParagraphRunsInOrder(source)
+                    .join_paragraphs_with(pages_paragraph_join)
+                    .join_sections_with(pages_section_join)
+                    .collapse_blank_lines
+        ExtractedText.created(
+            raw: raw,
+            was_truncated: raw.length > truncation_char_cap,
+            was_partial: false,
+            frontmatter: null
+        )
+}
+
+-- FR-006 + FR-008 — any Pages parse failure (corruption, encrypted
+-- bundle, missing Index member, malformed IWA) maps to the format-named
+-- error. PasswordProtected is NOT raised for .pages (FR-008).
+rule PagesFailureMapsToFormatNamedError {
+    when: ExtractionStarted(source, input_format: pages)
+    requires:
+        source.is_directory = false and
+        not PagesParseSucceeded(source)
+    ensures:
+        ZoneFailureRaised(
+            zone: source.zone,
+            failure: pages_parse_error,
+            message: SwedishCopy(text: `Kunde inte läsa .pages-filen`)
+        )
+}
+
+-- ============================================================
+-- Rules — ODT extraction
+-- ============================================================
+
+-- FR-005 — happy-path ODT extraction. Reads zip bundle's content.xml,
+-- concatenates <text:p>, <text:h>, <text:span> runs in document order.
+-- Tracked-change markup is resolved to the accepted/final view:
+-- insertions kept, deletions dropped.
+rule ExtractOdtHappyPath {
+    when: ExtractionStarted(source, input_format: odt)
+    requires: OdtParseSucceeded(source)
+    ensures:
+        let raw = OdtTextRunsAcceptedView(source).collapse_blank_lines
+        ExtractedText.created(
+            raw: raw,
+            was_truncated: raw.length > truncation_char_cap,
+            was_partial: false,
+            frontmatter: null
+        )
+}
+
+-- FR-006 + FR-008 — any ODT parse failure (missing content.xml,
+-- malformed XML, encrypted zip, corrupt zip) maps to the format-named
+-- error. PasswordProtected is NOT raised for .odt (FR-008).
+rule OdtFailureMapsToFormatNamedError {
+    when: ExtractionStarted(source, input_format: odt)
+    requires: not OdtParseSucceeded(source)
+    ensures:
+        ZoneFailureRaised(
+            zone: source.zone,
+            failure: odt_parse_error,
+            message: SwedishCopy(text: `Kunde inte läsa .odt-filen`)
+        )
+}
+
+-- ============================================================
+-- Rules — hint copy update (all six zones)
+-- ============================================================
+
+-- FR-011 — slash-separated 7-format list in every zone hint. Canonical
+-- order: docx, pdf, txt, md, rtf, pages, odt. The "ett" article is
+-- dropped to fit the 80-char cap on the longest suffix.
+rule ZoneHintMentionsAllSevenFormatsSlashSeparated {
+    when: ZoneIdleHintRendered(zone_id, hint)
+    ensures:
+        hint.contains(`.docx`) and
+        hint.contains(`.pdf`) and
+        hint.contains(`.txt`) and
+        hint.contains(`.md`) and
+        hint.contains(`.rtf`) and
+        hint.contains(`.pages`) and
+        hint.contains(`.odt`) and
+        hint.contains(`.docx/.pdf/.txt/.md/.rtf/.pages/.odt`) and
+        hint.starts_with(`Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för `) and
+        hint.length <= hint_copy_max_chars
+}
+
+-- ============================================================
+-- Invariants
+-- ============================================================
+
+invariant ExtensionToFormatMappingIsTotalSeven {
+    -- FR-002 — every lowercase supported extension maps to exactly one
+    -- InputFormat. The mapping is total over the 7-element supported set.
+    InputFormatResolutions.where(r => r.extension = `docx`).all(r => r.format = docx) and
+    InputFormatResolutions.where(r => r.extension = `pdf`).all(r => r.format = pdf) and
+    InputFormatResolutions.where(r => r.extension = `txt`).all(r => r.format = txt) and
+    InputFormatResolutions.where(r => r.extension = `md`).all(r => r.format = md) and
+    InputFormatResolutions.where(r => r.extension = `rtf`).all(r => r.format = rtf) and
+    InputFormatResolutions.where(r => r.extension = `pages`).all(r => r.format = pages) and
+    InputFormatResolutions.where(r => r.extension = `odt`).all(r => r.format = odt)
+}
+
+invariant OutputExtensionFollowsExtendedMirrorRule {
+    -- FR-009 — three exceptions to direct mirroring:
+    --   pdf → docx (always)
+    --   pages → docx (always — proprietary, never written back)
+    --   rtf → docx if no rtf writer
+    --   odt → docx if no odt writer
+    for plan in SidecarPlans:
+        plan.output_format =
+            if plan.input_format = docx: docx
+            else if plan.input_format = pdf: docx
+            else if plan.input_format = txt: txt
+            else if plan.input_format = md: md
+            else if plan.input_format = rtf:
+                if WriterAvailabilityOf(rtf) = rtf_writer_available: rtf
+                else: docx
+            else if plan.input_format = pages: docx
+            else if plan.input_format = odt:
+                if WriterAvailabilityOf(odt) = odt_writer_available: odt
+                else: docx
+}
+
+invariant LongTailFailuresCarryFormatNamedSwedish {
+    -- FR-007 — each long-tail failure variant carries exactly the
+    -- format-named Swedish string. No generic copy, no English prefix.
+    ZoneFailures.where(f => f.variant = rtf_parse_error).all(f =>
+        f.message.text = `Kunde inte läsa .rtf-filen`
+    ) and
+    ZoneFailures.where(f => f.variant = pages_parse_error).all(f =>
+        f.message.text = `Kunde inte läsa .pages-filen`
+    ) and
+    ZoneFailures.where(f => f.variant = odt_parse_error).all(f =>
+        f.message.text = `Kunde inte läsa .odt-filen`
+    )
+}
+
+invariant SwedishCopyInvariantsHoldForLongTail {
+    -- Spec 003 SwedishCopy contract: ≤ 80 chars, non-empty, no English
+    -- `Error:` prefix, lowercase-search free of the word "error".
+    for f in ZoneFailures where f.variant in {rtf_parse_error, pages_parse_error, odt_parse_error}:
+        f.message.text.length > 0 and
+        f.message.text.length <= error_copy_max_chars and
+        not f.message.text.starts_with(`Error:`) and
+        not f.message.text.to_lower.contains(`error`)
+}
+
+invariant PasswordProtectedExclusiveToDocxAndPdf {
+    -- FR-008 — PasswordProtected may only fire for .docx and .pdf
+    -- inputs. Long-tail formats collapse their password-protected
+    -- branch into the format-named parse error.
+    for failure in ZoneFailures where failure.variant = password_protected:
+        failure.source.extension.to_lower in {`docx`, `pdf`}
+}
+
+invariant InvalidFormatCopyListsAllSeven {
+    -- FR-012 — the updated InvalidFormat Swedish copy MUST list all
+    -- seven supported extensions in the canonical order. The exact
+    -- string is pinned so the cross-language drift test (FR-013)
+    -- has something concrete to assert against.
+    for f in ZoneFailures where f.variant = invalid_format:
+        f.message.text = `Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf, .pages eller .odt` and
+        f.message.text.length <= error_copy_max_chars
+}
+
+invariant DirectoryFormPagesNeverReachesParser {
+    -- FR-019 — legacy .pages-as-directory bundles route to
+    -- InvalidFormat BEFORE any zip extraction is attempted.
+    for failure in ZoneFailures where failure.source.extension.to_lower = `pages` and failure.source.is_directory = true:
+        failure.variant = invalid_format
+}
+
+invariant TruncationCapApplicableToAllSevenFormats {
+    -- FR-010 — the 24,000-UTF-8-char cap applies to all seven formats.
+    -- Same as the spec 005 invariant, extended.
+    for et in ExtractedTexts:
+        et.raw.length <= truncation_char_cap or et.was_truncated = true
+}
+
+invariant PrivacyBoundaryAcrossSevenFormats {
+    -- FR-014 + FR-017 + Principle I — every extracted text is wrapped
+    -- in Redacted<String>; no extractor logs, persists, or transmits
+    -- raw text outside the dispatch. The format-named errors' Display
+    -- impl does NOT include the source file name.
+    for et in ExtractedTexts:
+        et.raw.is_redacted = true
+}
+
+invariant SourceImmutableAcrossSevenFormats {
+    -- Inherited from spec 003 FR-024 / spec 005, extended to the three
+    -- new formats. SHA-256 source(before) = source(after) for every job.
+    for job in DropJobs where job.outcome in {success, failure, cancelled}:
+        SourceUnchanged(job)
+}
+
+invariant OnlyLoopbackOutboundAcrossSevenFormats {
+    -- FR-014 + Principle I — no new outbound surface introduced by
+    -- spec 009. OllamaClient base URL constraint inherited from spec 002.
+    -- No new HTTP-client imports, no new Tauri allowlist origins.
+    OllamaClients.all(c => c.base_url = `http://127.0.0.1:11434`)
+}
+
+invariant HintCopyLockstepAcrossSevenFormats {
+    -- FR-011 + FR-013 — Rust ZoneId::hint_copy(), TS ZONE_IDENTITIES,
+    -- and the shared zone-identity.json fixture stay in byte-for-byte
+    -- lock-step. The cross-language drift test (inherited from spec 004
+    -- T035, extended in spec 005, extended here) enforces this.
+    for z in ZoneIdentities:
+        z.hint_copy = FixtureLookup(`zone-identity.json`, z.slug, `hint_copy`) and
+        z.hint_copy = RustLookup(`ZoneId::hint_copy`, z.slug)
+}
+
+invariant ErrorStringsFixtureLockstepSeven {
+    -- FR-013 — the zone-error-strings.json fixture gains three new keys
+    -- (rtf_parse_error, pages_parse_error, odt_parse_error) and the
+    -- updated invalid_format value. Both the Rust drift test and the TS
+    -- drift test assert against this single fixture.
+    FixtureKeysOf(`zone-error-strings.json`).contains(`rtf_parse_error`) and
+    FixtureKeysOf(`zone-error-strings.json`).contains(`pages_parse_error`) and
+    FixtureKeysOf(`zone-error-strings.json`).contains(`odt_parse_error`) and
+    FixtureLookup(`zone-error-strings.json`, key: `invalid_format`) = `Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf, .pages eller .odt`
+}
+
+invariant StateMachineUnchangedFromSpec005 {
+    -- FR-018 — the per-zone visible_state machine is byte-identical to
+    -- spec 005 (which inherited from spec 004 / 003). Spec 009 adds
+    -- NO new states, NO new transitions, NO new event channels. Every
+    -- new failure variant maps to the existing `error` visible state.
+    DropZones.all(z => z.visible_state in {idle, dragover, processing, success, error})
+}
+
+invariant LongTailExtractorsAreInfallibleAtTypeLevel {
+    -- FR-006 — every extractor returns either Ok(extracted_text) or
+    -- Err(ZoneFailure). No panics, no unwraps that can fire on user
+    -- input. Catch-all failure branch is the format-named variant.
+    for source in SourceDocuments where source.extension.to_lower in {`rtf`, `pages`, `odt`}:
+        ExtractionAttempts.where(a => a.source = source).all(a =>
+            a.outcome in {ok, format_named_failure}
+        )
+}
+
+invariant LongTailDestructiveInvariantsStillHold {
+    -- FR-018 — MultipleFiles, ZoneBusy, ZoneDisabled, SaveError, and
+    -- ModelError continue to fire for the new formats. Dropping two
+    -- .rtf files at once fires MultipleFiles, NOT rtf_parse_error.
+    -- The format-named error is reserved for actual parse failures.
+    ZoneFailures.where(f =>
+        f.variant in {multiple_files, zone_busy, zone_disabled} and
+        f.source.extension.to_lower in {`rtf`, `pages`, `odt`}
+    ).all(f => f.variant != rtf_parse_error and f.variant != pages_parse_error and f.variant != odt_parse_error)
+}
+
+invariant LongTailDragOverAcceptsAllSeven {
+    -- FR-016 — drag-over preview check accepts all 7 supported
+    -- extensions and shows the same green-border affordance.
+    DragOverPreviewAccepted.where(d => d.extension.to_lower in {`rtf`, `pages`, `odt`}).all(d => d.affordance = `green-border`)
+}
+
+invariant InputFormatExtensionCountIsSeven {
+    -- FR-001 + FR-020 — exactly 7 InputFormat variants, mirroring the
+    -- 7-element extension set. Drift detection between InputFormat::ALL
+    -- and the format-detection match arms.
+    InputFormat.variants.count = supported_input_extensions_count
+}
+
+invariant OutputFormatExtensionCountInRange {
+    -- FR-009 — OutputFormat has between 3 (docx/txt/md) and 5
+    -- (docx/txt/md/rtf/odt) variants depending on writer availability.
+    -- The actual count is pinned at plan time.
+    OutputFormat.variants.count >= supported_output_extensions_count_min and
+    OutputFormat.variants.count <= supported_output_extensions_count_max
+}
+
+-- ============================================================
+-- Surfaces
+-- ============================================================
+
+actor LawStudent { identified_by: `the local user` }
+
+surface LongTailFormatAwareDropZone {
+    facing viewer: LawStudent
+    context zone: DropZone where viewer.identified_by = `the local user`
+    provides:
+        FileDropped(zone, source)
+    exposes:
+        zone.id
+        zone.visible_state
+        ZoneIdentity(zone.id).hint_copy
+}
+
+-- ============================================================
+-- Deferred
+-- ============================================================
+
+deferred RtfImageEmbedding             -- .rtf with embedded images keeps surrounding text; image runs skipped (lives in src-tauri/src/zones/rtf_extract.rs once implemented)
+deferred PagesAuthoring                -- writing .pages bundles back is forbidden — proprietary, no spec (enforced in src-tauri/src/zones/output_format.rs)
+deferred OdtMacroExecution             -- ODT macros are skipped — JuraDrop never executes macros (extraction lives in src-tauri/src/zones/odt_extract.rs)
+deferred LegacyPagesDirectoryFormat    -- pre-v5 .pages-as-folder routes to InvalidFormat; no extractor written (dispatch in src-tauri/src/zones/input_format.rs)
+deferred OcrForImageOnlyPdf            -- inherited from spec 005; still out of scope (see specs/005-additional-input-formats/spec.md)
+deferred PerFormatTruncationLimits     -- spec 010 (settings panel) will add per-format caps if needed
+
+-- ============================================================
+-- Open questions
+-- ============================================================
+
+-- (No open questions remain — the four clarifications were auto-picked
+-- and integrated into spec.md on 2026-05-28. The remaining "best-effort"
+-- ambiguity around exotic RTF dialects is resolved at the parser layer
+-- by the LongTailExtractorsAreInfallibleAtTypeLevel invariant: any
+-- parse failure becomes rtf_parse_error.)

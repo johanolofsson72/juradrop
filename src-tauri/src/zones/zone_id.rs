@@ -66,22 +66,24 @@ impl ZoneId {
         }
     }
 
-    /// FR-005 + spec 005 FR-017 — per-zone Swedish hint copy. Pulled
-    /// in from the spec 010 deferral via the spec 004 clarification
-    /// round; extended in spec 005 to list all four supported input
-    /// formats (.docx, .pdf, .txt, .md). Humanizer-reviewed:
-    /// noun-pattern parallelism kept across all six zones; each ≤ 80
-    /// chars per the SwedishCopy invariant from spec 003.
+    /// FR-005 + spec 005 FR-017 + spec 009 FR-011 — per-zone Swedish
+    /// hint copy. Spec 009 extended the format list to seven entries
+    /// (.docx, .pdf, .txt, .md, .rtf, .pages, .odt) and switched to a
+    /// slash-separated presentation with the `ett` article dropped —
+    /// the longest result (engelsk översättning) is 67 chars, well
+    /// under the 80-char SwedishCopy cap from spec 003.
     pub fn hint_copy(self) -> &'static str {
         match self {
-            ZoneId::Sammanfatta => "Släpp ett .docx, .pdf, .txt eller .md för sammanfattning",
+            ZoneId::Sammanfatta => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för sammanfattning",
             ZoneId::TillEngelska => {
-                "Släpp ett .docx, .pdf, .txt eller .md för engelsk översättning"
+                "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för engelsk översättning"
             }
-            ZoneId::TillSvenska => "Släpp ett .docx, .pdf, .txt eller .md för svensk översättning",
-            ZoneId::Punktlista => "Släpp ett .docx, .pdf, .txt eller .md för punktlista",
-            ZoneId::Anonymisera => "Släpp ett .docx, .pdf, .txt eller .md för anonymisering",
-            ZoneId::Forenkla => "Släpp ett .docx, .pdf, .txt eller .md för klarspråk",
+            ZoneId::TillSvenska => {
+                "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för svensk översättning"
+            }
+            ZoneId::Punktlista => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för punktlista",
+            ZoneId::Anonymisera => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för anonymisering",
+            ZoneId::Forenkla => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för klarspråk",
         }
     }
 

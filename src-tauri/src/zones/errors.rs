@@ -1,23 +1,27 @@
-// Spec 003 / T005 — ZoneFailure enum + Swedish-string mapping.
+// Spec 003 / T005 + spec 005 + spec 009 — ZoneFailure enum + Swedish-string mapping.
 //
-// Single source of truth for the seven Swedish error categories from
-// FR-013..FR-020 plus the two operational variants (zone_disabled, save_error).
-// The `#[error("…")]` strings are the user-visible Swedish phrases that the
-// React layer mirrors in `src/components/SammanfattaZone.errors.ts`.
+// Single source of truth for the Swedish error categories surfaced by
+// the drop zones. The `#[error("…")]` strings are the user-visible
+// Swedish phrases that the React layer mirrors in
+// `src/components/DropZone.errors.ts`.
 //
 // Invariants (per Allium `value SwedishCopy`):
 //   - NoEnglishPrefix: no variant starts with "Error:"
 //   - LengthBounded:   every string ≤ 80 chars
 //   - NonEmpty:        every string > 0 chars
+//
+// Spec 009 added three format-named long-tail variants
+// (RtfParseError, PagesParseError, OdtParseError) and updated the
+// InvalidFormat copy to list all seven supported formats.
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum ZoneFailure {
-    /// FR-013 — extension outside the supported set.
-    /// Spec 005 updated the copy to list all four supported formats.
-    #[error("Filformatet stöds inte — dra ett .docx, .pdf, .txt eller .md")]
+    /// FR-013 — extension outside the supported set. Spec 009 updated
+    /// the copy to list all seven supported formats.
+    #[error("Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf, .pages eller .odt")]
     InvalidFormat,
 
     /// FR-014 — 2+ files dropped at once.
@@ -37,6 +41,9 @@ pub enum ZoneFailure {
     ParseError,
 
     /// FR-017 — password-protected document detected before any model call.
+    /// Spec 009: this variant is exclusive to .docx and .pdf. Long-tail
+    /// formats collapse their password-protected branch into the format-named
+    /// parse-error variant per FR-008.
     #[error("Dokumentet är lösenordsskyddat")]
     PasswordProtected,
 
@@ -54,17 +61,28 @@ pub enum ZoneFailure {
 
     /// Spec 005 FR-004 — PDF with ≥ 1 page but pdf-extract returned
     /// zero bytes of text (image-only / scanned, no embedded text layer).
-    /// Different from `EmptyText`: the file is not blank, it just has
-    /// no extractable text. Different recovery action (re-export with
-    /// text layer, vs. add content).
     #[error("Hittade ingen text att läsa i PDF-filen — skannade bilder stöds inte än")]
     NoExtractableText,
 
     /// Spec 005 FR-007 — `.txt` or `.md` file in an encoding other than
-    /// UTF-8 or Windows-1252 (UTF-16 LE/BE, UTF-32 LE/BE). Detected by
-    /// leading BOM before any decode attempt.
+    /// UTF-8 or Windows-1252 (UTF-16 LE/BE, UTF-32 LE/BE).
     #[error("Tecken-kodning stöds inte — spara filen som UTF-8 och försök igen")]
     UnsupportedEncoding,
+
+    /// Spec 009 FR-006 + FR-007 — any failure reading a `.rtf`. Collapses
+    /// the password-protected branch per FR-008.
+    #[error("Kunde inte läsa .rtf-filen")]
+    RtfParseError,
+
+    /// Spec 009 FR-006 + FR-007 — any failure reading a `.pages`. Collapses
+    /// the password-protected branch per FR-008.
+    #[error("Kunde inte läsa .pages-filen")]
+    PagesParseError,
+
+    /// Spec 009 FR-006 + FR-007 — any failure reading a `.odt`. Collapses
+    /// the password-protected branch per FR-008.
+    #[error("Kunde inte läsa .odt-filen")]
+    OdtParseError,
 }
 
 #[cfg(test)]
@@ -81,9 +99,12 @@ mod tests {
         ZoneFailure::EmptyText,
         ZoneFailure::ModelError,
         ZoneFailure::SaveError,
-        // Spec 005 — the two new format-detection variants.
         ZoneFailure::NoExtractableText,
         ZoneFailure::UnsupportedEncoding,
+        // Spec 009 — format-named long-tail variants.
+        ZoneFailure::RtfParseError,
+        ZoneFailure::PagesParseError,
+        ZoneFailure::OdtParseError,
     ];
 
     #[test]
@@ -124,10 +145,23 @@ mod tests {
 
     #[test]
     fn snake_case_serialization_matches_ts_wire_format() {
-        // The TS side (SammanfattaZone.errors.ts) keys off the snake_case
+        // The TS side (DropZone.errors.ts) keys off the snake_case
         // tag. This test catches a refactor that flips the rename attr.
         let json = serde_json::to_string(&ZoneFailure::InvalidFormat).unwrap();
         assert_eq!(json, "\"invalid_format\"");
+        // Spec 009 — long-tail variants serialize to their snake_case tags.
+        assert_eq!(
+            serde_json::to_string(&ZoneFailure::RtfParseError).unwrap(),
+            "\"rtf_parse_error\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ZoneFailure::PagesParseError).unwrap(),
+            "\"pages_parse_error\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ZoneFailure::OdtParseError).unwrap(),
+            "\"odt_parse_error\""
+        );
     }
 
     #[test]
@@ -137,5 +171,40 @@ mod tests {
             let back: ZoneFailure = serde_json::from_str(&json).unwrap();
             assert_eq!(*v, back);
         }
+    }
+
+    #[test]
+    fn long_tail_variants_name_their_format_explicitly() {
+        // Spec 009 FR-007 — the format-named errors MUST name the
+        // format explicitly in the Swedish copy. Catches a regression
+        // where someone replaces the variant's copy with a generic
+        // "Kunde inte läsa dokumentet".
+        assert_eq!(
+            ZoneFailure::RtfParseError.to_string(),
+            "Kunde inte läsa .rtf-filen"
+        );
+        assert_eq!(
+            ZoneFailure::PagesParseError.to_string(),
+            "Kunde inte läsa .pages-filen"
+        );
+        assert_eq!(
+            ZoneFailure::OdtParseError.to_string(),
+            "Kunde inte läsa .odt-filen"
+        );
+    }
+
+    #[test]
+    fn invalid_format_copy_lists_all_seven_formats() {
+        // Spec 009 FR-012 — InvalidFormat copy must mention every
+        // supported extension. Catches a copy regression after adding
+        // a new format.
+        let copy = ZoneFailure::InvalidFormat.to_string();
+        for ext in &[".docx", ".pdf", ".txt", ".md", ".rtf", ".pages", ".odt"] {
+            assert!(
+                copy.contains(ext),
+                "InvalidFormat copy missing {ext}: {copy:?}"
+            );
+        }
+        assert!(copy.chars().count() <= 80, "InvalidFormat copy > 80 chars");
     }
 }

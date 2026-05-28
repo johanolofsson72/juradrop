@@ -54,6 +54,13 @@ encoding_rs = "0.8"
 # declared explicitly + pinned to the same major so the encryption check
 # is honest and we don't dual-compile the crate.
 lopdf = { version = "0.34", default-features = false, features = ["pom_parser"] }
+# Spec 009 — pure-Rust RTF text extractor. MIT-licensed, no external
+# binaries, no network. Used for the .rtf input format extractor.
+rtf-parser = "0.4"
+# Spec 009 — pure-Rust XML pull-parser. MIT-licensed, no external
+# binaries, no network. Used for the .pages legacy XML and .odt
+# content.xml walkers.
+quick-xml = "0.36"
 
 [dev-dependencies]
 # T023 — integration tests in tests/ need tauri::test::mock_builder /

@@ -104,6 +104,10 @@ pub fn extract_text(path: &Path, format: InputFormat) -> Result<ExtractedText, Z
         InputFormat::Pdf => super::pdf_extract::extract_text(path),
         InputFormat::Txt => super::txt_extract::extract_text(path),
         InputFormat::Md => super::md_extract::extract_text(path),
+        // Spec 009 — long-tail formats.
+        InputFormat::Rtf => super::rtf_extract::extract_text(path),
+        InputFormat::Pages => super::pages_extract::extract_text(path),
+        InputFormat::Odt => super::odt_extract::extract_text(path),
     }
 }
 

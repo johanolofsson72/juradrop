@@ -19,7 +19,7 @@ export const ZONE_IDENTITIES = {
   sammanfatta: {
     slug: 'sammanfatta',
     title: 'Sammanfatta',
-    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för sammanfattning',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för sammanfattning',
     sidecarSuffix: 'sammanfatta',
     processingHint: 'Sammanfattar…',
     hasDisclaimer: false,
@@ -27,7 +27,7 @@ export const ZONE_IDENTITIES = {
   tillengelska: {
     slug: 'tillengelska',
     title: 'Till engelska',
-    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för engelsk översättning',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för engelsk översättning',
     sidecarSuffix: 'tillengelska',
     processingHint: 'Översätter…',
     hasDisclaimer: false,
@@ -35,7 +35,7 @@ export const ZONE_IDENTITIES = {
   tillsvenska: {
     slug: 'tillsvenska',
     title: 'Till svenska',
-    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för svensk översättning',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för svensk översättning',
     sidecarSuffix: 'tillsvenska',
     processingHint: 'Översätter…',
     hasDisclaimer: false,
@@ -43,7 +43,7 @@ export const ZONE_IDENTITIES = {
   punktlista: {
     slug: 'punktlista',
     title: 'Punktlista',
-    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för punktlista',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för punktlista',
     sidecarSuffix: 'punktlista',
     processingHint: 'Listar…',
     hasDisclaimer: false,
@@ -51,7 +51,7 @@ export const ZONE_IDENTITIES = {
   anonymisera: {
     slug: 'anonymisera',
     title: 'Anonymisera',
-    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för anonymisering',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för anonymisering',
     // Past-participle adjective — matches Rust's ZoneId::sidecar_suffix.
     sidecarSuffix: 'anonymiserad',
     processingHint: 'Anonymiserar…',
@@ -60,7 +60,7 @@ export const ZONE_IDENTITIES = {
   forenkla: {
     slug: 'forenkla',
     title: 'Förenkla',
-    hintCopy: 'Släpp ett .docx, .pdf, .txt eller .md för klarspråk',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för klarspråk',
     sidecarSuffix: 'forenkla',
     processingHint: 'Förenklar…',
     hasDisclaimer: true,
