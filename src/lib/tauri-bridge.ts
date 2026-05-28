@@ -49,6 +49,13 @@ export async function runRoundtripDev(): Promise<number> {
   return invoke<number>('run_roundtrip_dev');
 }
 
+/** Spec 008 / FR-013 — cancel the in-flight model pull. Silent no-op
+ *  if no pull is in flight; idempotent across all non-downloading
+ *  states. Never touches the consent record. */
+export async function cancelModelPull(): Promise<void> {
+  await invoke<void>('cancel_model_pull');
+}
+
 export function subscribeStatus(cb: (s: AppStatus) => void): Promise<UnlistenFn> {
   return listen<AppStatus>('juradrop://status', (event) => cb(event.payload));
 }

@@ -1,0 +1,529 @@
+-- allium: 3
+
+-- Formal spec for spec 008: first-run wizard (welcome → consent → model
+-- download → ready).
+-- Source: specs/008-first-run-wizard/spec.md
+-- Elicited: 2026-05-28
+--
+-- This file specifies the React-side wizard state machine that wraps
+-- the existing spec 002 consent + model-pull machinery in a Swedish
+-- first-run experience. The wizard is purely UI-side: no new Rust
+-- state, no new outbound network surface, no new persistent file.
+-- A new Tauri command `cancel_model_pull` is added for the Cancel
+-- button (FR-013).
+
+-- ============================================================
+-- External entities (defined by spec 002, referenced here)
+-- ============================================================
+
+external entity ConsentRecord {
+    -- Persisted at app_data_dir/consent.json. Spec 002 owns the schema.
+    -- Spec 008 only reads the `choice` field.
+    choice: not_asked | fortsatt | avbryt
+}
+
+external entity OllamaSidecar {
+    -- Same enum as spec 002. Spec 008 reads sidecar.status to gate the
+    -- Fortsätt button during the launch boot window.
+    user_visible_status: starting | downloading_model | ready | error_failed_to_start
+        | error_port_busy | error_disk_full | error_unexpected
+        | error_model_download_aborted | model_missing_aborted
+    status: not_started | starting | ready | crashed | stopping | stopped
+}
+
+external entity ModelArtifact {
+    -- The bundled `gemma3:4b` model. Spec 002 owns the pull task,
+    -- the disk-space pre-check, and the on-disk presence check.
+    status: not_present | downloading | ready | download_failed
+}
+
+external entity AppStatus {
+    -- The status payload mirrored to React via `juradrop://status`.
+    -- Spec 008 reads visible + sidecar + model + progress_percent +
+    -- consent to derive the wizard phase.
+    visible: starting | klar | laddar_ner_modell | begar_samtycke
+        | fel_kunde_inte_starta | fel_porten_upptagen | fel_disk_full
+        | fel_modellnedladdning_avbroten | fel_ovantat | modell_saknas_avbruten
+    sidecar: OllamaSidecar
+    model: ModelArtifact
+    progress_percent: Integer?
+    consent: ConsentRecord
+}
+
+external entity SwedishCopy {
+    -- Same NoEnglishPrefix / LengthBounded / NonEmpty invariants as
+    -- spec 003. Every visible wizard string carries one of these.
+    text: String
+}
+
+external entity DropZone {
+    -- Spec 003/004 zones. Spec 008 reads nothing from a zone — it
+    -- ONLY decides whether the zone-grid is rendered at all.
+    id: ZoneId
+}
+
+enum ZoneId {
+    sammanfatta | tillengelska | tillsvenska | punktlista | anonymisera | forenkla
+}
+
+-- ============================================================
+-- Enums — wizard lifecycle
+-- ============================================================
+
+-- The four-variant React-side wizard phase. Derived (pure function)
+-- from (ConsentRecord.choice, ModelArtifact.status, OllamaSidecar.status).
+-- Source of truth lives in the React component via `useWizardState`.
+enum WizardPhase {
+    welcome     -- title + body paragraph + Fortsätt/Avbryt + privacy line
+    progress    -- percent bar + bytes + ETA + Cancel button
+    error       -- terminal failure (network, disk, sidecar) + "Försök igen"
+    hidden      -- zones-grid rendered instead; wizard absent from React tree
+}
+
+-- The wizard's two-variant progress sub-label. Visible only while
+-- WizardPhase = progress. Derived from time-since-last-progress-event.
+enum ProgressLabel {
+    downloading   -- "Hämtar AI-modell… N %"
+    waiting       -- "Väntar på nätverk…" — fired by >= 5s no-progress gap
+}
+
+-- ============================================================
+-- Value objects
+-- ============================================================
+
+-- ETA + throughput estimate computed in the React layer from the
+-- juradrop://progress events. Pure derivation; no persistence.
+value ProgressEstimate {
+    last_pct: Integer
+    last_byte_count: Integer
+    last_progress_at: Timestamp
+    bytes_per_second_recent: Decimal      -- rolling avg over last 10s
+    label: ProgressLabel
+    eta_seconds: Integer?                  -- null when bytes_per_second_recent = 0
+}
+
+-- ============================================================
+-- Entities (UI-side, ephemeral React state)
+-- ============================================================
+
+-- The wizard's React-side state. One instance per mounted Wizard
+-- component; FR-018 mandates at most one mount across the React tree.
+entity WizardState {
+    phase: WizardPhase
+    mounted_at: Timestamp                  -- for the FR-019 ≥ 300 ms hold
+    progress: ProgressEstimate? when phase = progress | error
+    last_failure_copy: String? when phase = error
+    fortsatt_focused: Boolean              -- FR-017 focus management
+
+    transitions phase {
+        welcome -> progress       -- Fortsätt clicked; consent saved; pull starts
+        welcome -> welcome        -- Avbryt clicked; phase stays welcome
+        progress -> hidden        -- model_status reaches ready (after ≥ 300 ms hold)
+        progress -> welcome       -- Cancel clicked; pull aborted; model_missing_aborted
+        progress -> error         -- terminal failure (timeout, disk, etc.)
+        error -> progress         -- "Försök igen" clicked; pull re-invoked
+        error -> welcome          -- user closes the error panel
+        hidden -> welcome         -- next launch with avbryt OR model_missing
+        terminal: hidden          -- subsequent-launch happy path stays here
+    }
+
+    invariant FortsattFocusInWelcomeOnly {
+        phase = welcome implies fortsatt_focused = true
+    }
+
+    invariant ProgressOnlyWhileProgressPhase {
+        phase != progress and phase != error implies progress = null
+    }
+}
+
+-- ============================================================
+-- Config / fixed boundaries
+-- ============================================================
+
+config {
+    -- FR-007 — number of seconds without a juradrop://progress event
+    -- after which the label switches from `downloading` to `waiting`.
+    network_drop_threshold_secs: Integer = 5
+
+    -- FR-019 — minimum time the wizard must stay visible to prevent
+    -- flicker on instant-completion paths (cached model, fiber link).
+    minimum_visible_ms: Integer = 300
+
+    -- Clarification 2 — boundary between "≈ X s" and "≈ Y min" formats.
+    eta_threshold_seconds: Integer = 60
+
+    -- Clarification 2 — ETA values < 60 s round UP to the nearest 5 s.
+    eta_seconds_rounding: Integer = 5
+
+    -- FR-009 — proxy for the terminal-failure transition. Spec 002's
+    -- MODEL_PULL_TIMEOUT_SECONDS = 300 covers this; spec 008 just
+    -- consumes the resulting `download_failed` status.
+    model_pull_timeout_secs: Integer = 300
+
+    -- Welcome paragraph max char count (clarification 1 body line is 199).
+    welcome_paragraph_max_chars: Integer = 200
+}
+
+-- ============================================================
+-- Rules — welcome trigger
+-- ============================================================
+
+-- FR-001 — fresh install: no consent record means the welcome shows.
+rule ShowWelcomeOnFirstLaunch {
+    when: AppLaunched()
+    requires: AppStatus.consent.choice = not_asked
+    ensures: WizardState.phase = welcome
+}
+
+-- FR-001 + FR-012 — re-consent path: the user previously declined OR
+-- the previous Cancel left the model in an aborted state.
+rule ShowWelcomeOnReConsent {
+    when: AppLaunched()
+    requires:
+        AppStatus.consent.choice = avbryt or
+        AppStatus.model.status in {not_present, download_failed} or
+        AppStatus.visible = modell_saknas_avbruten
+    ensures: WizardState.phase = welcome
+}
+
+-- FR-006 — subsequent-launch happy path: consent is fortsatt AND the
+-- model is on disk. The wizard never mounts.
+rule SkipWelcomeOnSubsequentLaunch {
+    when: AppLaunched()
+    requires:
+        AppStatus.consent.choice = fortsatt and
+        AppStatus.model.status = ready
+    ensures: WizardState.phase = hidden
+}
+
+-- ============================================================
+-- Rules — welcome interactions
+-- ============================================================
+
+-- FR-003 — the primary CTA reuses spec 002's give_consent command;
+-- the wizard transitions on the resulting status event.
+rule FortsattInvokesGiveConsent {
+    when: FortsattClicked()
+    requires:
+        WizardState.phase = welcome and
+        OllamaSidecar.status = ready
+    ensures:
+        GiveConsentCommandInvoked()
+        WizardState.phase = progress
+        ProgressEstimate.created(last_pct: 0, last_byte_count: 0,
+            label: downloading, last_progress_at: now)
+}
+
+-- Clarification 4 — Fortsätt is disabled until the sidecar reaches
+-- ready. The helper line "Förbereder AI-motorn…" is visible during
+-- the boot window. This rule asserts the negative space.
+rule FortsattDisabledDuringSidecarBoot {
+    when: FortsattClicked()
+    requires: OllamaSidecar.status != ready
+    ensures: NoStateChange()
+}
+
+-- FR-003 + FR-011 — the secondary CTA persists the negative choice
+-- but keeps the welcome screen visible.
+rule AvbrytInvokesCancelConsent {
+    when: AvbrytClicked()
+    requires: WizardState.phase = welcome
+    ensures:
+        CancelConsentCommandInvoked()
+        WizardState.phase = welcome
+}
+
+-- FR-017 — Escape on the welcome is an alias for Avbryt.
+rule EscapeOnWelcomeFiresAvbryt {
+    when: EscapeKeyPressed()
+    requires: WizardState.phase = welcome
+    ensures:
+        CancelConsentCommandInvoked()
+        WizardState.phase = welcome
+}
+
+-- ============================================================
+-- Rules — progress UI
+-- ============================================================
+
+-- FR-004 — every juradrop://progress event refreshes the progress
+-- estimate. The React layer is the consumer.
+rule ProgressShownDuringDownload {
+    when: ProgressEventReceived(percent, bytes_now, bytes_total)
+    requires: WizardState.phase = progress
+    ensures:
+        let elapsed = now - WizardState.progress.last_progress_at
+        let bps = (bytes_now - WizardState.progress.last_byte_count) / elapsed.as_seconds
+        ProgressEstimate.created(
+            last_pct: percent,
+            last_byte_count: bytes_now,
+            last_progress_at: now,
+            bytes_per_second_recent: bps,
+            label: downloading
+        )
+}
+
+-- FR-007 — the "Väntar på nätverk…" trigger. Asserts the label
+-- switch happens at exactly the threshold.
+rule WaitingOnNetworkLabel {
+    when: NoProgressEventForThreshold(secs)
+    requires:
+        WizardState.phase = progress and
+        secs >= network_drop_threshold_secs
+    ensures:
+        WizardState.progress.label = waiting
+}
+
+-- FR-008 — when the next progress event arrives, the label flips
+-- back AND the byte counter resumes from the last received value.
+rule ResumeFromLastByte {
+    when: ProgressEventReceived(percent, bytes_now, bytes_total)
+    requires:
+        WizardState.phase = progress and
+        WizardState.progress.label = waiting
+    ensures:
+        WizardState.progress.label = downloading
+        WizardState.progress.last_byte_count = bytes_now
+        -- The implementation MUST NOT reset bytes_now to 0 between
+        -- the waiting period and the resumed event.
+}
+
+-- FR-009 — terminal failure transitions to error state.
+rule TerminalFailureToErrorState {
+    when: ModelDownloadFailed(reason)
+    requires: WizardState.phase = progress
+    ensures:
+        WizardState.phase = error
+        WizardState.last_failure_copy = SwedishCopyForReason(reason)
+}
+
+-- FR-009 — "Försök igen" re-invokes give_consent (the spec 002 retry
+-- mechanism). This restarts the pull from scratch — Ollama discards
+-- partial chunks on a cancelled stream.
+rule RetryFromErrorState {
+    when: ForsokIgenClicked()
+    requires: WizardState.phase = error
+    ensures:
+        GiveConsentCommandInvoked()
+        WizardState.phase = progress
+}
+
+-- FR-017 — Escape on the progress UI is an alias for Cancel.
+rule EscapeOnProgressFiresCancel {
+    when: EscapeKeyPressed()
+    requires: WizardState.phase = progress
+    ensures:
+        CancelModelPullCommandInvoked()
+        WizardState.phase = welcome
+}
+
+-- ============================================================
+-- Rules — cancel during download
+-- ============================================================
+
+-- FR-010 + FR-013 — the Cancel button invokes the new command.
+rule CancelDuringDownload {
+    when: CancelClicked()
+    requires:
+        WizardState.phase = progress and
+        AppStatus.model.status = downloading
+    ensures:
+        CancelModelPullCommandInvoked()
+        AppStatus.model.status = not_present
+        AppStatus.visible = modell_saknas_avbruten
+        WizardState.phase = welcome
+}
+
+-- FR-013 / clarification 5 — cancel-race idempotency. If model_status
+-- has already flipped to ready by the time the command lands, the
+-- cancel is a silent no-op.
+rule CancelRaceIdempotent {
+    when: CancelClicked()
+    requires:
+        WizardState.phase = progress and
+        AppStatus.model.status = ready
+    ensures: NoStateChange()
+}
+
+-- ============================================================
+-- Rules — completion + hide
+-- ============================================================
+
+-- FR-005 + FR-019 — when the model reaches ready AND the wizard has
+-- been mounted at least minimum_visible_ms, the wizard transitions
+-- to hidden and the zone-grid renders for the first time.
+rule HideWizardOnReady {
+    when: ws: WizardState.phase transitions_to hidden
+    requires:
+        AppStatus.model.status = ready and
+        AppStatus.consent.choice = fortsatt and
+        (now - ws.mounted_at) >= minimum_visible_ms
+    ensures:
+        ZoneGridMounted()
+}
+
+-- FR-005 — the inverse: as long as the wizard is NOT hidden, the
+-- zone-grid MUST NOT be in the React tree. Codified as a structural
+-- invariant below; the rule asserts the React-side effect.
+rule ZoneGridGatedOnWizardHidden {
+    when: ws: WizardState.phase transitions_to welcome | progress | error
+    ensures:
+        ZoneGridUnmounted()
+}
+
+-- ============================================================
+-- Invariants
+-- ============================================================
+
+-- FR-005 — zones are NOT rendered while the wizard is anything other
+-- than hidden. Stronger than "visually disabled".
+invariant ZonesGatedOnModelReady {
+    for zone in DropZones:
+        zone.rendered_in_react_tree = (WizardState.phase = hidden)
+}
+
+-- FR-001 + FR-006 — the welcome appears only when the trigger
+-- predicate is true; otherwise it stays away.
+invariant WelcomeScreenShownOnFirstLaunchOnly {
+    WizardState.phase = welcome implies (
+        AppStatus.consent.choice in {not_asked, avbryt} or
+        AppStatus.model.status in {not_present, download_failed} or
+        AppStatus.visible = modell_saknas_avbruten
+    )
+}
+
+-- FR-018 — single wizard mount across the React tree.
+invariant WizardSingleInstance {
+    WizardComponentInstances.count <= 1
+}
+
+-- FR-019 — the wizard must be visible for at least 300 ms once
+-- mounted, even if the model pull completes instantly.
+invariant WelcomeMinimumVisibleTime {
+    for ws in WizardStates where ws.phase transitions_to hidden:
+        (now - ws.mounted_at) >= minimum_visible_ms
+}
+
+-- FR-015 + SC-007 — no new outbound network surface. The wizard
+-- reads the existing juradrop://status + juradrop://progress events
+-- and invokes existing or one-new Tauri commands. No new HTTP client,
+-- no new socket.
+invariant NoNewOutboundSurface {
+    WizardOutboundEndpoints.count = 0
+}
+
+-- FR-016 — log line privacy. Wizard logs MUST contain only phase
+-- transitions and the integer percent; never document content, IP,
+-- system username, or model bytes.
+invariant WizardLogsHaveNoUserContent {
+    for entry in WizardLogEntries:
+        entry.payload.does_not_contain(DocumentContent()) and
+        entry.payload.does_not_contain(UserIp()) and
+        entry.payload.does_not_contain(SystemUsername()) and
+        entry.payload.does_not_contain(ModelBytes())
+}
+
+-- FR-014 + SC-006 — every visible wizard string satisfies the
+-- SwedishCopy invariants from spec 003. Two long-form welcome
+-- strings (`welcome_paragraph` and `welcome_download_note`) are
+-- capped at welcome_paragraph_max_chars (200); every other wizard
+-- string is capped at 80 chars per the spec 003 norm. Refined
+-- 2026-05-28 per /speckit.analyze finding C1.
+invariant AllWizardCopySatisfiesSwedishCopy {
+    for s in WizardVisibleStrings:
+        s.length > 0 and
+        not s.starts_with(`Error:`) and
+        (s.kind in {welcome_paragraph, welcome_download_note}
+            implies s.length <= welcome_paragraph_max_chars) and
+        (s.kind not in {welcome_paragraph, welcome_download_note}
+            implies s.length <= 80)
+}
+
+-- FR-017 — Fortsätt receives initial focus; Tab order is
+-- Fortsätt → Avbryt → wraps.
+invariant FocusOrderFortsattFirst {
+    WizardState.phase = welcome implies (
+        WizardState.fortsatt_focused = true and
+        TabOrder.first = `Fortsätt` and
+        TabOrder.second = `Avbryt`
+    )
+}
+
+-- Clarification 5 — cancel-race semantics codified as a negative
+-- invariant: the wizard never "uncompletes" a completed download.
+invariant NeverUncompleteACompletedDownload {
+    not exists ws in WizardStates where (
+        ws.phase = welcome and
+        AppStatus.model.status = ready
+    )
+}
+
+-- ============================================================
+-- Surfaces
+-- ============================================================
+
+actor LawStudent { identified_by: `the local user` }
+
+surface WelcomeWizardSurface {
+    facing viewer: LawStudent
+    context ws: WizardState where viewer.identified_by = `the local user`
+    provides:
+        FortsattClicked() when ws.phase = welcome and OllamaSidecar.status = ready
+        AvbrytClicked() when ws.phase = welcome
+        EscapeKeyPressed() when ws.phase = welcome
+    exposes:
+        ws.phase
+        AppStatus.consent.choice
+        AppStatus.sidecar.status
+}
+
+surface FirstRunProgressSurface {
+    facing viewer: LawStudent
+    context ws: WizardState where viewer.identified_by = `the local user`
+    provides:
+        CancelClicked() when ws.phase = progress
+        EscapeKeyPressed() when ws.phase = progress
+        ForsokIgenClicked() when ws.phase = error
+    exposes:
+        ws.phase
+        ws.progress.last_pct
+        ws.progress.last_byte_count
+        ws.progress.label
+        ws.progress.eta_seconds
+        ws.last_failure_copy
+}
+
+-- ============================================================
+-- Deferred
+-- ============================================================
+
+-- target: spec 010 (settings-panel)
+deferred SettingsPanelReDownloadButton
+
+-- target: spec 010 (settings-panel)
+deferred MultipleModelSelection
+
+-- target: spec 012 (polish-and-public-beta)
+deferred BetaChannelToggle
+
+-- target: out-of-scope (trust the user's network)
+deferred LowBandwidthMode
+
+-- target: out-of-scope (initial model download requires net)
+deferred OfflineFirstMode
+
+-- target: out-of-scope (not a v0.1 feature; Cancel + restart suffices)
+deferred PauseAndResumeButton
+
+-- target: out-of-scope (spec 002 already pins ollama.com)
+deferred DownloadFromMirror
+
+-- target: out-of-scope (spec 002 uses streaming HTTP; no WS upgrade planned)
+deferred ProgressOverWebSocket
+
+-- ============================================================
+-- Open questions
+-- ============================================================
+
+-- (No open questions — 5 clarifications auto-picked and integrated
+-- into the spec body on 2026-05-28.)

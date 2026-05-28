@@ -112,6 +112,11 @@ pub struct AppState {
     /// `Arc<RwLock<Updater>>` so commands + the 4-hour tick task both
     /// mutate it under the same lock. See `crate::updater::state`.
     pub updater: SharedUpdater,
+    /// Spec 008 — cancellation token for the in-flight model pull.
+    /// Tripped by `cancel_model_pull` (FR-013). Reset to a fresh
+    /// token at the start of every `spawn_pull_task` invocation so
+    /// each pull has its own cancellation surface.
+    pub pull_cancel: Arc<RwLock<tokio_util::sync::CancellationToken>>,
 }
 
 impl AppState {
@@ -130,6 +135,7 @@ impl AppState {
             error_override: Arc::new(RwLock::new(None)),
             zones,
             updater: Arc::new(RwLock::new(Updater::new())),
+            pull_cancel: Arc::new(RwLock::new(tokio_util::sync::CancellationToken::new())),
         }
     }
 
@@ -171,6 +177,11 @@ fn emit_status(app: &AppHandle, snapshot: &AppStatus) {
 /// when the percent has changed by ≥ 1 OR more than 500 ms have passed since
 /// the last emit. Status events always fire on terminal transitions.
 pub fn spawn_pull_task(app: AppHandle, state: AppState) {
+    // Spec 008 — replace the cancellation token with a fresh one at
+    // the start of every pull. Each pull owns its own cancel surface.
+    let cancel = tokio_util::sync::CancellationToken::new();
+    *state.pull_cancel.write() = cancel.clone();
+
     tauri::async_runtime::spawn(async move {
         let app_inner = app.clone();
         let state_inner = state.clone();
@@ -207,24 +218,33 @@ pub fn spawn_pull_task(app: AppHandle, state: AppState) {
             }
         });
 
-        // F1: enforce the spec.allium `model_pull_timeout_seconds: 300` ceiling.
-        let timed =
-            tokio::time::timeout(Duration::from_secs(MODEL_PULL_TIMEOUT_SECONDS), pull_future)
-                .await;
-
-        match timed {
-            Ok(Ok(())) => {} // Success — events already emitted by the callback.
-            Ok(Err(err)) => {
-                eprintln!("[juradrop] pull failed: {err}");
-                *state.model_status.write() = ModelStatus::DownloadFailed;
-                *state.progress.write() = None;
-                emit_status(&app, &state.snapshot());
+        // F1 + Spec 008 — race the pull against the timeout AND the
+        // cancellation token. The cancel_model_pull command trips the
+        // token; we then exit early WITHOUT touching model_status
+        // because the command owns the status flip (single-responsibility).
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => {
+                eprintln!("[juradrop] pull cancelled by user");
+                // Status flip is owned by the cancel_model_pull command.
+                // We just exit cleanly.
             }
-            Err(_elapsed) => {
-                eprintln!("[juradrop] pull timed out after {MODEL_PULL_TIMEOUT_SECONDS}s");
-                *state.model_status.write() = ModelStatus::DownloadFailed;
-                *state.progress.write() = None;
-                emit_status(&app, &state.snapshot());
+            timed = tokio::time::timeout(Duration::from_secs(MODEL_PULL_TIMEOUT_SECONDS), pull_future) => {
+                match timed {
+                    Ok(Ok(())) => {} // Success — events already emitted by the callback.
+                    Ok(Err(err)) => {
+                        eprintln!("[juradrop] pull failed: {err}");
+                        *state.model_status.write() = ModelStatus::DownloadFailed;
+                        *state.progress.write() = None;
+                        emit_status(&app, &state.snapshot());
+                    }
+                    Err(_elapsed) => {
+                        eprintln!("[juradrop] pull timed out after {MODEL_PULL_TIMEOUT_SECONDS}s");
+                        *state.model_status.write() = ModelStatus::DownloadFailed;
+                        *state.progress.write() = None;
+                        emit_status(&app, &state.snapshot());
+                    }
+                }
             }
         }
     });
@@ -290,6 +310,43 @@ pub async fn cancel_consent(
     *state.consent.write() = consent;
     let snapshot = state.snapshot();
     emit_status(&app, &snapshot);
+    Ok(())
+}
+
+/// Spec 008 / T016 — cancel the in-flight model pull.
+///
+/// Behaviour per `specs/008-first-run-wizard/contracts/tauri-commands.md`:
+///   1. Acquires the model_status write-lock.
+///   2. If model_status == Ready → silent no-op (the race was won by
+///      completion; the wizard never "uncompletes" a finished download).
+///   3. If model_status != Downloading → silent no-op (idempotent).
+///   4. Else trips state.pull_cancel, flips status to NotPresent,
+///      sets error_override = ModellSaknasAvbruten, emits status event.
+/// Does NOT touch the consent record (see FR-013).
+#[tauri::command]
+pub async fn cancel_model_pull(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    // Two-phase to release the lock before the emit() call.
+    let should_emit = {
+        let mut status = state.model_status.write();
+        match *status {
+            ModelStatus::Ready => false,
+            ModelStatus::Downloading => {
+                state.pull_cancel.read().cancel();
+                *status = ModelStatus::NotPresent;
+                drop(status);
+                *state.progress.write() = None;
+                *state.error_override.write() = Some(UserVisibleStatus::ModellSaknasAvbruten);
+                true
+            }
+            ModelStatus::NotPresent | ModelStatus::DownloadFailed => false,
+        }
+    };
+    if should_emit {
+        emit_status(&app, &state.snapshot());
+    }
     Ok(())
 }
 

@@ -5,8 +5,10 @@ import { DropZone } from '@/components/DropZone';
 import { ZONE_ORDER } from '@/components/DropZone.identity';
 import { UpdateIndicator } from '@/components/UpdateIndicator';
 import { UpdateRetryFootnote } from '@/components/UpdateRetryFootnote';
+import { Wizard } from '@/components/Wizard';
 import { useStatusStore } from '@/lib/status-store';
 import { ensureUpdateStatusSubscription } from '@/lib/update-store';
+import { useWizardState } from '@/lib/use-wizard-state';
 import {
   dispatchToZone,
   getStatus,
@@ -77,24 +79,35 @@ export function App() {
     };
   }, [setStatus, setProgress]);
 
+  // Spec 008 / T014 — render the wizard OR the zone-grid, never both.
+  // The wizard owns the entire viewport while visible (FR-005 +
+  // FR-018); zones are absent from the React tree until the model is
+  // ready. UpdateIndicator + UpdateRetryFootnote (spec 007 chrome)
+  // stay mounted in both paths since they're top/bottom-right overlays.
+  const wizardPhase = useWizardState();
+
   return (
     <main className="min-h-screen bg-background p-6 text-foreground">
-      <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-8 pt-8">
-        <WelcomeCard />
-        <section
-          aria-label="Drop-zoner"
-          className={[
-            'grid w-full gap-4',
-            'grid-cols-1',         // < 520 px (rare on desktop)
-            'sm:grid-cols-2',      // ≥ 520 px
-            'lg:grid-cols-3',      // ≥ 920 px (the canonical 2×3)
-          ].join(' ')}
-        >
-          {ZONE_ORDER.map((id) => (
-            <DropZone key={id} zoneId={id} />
-          ))}
-        </section>
-      </div>
+      {wizardPhase !== 'hidden' ? (
+        <Wizard />
+      ) : (
+        <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-8 pt-8">
+          <WelcomeCard />
+          <section
+            aria-label="Drop-zoner"
+            className={[
+              'grid w-full gap-4',
+              'grid-cols-1',         // < 520 px (rare on desktop)
+              'sm:grid-cols-2',      // ≥ 520 px
+              'lg:grid-cols-3',      // ≥ 920 px (the canonical 2×3)
+            ].join(' ')}
+          >
+            {ZONE_ORDER.map((id) => (
+              <DropZone key={id} zoneId={id} />
+            ))}
+          </section>
+        </div>
+      )}
       <ConsentModal />
       {/* Spec 007 — auto-updater UI. Fixed-positioned overlays, do
           not disturb the 2×3 grid layout. */}

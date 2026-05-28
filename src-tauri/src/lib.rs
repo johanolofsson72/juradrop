@@ -14,8 +14,8 @@ pub mod updater;
 pub mod zones;
 
 use sidecar::commands::{
-    after_sidecar_ready, cancel_consent, cancel_summary, dispatch_to_zone, get_status,
-    give_consent, run_roundtrip_dev, AppState,
+    after_sidecar_ready, cancel_consent, cancel_model_pull, cancel_summary, dispatch_to_zone,
+    get_status, give_consent, run_roundtrip_dev, AppState,
 };
 use sidecar::consent;
 use sidecar::status::{SidecarStatus, UserVisibleStatus};
@@ -45,6 +45,8 @@ pub fn run() {
             confirm_restart_install,
             cancel_deferred_restart,
             dismiss_update_indicator,
+            // Spec 008 — first-run-wizard Cancel-button command.
+            cancel_model_pull,
         ])
         .setup(|app| {
             let state = AppState::new();
