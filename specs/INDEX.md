@@ -25,7 +25,7 @@ The pipeline track for each spec is triaged per `.claude/rules/specs.md`:
 - [x] 014 — anonymisera-pii-sweep — full — deterministic PII-residue sweep on Anonymisera output; flag missed personnummer/e-post/telefon in the sidecar (output-side privacy safety net)
 - [x] 015 — parser-fuzzing — spec-only — robustness battery for the docx/pdf/rtf/odt/txt/md extractors; malformed/crafted input must never panic, hang, or leak a stack trace (reclassified light→spec-only: hardening-as-tests, no new entities/state, no `.allium`)
 - [x] 016 — click-to-browse-fallback — light — click-to-open native file picker per zone as a keyboard/accessibility alternative to OS drag-drop
-- [ ] 017 — concurrency-stress — spec-only — integration tests for simultaneous multi-zone drops + cross-zone resource contention + auto-clear timer races
+- [x] 017 — concurrency-stress — spec-only — integration tests for simultaneous multi-zone drops + cross-zone resource contention + auto-clear timer races
 - [ ] 018 — real-ollama-slow-suite — spec-only — gated real-`gemma3:4b` per-zone inference suite (runs `#[ignore]`'d / hardware, like sidecar_roundtrip) to catch prompt + model-version regressions
 - [ ] 019 — macos-ui-test-harness — research — evaluate XCUITest / accessibility-API harness to drive the real WKWebView (BLOCKED: native tooling not runnable here — scaffolding + spike plan only)
 - [ ] 020 — release-signing-dmg — spec-only — produce the first signed + notarized DMG (BLOCKED on user: Apple Developer cert, GitHub secrets, real Mac, first tag — runbook + CI wiring only)
