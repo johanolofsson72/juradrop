@@ -37,7 +37,17 @@ JuraDrop löser det med arkitektur, inte löften:
 
 ## Status
 
-Pre-MVP. Spec 001 (Tauri-bootstrap), spec 002 (lokal Ollama-sidecar), spec 003 (första dropzon), spec 004 (alla sex zoner), spec 005 (fler indataformat), spec 006 (signering och CI), spec 007 (auto-uppdaterare), spec 008 (välkomstguide) och spec 009 (`.rtf`, `.pages`, `.odt`) är klara. Huvudfönstret visar ett 2×3-rutnät av sex tematiska dropzoner: **Sammanfatta**, **Till engelska**, **Till svenska**, **Punktlista**, **Anonymisera** och **Förenkla**. Varje zon tar emot sju format: `.docx`, `.pdf`, `.txt`, `.md`, `.rtf`, `.pages` och `.odt`. Resultatfilen följer indataformatet där det går (`.txt` in → `.txt` ut, `.md` in → `.md` ut bevarar Markdown-strukturen). Långsvansformaten — `.rtf`, `.pages` och `.odt` — sparas alltid som `.docx`-sidofil (ingen ren Rust-skrivare finns). Moderna Apple Pages-filer (v5+, IWA-format) tas emot men kan misslyckas vid extraktion; JuraDrop säger det rakt ut med felmeddelandet `Kunde inte läsa .pages-filen` istället för att låtsas att inget hände. Appen extraherar texten lokalt, skickar den till `gemma3:4b` på `127.0.0.1:11434` med en zon-specifik svensk systemprompt, och sparar resultatet som `<originalnamn>.<zon>.<format>` bredvid originalet. Krypterade PDF:er, bildbaserade PDF:er utan textlager och korrupta långsvansfiler ger tydliga svenska felmeddelanden istället för att tyst misslyckas. Anonymisera- och Förenkla-filerna får en svensk varningstext om AI-modellens begränsningar. **Inget av dokumentinnehållet lämnar din Mac** — den enda utgående trafiken är fortfarande modellnedladdningen från `ollama.com` (en gång) och Tauri-uppdateraren. Se [`specs/INDEX.md`](specs/INDEX.md) för planerade specifikationer.
+Polish-prep inför första publika release. Specs 001–011 är klara (Tauri-bootstrap, lokal Ollama-sidecar, första dropzon, alla sex zoner, fler indataformat, signering + CI, auto-uppdaterare, välkomstguide, `.rtf`/`.pages`/`.odt`, inställningspanel, felåterhämtning). Spec 012 (den här) lägger till `LICENSE`, `CHANGELOG.md`, en `docs/`-mapp med skärmdumpsplatshållare och en svensk betatest-guide. Nästa steg är att tagga `v0.1.0` och låta GitHub Actions producera den första signerade DMG:n.
+
+Huvudfönstret visar ett 2×3-rutnät av sex tematiska dropzoner: **Sammanfatta**, **Till engelska**, **Till svenska**, **Punktlista**, **Anonymisera** och **Förenkla**. Varje zon tar emot sju format: `.docx`, `.pdf`, `.txt`, `.md`, `.rtf`, `.pages` och `.odt`. Resultatfilen följer indataformatet där det går (`.txt` in → `.txt` ut, `.md` in → `.md` ut bevarar Markdown-strukturen). Långsvansformaten — `.rtf`, `.pages` och `.odt` — sparas alltid som `.docx`-sidofil (ingen ren Rust-skrivare finns). Moderna Apple Pages-filer (v5+, IWA-format) tas emot men kan misslyckas vid extraktion; JuraDrop säger det rakt ut med felmeddelandet `Kunde inte läsa .pages-filen` istället för att låtsas att inget hände. Appen extraherar texten lokalt, skickar den till modellen som väljs i inställningspanelen (Snabb / Smart / Stor — standardvalet är `gemma3:4b`) på `127.0.0.1:11434` med en zon-specifik svensk systemprompt, och sparar resultatet som `<originalnamn>.<zon>.<format>` bredvid originalet. Krypterade PDF:er, bildbaserade PDF:er utan textlager och korrupta långsvansfiler ger tydliga svenska felmeddelanden istället för att tyst misslyckas. Anonymisera- och Förenkla-filerna får en svensk varningstext om AI-modellens begränsningar. Om AI-sidekicken kraschar startas den om automatiskt en gång; vid en andra krasch visas svenska felet `AI-motorn svarar inte. Starta om JuraDrop.` istället för en stack trace. **Inget av dokumentinnehållet lämnar din Mac** — den enda utgående trafiken är fortfarande modellnedladdningen från `ollama.com` (en gång) och Tauri-uppdateraren. CI har dessutom en spärr som vägrar bygget om någon `sentry`/`plausible`/`posthog`/etc. dyker upp bland beroendena. Se [`specs/INDEX.md`](specs/INDEX.md) för spec-historiken.
+
+### Skärmdumpar
+
+> Bilderna nedan är platshållare som ersätts med riktiga skärmdumpar vid `v0.1.0`-taggen.
+
+| Zonrutnätet (mörkt läge) | Välkomstguide (modellnedladdning) | Inställningspanel |
+|---|---|---|
+| ![Sex zoners rutnät](docs/screenshots/zone-grid-dark.png) | ![Välkomstguide](docs/screenshots/welcome-wizard-download.png) | ![Inställningspanel](docs/screenshots/settings-panel.png) |
 
 Releasekedjan är automatiserad: en `git push --tags` på `vX.Y.Z` triggar GitHub Actions, som bygger en universal `.app`, signerar med Developer ID, notariserar via Apple och laddar upp en signerad DMG som ett utkast under [Releases](https://github.com/johanolofsson72/juradrop/releases). Utkastet publiceras manuellt efter en smoke-test på en ren Mac. Inbyggd Tauri-uppdaterare hämtar nya versioner med signaturverifiering.
 
@@ -81,7 +91,7 @@ bash scripts/fetch-ollama.sh   # one-time: pulls the pinned Ollama binary (~75 M
 npm run tauri dev              # opens the dev window
 ```
 
-`fetch-ollama.sh` is required before `npm run tauri dev` because spec 002 bundles Ollama as a Tauri sidecar — without the binary at `src-tauri/binaries/ollama-aarch64-apple-darwin`, the app launches with the "AI-motorn kunde inte starta" error state. The script verifies a pinned SHA-256, so it's safe to re-run and will exit cleanly if the binary is already present.
+`fetch-ollama.sh` is required before `npm run tauri dev` because JuraDrop bundles Ollama as a Tauri sidecar — without the binary at `src-tauri/binaries/ollama-aarch64-apple-darwin`, the app launches with the "AI-motorn kunde inte starta" error state. The script verifies a pinned SHA-256, so it's safe to re-run and will exit cleanly if the binary is already present. CI fetches the binary automatically as part of the release workflow.
 
 ### Production build
 
@@ -90,7 +100,7 @@ bash scripts/fetch-ollama.sh   # same prerequisite as `tauri dev`
 npm run tauri:build            # produces src-tauri/target/aarch64-apple-darwin/release/bundle/macos/JuraDrop.app
 ```
 
-The build is unsigned at spec 001 — macOS Gatekeeper will block double-clicking the `.app`. Right-click → Open the first time to bypass. Signing, notarization, and DMG output arrive with spec 006. Spec 006 will also wire `fetch-ollama.sh` into the GitHub Actions workflow so CI doesn't need a separate manual step.
+Local production builds are unsigned by design — `npm run tauri:build` produces a `.app` that macOS Gatekeeper will block on double-click. Right-click → Open the first time to bypass when iterating locally. The signed + notarized DMG is produced by the GitHub Actions workflow that runs on `v*.*.*` tag pushes; it bundles `fetch-ollama.sh` into the pipeline so end users never need that step.
 
 ### Verifying the toolchain
 
@@ -98,7 +108,7 @@ The build is unsigned at spec 001 — macOS Gatekeeper will block double-clickin
 npm test                                       # vitest (frontend)
 npm run lint                                   # eslint
 npm run typecheck                              # tsc --noEmit
-npm run test:e2e                               # playwright (stub at spec 001)
+npm run test:e2e                               # playwright (stub — replaced by real Playwright smoke tests at v0.1.0)
 cd src-tauri && cargo test                     # Rust unit tests
 cd src-tauri && cargo clippy -- -D warnings    # Rust lints
 cd src-tauri && cargo fmt -- --check           # Rust format check
