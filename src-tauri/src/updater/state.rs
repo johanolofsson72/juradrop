@@ -86,6 +86,13 @@ impl Updater {
                 | (Downloading, Failed)
                 | (ReadyToInstall, Restarting)
                 | (ReadyToInstall, Failed)
+                // Spec 007 / GAP-B — InstallFailedTransition (spec.allium:349).
+                // The plugin's `install(bytes)` normally exits the process; if
+                // it returns `Err` (e.g. disk full, signed-but-corrupted DMG),
+                // the defensive fallback in `confirm_restart_install` records
+                // an InstallFailed failure and we transition Restarting → Failed
+                // so the user can retry rather than sitting on "Startar om…".
+                | (Restarting, Failed)
         )
     }
 
@@ -189,6 +196,19 @@ mod tests {
         let result = u.transition(UpdateState::Restarting);
         assert!(result.is_none());
         assert_eq!(u.state, UpdateState::Checking);
+    }
+
+    #[test]
+    fn restarting_to_failed_is_legal_for_install_error_recovery() {
+        // GAP-B / TLA+ finding — without this edge, a failed
+        // `update.install()` leaves the badge stuck on "Startar om…"
+        // because record_failure silently no-ops.
+        let mut u = Updater::new();
+        u.state = UpdateState::Restarting;
+        assert!(u.can_transition(UpdateState::Failed));
+        let result = u.transition(UpdateState::Failed);
+        assert_eq!(result, Some(UpdateState::Restarting));
+        assert_eq!(u.state, UpdateState::Failed);
     }
 
     #[test]

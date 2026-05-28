@@ -15,10 +15,12 @@
 pub mod commands;
 pub mod deferral;
 pub mod errors;
+pub mod lifecycle;
 pub mod state;
 pub mod status;
 pub mod tick;
 
 pub use errors::UpdateFailure;
+pub use lifecycle::RemoteUpdate;
 pub use state::{SharedUpdater, UpdateState, Updater};
 pub use status::UpdateStatus;

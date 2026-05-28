@@ -38,6 +38,16 @@ export function UpdateIndicator() {
     return null;
   }
 
+  // FR-018 — when the user dismissed the indicator, the badge stays hidden
+  // until the next transition into Available/ReadyToInstall (the Rust
+  // lifecycle helpers reset `indicator_dismissed` on those transitions).
+  if (
+    (status.state === 'available' || status.state === 'ready_to_install') &&
+    status.dismissed
+  ) {
+    return null;
+  }
+
   const handleDismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
     void dismissUpdateIndicator();
@@ -232,7 +242,7 @@ function ReadyToInstallBody({
           <DismissChevron onClick={onDismiss} />
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
-          Appen startar om automatiskt när alla pågående jobb är klara.
+          Appen startar om när jobben är klara.
         </p>
         <button
           type="button"
@@ -265,7 +275,7 @@ function ReadyToInstallBody({
                    hover:bg-primary/90 transition-colors focus-visible:outline-none
                    focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
       >
-        Starta om för att uppdatera
+        Starta om
       </button>
     </>
   );

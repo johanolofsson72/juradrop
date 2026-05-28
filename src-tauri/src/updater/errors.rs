@@ -157,6 +157,37 @@ mod tests {
         );
     }
 
+    // T025 — focused regression test that the typical Display
+    // strings produced by `reqwest::Error` for network-class failures
+    // still route to NoNetwork. We deliberately do NOT depend on
+    // reqwest internals (the Display format is the only stable
+    // surface across versions). One representative phrase per
+    // category covered by tauri-plugin-updater's error path.
+    #[test]
+    fn reqwest_style_network_phrases_map_to_no_network() {
+        struct StubErr(&'static str);
+        impl std::fmt::Display for StubErr {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.0)
+            }
+        }
+        let phrases = [
+            "error sending request: failed to connect to api.github.com:443",
+            "operation timed out",
+            "request timeout",
+            "connection refused (os error 61)",
+            "no route to host: host is unreachable",
+            "could not resolve dns for github.com",
+        ];
+        for phrase in phrases {
+            assert_eq!(
+                UpdateFailure::from_plugin_error(&StubErr(phrase)),
+                UpdateFailure::NoNetwork,
+                "phrase {phrase:?} should map to NoNetwork"
+            );
+        }
+    }
+
     #[test]
     fn signature_error_string_maps_to_signature_invalid() {
         struct StubErr;

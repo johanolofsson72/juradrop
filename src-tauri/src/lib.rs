@@ -117,6 +117,42 @@ pub fn run() {
                 }
             });
 
+            // Spec 007 / GAP-A — DeferredRestartAutoFires actuator.
+            // Every per-zone channel emits a fresh snapshot on every
+            // state-machine transition; we listen on all six and ask
+            // the updater to fire a deferred restart if (a) consent is
+            // parked and (b) no zone is processing. The check is cheap
+            // and idempotent, so we don't try to filter for "transitions
+            // to idle" specifically — every snapshot is a re-check.
+            for zone_slug in [
+                "sammanfatta",
+                "tillengelska",
+                "tillsvenska",
+                "punktlista",
+                "anonymisera",
+                "forenkla",
+            ] {
+                let channel = format!("juradrop://zone/{zone_slug}");
+                let deferred_handle = app.handle().clone();
+                app.handle().listen(&channel, move |_event| {
+                    let app = deferred_handle.clone();
+                    if let Some(state) = app.try_state::<AppState>() {
+                        if let Some(bytes) =
+                            updater::deferral::try_fire_deferred_restart(&app, &state)
+                        {
+                            // We've transitioned ReadyToInstall → Restarting.
+                            // The install() call may take time + exits the
+                            // process on success; do it in an async task so
+                            // the listener returns immediately.
+                            let install_app = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                updater::commands::run_deferred_install(&install_app, bytes).await;
+                            });
+                        }
+                    }
+                });
+            }
+
             // Boot the sidecar + initial status sync in a background task so
             // the WebView mounts quickly. The welcome card initially shows
             // "Startar AI..." (UserVisibleStatus::Startar) which matches the
@@ -128,6 +164,38 @@ pub fn run() {
             // OS-level force-quit). Runs synchronously before the spawn task
             // so the port-busy check below has a clear field.
             sidecar::pidfile::kill_stale_if_present(&app_handle);
+
+            // Spec 007 / T018-T019 — spawn the 4-hour background tick.
+            // First fire is `LAUNCH_CHECK_DELAY` (5s) after app boot;
+            // subsequent fires every 4 hours. The cancellation token
+            // lives on the Updater entity; we abort on app shutdown via
+            // its `cancel()`.
+            let tick_handle = app.handle().clone();
+            let tick_cancel = {
+                if let Some(state) = tick_handle.try_state::<AppState>() {
+                    state.updater.read().cancel_token.clone()
+                } else {
+                    tokio_util::sync::CancellationToken::new()
+                }
+            };
+            tauri::async_runtime::spawn(async move {
+                updater::tick::run_background_ticker(tick_cancel, move || {
+                    let app = tick_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        // Gating predicate — only fire when the state
+                        // allows a fresh check.
+                        let allowed = if let Some(state) = app.try_state::<AppState>() {
+                            updater::tick::is_check_allowed(state.updater.read().state)
+                        } else {
+                            false
+                        };
+                        if allowed {
+                            let _ = updater::commands::check_for_updates_now(app.clone()).await;
+                        }
+                    });
+                })
+                .await;
+            });
 
             tauri::async_runtime::spawn(async move {
                 // Load consent first so the modal-vs-no-modal decision is
@@ -193,6 +261,10 @@ pub fn run() {
                 // then clear the pidfile so the next launch doesn't try to
                 // reap a now-dead PID.
                 if let Some(state) = app_handle.try_state::<AppState>() {
+                    // Spec 007 / T019 — cancel the 4-hour ticker so its
+                    // task stops sleeping and returns cleanly.
+                    state.updater.read().cancel_token.cancel();
+
                     let sidecar = state.sidecar.clone();
                     tauri::async_runtime::block_on(async move {
                         let _ = sidecar.stop(Duration::from_secs(5)).await;

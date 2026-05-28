@@ -14,6 +14,7 @@ use super::disk_space;
 use super::log_safe::Redacted;
 use super::manager::OllamaSidecar;
 use super::status::{AppStatus, ConsentChoice, ModelStatus, SidecarStatus, UserVisibleStatus};
+use crate::updater::state::{SharedUpdater, Updater};
 use crate::zones::ZoneId;
 
 /// Default model the PoC bundles. Spec 002 contracts/ollama-api-usage.md +
@@ -107,6 +108,10 @@ pub struct AppState {
     /// (`juradrop://zone/<slug>`). Constructed at AppState::new and
     /// never mutated afterwards.
     pub zones: std::collections::HashMap<ZoneId, Arc<crate::zones::sammanfatta::DropZone>>,
+    /// Spec 007 — shared updater state machine. Wrapped in
+    /// `Arc<RwLock<Updater>>` so commands + the 4-hour tick task both
+    /// mutate it under the same lock. See `crate::updater::state`.
+    pub updater: SharedUpdater,
 }
 
 impl AppState {
@@ -124,6 +129,7 @@ impl AppState {
             consent: Arc::new(RwLock::new(ConsentRecord::default())),
             error_override: Arc::new(RwLock::new(None)),
             zones,
+            updater: Arc::new(RwLock::new(Updater::new())),
         }
     }
 

@@ -18,9 +18,9 @@ export function UpdateRetryFootnote() {
   // to a placeholder when the state doesn't carry one.
   let timestampLabel = 'Inte kontrollerad än';
   if (status.state === 'up_to_date' && status.checked_at) {
-    timestampLabel = `Senast kollat: ${formatTime(status.checked_at)}`;
+    timestampLabel = `Senast sökt: ${formatTime(status.checked_at)}`;
   } else if (status.state === 'failed' && status.checked_at) {
-    timestampLabel = `Senast kollat: ${formatTime(status.checked_at)}`;
+    timestampLabel = `Senast sökt: ${formatTime(status.checked_at)}`;
   }
 
   const isFailed = status.state === 'failed';

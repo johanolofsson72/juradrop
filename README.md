@@ -51,7 +51,13 @@ Installationsflöde när första utgåvan finns:
 2. Öppna DMG-filen genom att dubbelklicka — ingen Gatekeeper-varning eftersom appen är signerad och notariserad av Apple.
 3. Dra `JuraDrop.app` till `Program`.
 4. Starta appen från Program. Vid första start laddas en AI-modell (~2 GB) ner från `ollama.com`.
-5. Klart — dra ett dokument till en zon. Framtida uppdateringar erbjuds automatiskt vid nästa start.
+5. Klart — dra ett dokument till en zon.
+
+## Auto-updater
+
+JuraDrop letar efter nya versioner cirka var fjärde timme medan appen är öppen. När en uppdatering finns dyker en liten knapp upp uppe till höger — ingen modal som blockerar arbetet. Klicka för att se vad som är nytt och tryck **Installera nu** för att hämta. Signaturen verifieras lokalt innan något skrivs till disk. När nedladdningen är klar väljer du själv när omstarten ska ske; om en zon fortfarande jobbar väntar appen tills jobben är klara innan den startar om. Bekräftelseflödet kör enbart utgående trafik mot `api.github.com` (manifestet) och `objects.githubusercontent.com` (DMG-binären) — Principle I (allt dokumentinnehåll stannar lokalt) gäller fortfarande.
+
+Om du inte vill bli störd just nu finns en × som döljer indikatorn tills nästa version dyker upp. En diskret tidsstämpel längst ner till höger visar när senaste sökningen gjordes, och en knapp där kör en manuell sökning om du föredrar det framför den automatiska kontrollen.
 
 ## Build from source
 

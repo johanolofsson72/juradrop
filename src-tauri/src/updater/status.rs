@@ -21,6 +21,10 @@ pub enum UpdateStatus {
         version: String,
         notes: String,
         download_url: String,
+        /// FR-018 — if the user dismissed the indicator, the React layer
+        /// must hide the badge without losing the state itself. A fresh
+        /// transition into `Available` (record_available) clears the flag.
+        dismissed: bool,
     },
     Downloading {
         version: String,
@@ -29,6 +33,8 @@ pub enum UpdateStatus {
     ReadyToInstall {
         version: String,
         deferred: bool,
+        /// FR-018 — same dismissal contract as `Available`.
+        dismissed: bool,
     },
     Restarting {
         version: String,
@@ -57,6 +63,7 @@ impl UpdateStatus {
                 version: u.latest_known_version.clone().unwrap_or_default(),
                 notes: u.release_notes.clone().unwrap_or_default(),
                 download_url: u.download_url.clone().unwrap_or_default(),
+                dismissed: u.indicator_dismissed,
             },
             UpdateState::Downloading => Self::Downloading {
                 version: u.latest_known_version.clone().unwrap_or_default(),
@@ -65,6 +72,7 @@ impl UpdateStatus {
             UpdateState::ReadyToInstall => Self::ReadyToInstall {
                 version: u.latest_known_version.clone().unwrap_or_default(),
                 deferred: u.pending_restart_consent,
+                dismissed: u.indicator_dismissed,
             },
             UpdateState::Restarting => Self::Restarting {
                 version: u.latest_known_version.clone().unwrap_or_default(),
@@ -110,11 +118,25 @@ mod tests {
                 version,
                 notes,
                 download_url,
+                dismissed,
             } => {
                 assert_eq!(version, "0.2.0");
                 assert_eq!(notes, "Test notes");
                 assert_eq!(download_url, "https://example.com/dmg");
+                assert!(!dismissed);
             }
+            other => panic!("expected Available, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn available_state_carries_dismissed_flag_when_user_dismissed() {
+        let mut u = Updater::new();
+        u.state = UpdateState::Available;
+        u.latest_known_version = Some("0.2.0".into());
+        u.indicator_dismissed = true;
+        match UpdateStatus::from_updater(&u) {
+            UpdateStatus::Available { dismissed, .. } => assert!(dismissed),
             other => panic!("expected Available, got {other:?}"),
         }
     }
@@ -138,7 +160,14 @@ mod tests {
         u.latest_known_version = Some("0.2.0".into());
         u.pending_restart_consent = true;
         match UpdateStatus::from_updater(&u) {
-            UpdateStatus::ReadyToInstall { deferred, .. } => assert!(deferred),
+            UpdateStatus::ReadyToInstall {
+                deferred,
+                dismissed,
+                ..
+            } => {
+                assert!(deferred);
+                assert!(!dismissed);
+            }
             other => panic!("expected ReadyToInstall deferred, got {other:?}"),
         }
     }

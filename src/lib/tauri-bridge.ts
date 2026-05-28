@@ -152,9 +152,20 @@ export type UpdateStatus =
   | { state: 'unknown' }
   | { state: 'checking' }
   | { state: 'up_to_date'; version: string; checked_at: string }
-  | { state: 'available'; version: string; notes: string; download_url: string }
+  | {
+      state: 'available';
+      version: string;
+      notes: string;
+      download_url: string;
+      dismissed: boolean;
+    }
   | { state: 'downloading'; version: string; progress_pct: number }
-  | { state: 'ready_to_install'; version: string; deferred: boolean }
+  | {
+      state: 'ready_to_install';
+      version: string;
+      deferred: boolean;
+      dismissed: boolean;
+    }
   | { state: 'restarting'; version: string }
   | {
       state: 'failed';

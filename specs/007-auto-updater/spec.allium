@@ -81,9 +81,22 @@ value UpdateStatus {
     version: String when state in {up_to_date, available, downloading, ready_to_install, restarting}
     notes: String when state = available
     download_url: String when state = available
+    -- DRIFT-3 — FR-018 indicator-dismissed flag mirrored to React
+    -- so the badge can hide itself between dismissal and the next
+    -- fresh transition into available | ready_to_install (which
+    -- resets the underlying Updater.indicator_dismissed).
+    dismissed: Boolean when state in {available, ready_to_install}
+    -- ready_to_install carries deferred:true when the user clicked
+    -- "Starta om" while a zone was busy. The badge text branches on
+    -- this in the React layer.
+    deferred: Boolean when state = ready_to_install
     progress_pct: Integer when state = downloading
     checked_at: Timestamp when state in {up_to_date, failed}
     failure: UpdateFailure when state = failed
+    -- DRIFT-4 — rendered Swedish copy from UpdateFailure.Display.
+    -- The React layer reads this directly so the badge / footnote
+    -- copy never has to look up a separate map.
+    message: String when state = failed
 }
 
 -- ============================================================
@@ -133,10 +146,17 @@ entity Updater {
     }
 }
 
--- The background tick task. Single tokio-spawned task per app.
+-- DRIFT-6 — the background tick task. Single tokio-spawned task
+-- per app. The implementation collapses this to a single
+-- `tokio_util::sync::CancellationToken` stored on the Updater
+-- entity (`Updater.cancel_token`); the token's `cancelled` value
+-- is the only piece of state that's read back. The `interval`
+-- and `last_fired_at` fields were modeled here for completeness
+-- but are not separately tracked — the interval is a pair of
+-- constants (`LAUNCH_CHECK_DELAY`, `BACKGROUND_INTERVAL`) inside
+-- `tick.rs`, and `last_fired_at` is not surfaced to any consumer.
 entity UpdaterTask {
     interval: Duration = `4 hours`
-    last_fired_at: Timestamp?
     cancelled: Boolean
 }
 
@@ -147,8 +167,11 @@ entity UpdaterTask {
 config {
     background_check_interval_hours: Integer = 4
     launch_check_delay_secs: Integer = 5
-    download_timeout_secs: Integer = 600        -- 10 min for the DMG download
-    manifest_fetch_timeout_secs: Integer = 30
+    -- DRIFT-7 — download_timeout_secs + manifest_fetch_timeout_secs
+    -- are not separately enforced at v0.1. The download relies on
+    -- tauri-plugin-updater's built-in timeout + reqwest defaults;
+    -- the manifest fetch is implicit in the plugin's `check()` call.
+    -- Track explicit timeout enforcement under spec 011 (error-recovery).
     update_endpoint: String = `https://github.com/johanolofsson72/juradrop/releases/latest/download/latest.json`
 }
 
@@ -423,16 +446,18 @@ invariant NoModalDialog {
     not exists ModalUpdaterComponent in ReactTree
 }
 
--- FR-006 — indicator badge visibility predicate.
+-- FR-006 + FR-020a — indicator badge visibility predicate.
 invariant IndicatorVisibilityRule {
     -- Badge is visible iff:
-    --   state is available | downloading | ready_to_install
-    --   AND indicator_dismissed = false
+    --   state is available | downloading | ready_to_install | restarting
+    --   AND indicator_dismissed = false (only meaningful on the first two)
+    -- DRIFT-5 — `restarting` is included so the user sees a brief
+    -- "Startar om…" confirmation that matches spec.md FR-020a.
     -- Badge is hidden when state is unknown | checking | up_to_date | failed.
     -- Failed state hides badge (FR-010); user-recovery lives in the
     -- bottom-right footnote affordance.
     IndicatorBadge.visible = (
-        Updater.state in {available, downloading, ready_to_install} and
+        Updater.state in {available, downloading, ready_to_install, restarting} and
         Updater.indicator_dismissed = false
     )
 }
