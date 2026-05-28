@@ -30,16 +30,13 @@ describe('App', () => {
     cleanup();
   });
 
-  it('renders the JuraDrop welcome title', () => {
-    // FC-002: the placeholder welcome card renders inside App.
+  it('hides the welcome card in the klar zone-grid happy path (post-spec-012)', () => {
+    // FC-002 amended: WelcomeCard returns null when state=klar so the
+    // zone-grid gets the full window. Welcome title only appears for
+    // non-klar non-wizard states (download progress, errors, etc.).
     render(<App />);
-    expect(screen.getByText('JuraDrop')).toBeInTheDocument();
-  });
-
-  it('renders the Swedish subtitle', () => {
-    // FC-002 + Constitution Principle V (Swedish-First UI).
-    render(<App />);
-    expect(screen.getByText('Lokal AI för svenska juriststudenter')).toBeInTheDocument();
+    expect(screen.queryByText('JuraDrop')).toBeNull();
+    expect(screen.queryByText('Lokal AI för svenska juriststudenter')).toBeNull();
   });
 
   it('renders inside a semantic main landmark', () => {

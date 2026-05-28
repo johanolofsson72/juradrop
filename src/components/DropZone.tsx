@@ -74,7 +74,7 @@ export function DropZone({ zoneId }: DropZoneProps) {
       data-disabled={disabled}
       className={[
         'group relative flex w-full select-none flex-col items-center justify-center',
-        'rounded-lg border-2 border-dashed border-border bg-transparent px-8 py-12',
+        'rounded-lg border-2 border-dashed border-border bg-transparent px-8 py-8',
         'transition-[border-color,background-color,opacity] duration-150 ease-out',
         'data-[state=dragover]:border-[#007aff] dark:data-[state=dragover]:border-[#0a84ff]',
         'data-[state=dragover]:bg-[#007aff]/5 dark:data-[state=dragover]:bg-[#0a84ff]/5',

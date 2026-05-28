@@ -37,10 +37,12 @@ describe('WelcomeCard', () => {
     expect(screen.getByText('Startar AI...')).toBeInTheDocument();
   });
 
-  it('shows "AI är redo" when ready', () => {
+  it('renders nothing when state is klar (post-spec-012 polish — happy path is silent)', () => {
     setStore({ visible: 'klar', sidecar: 'ready', model: 'ready', consent: 'fortsatt' });
-    render(<WelcomeCard />);
-    expect(screen.getByText('AI är redo')).toBeInTheDocument();
+    const { container } = render(<WelcomeCard />);
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText('AI är redo')).toBeNull();
+    expect(screen.queryByText('JuraDrop')).toBeNull();
   });
 
   it('shows the download progress including percent', () => {

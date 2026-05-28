@@ -103,12 +103,15 @@ describe('WelcomeCard error rendering (T051)', () => {
     });
   }
 
-  it('uses the muted-foreground class (not destructive) for the non-error klar state', () => {
+  it('renders nothing for the non-error klar state (post-spec-012 — happy path is silent)', () => {
+    // Was previously asserting muted-foreground class on the klar message;
+    // post-spec-012 WelcomeCard returns null when visible === 'klar' so
+    // no aria-live region exists to assert against. The non-klar non-error
+    // muted-foreground assertion is still exercised by the downloading-state
+    // test below (which renders the card with aria-live="polite").
     setStore({ visible: 'klar', sidecar: 'ready', model: 'ready', consent: 'fortsatt' });
     const { container } = render(<WelcomeCard />);
-    const live = container.querySelector('[aria-live="polite"]');
-    expect(live?.className).toMatch(/text-muted-foreground/);
-    expect(live?.className).not.toMatch(/text-destructive/);
+    expect(container.firstChild).toBeNull();
   });
 
   it('uses the muted-foreground class for the downloading state', () => {

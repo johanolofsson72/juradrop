@@ -298,23 +298,25 @@ pub fn run() {
 /// Spec 004 / T018 — translate Tauri's `DragDropEvent` into the
 /// `juradrop://file-dropped` event the WebView consumes. The
 /// elementFromPoint resolution lives in JS; this Rust handler is
-/// purely an OS-level → bridge-level translator. The position is
-/// converted from physical pixels (what Tauri gives us) to CSS pixels
-/// (what `document.elementFromPoint` expects).
+/// purely an OS-level → bridge-level translator.
+///
+/// Position semantics: Tauri 2.x on macOS delivers `position` in
+/// LOGICAL pixels (despite the type being `PhysicalPosition<f64>`,
+/// the values match what `document.elementFromPoint(x, y)` expects
+/// in the WebView). Dividing by `scale_factor` here would
+/// double-shrink the coordinates and route the drop to the wrong
+/// zone (typically above the zone grid). Verified empirically on
+/// macOS 26 with a Retina display (scale=2); the unmodified
+/// position lands on the visually-targeted zone. The earlier
+/// divide-by-scale was inherited from the Tauri 1.x convention
+/// and the bug went unnoticed because no spec ever exercised a
+/// real drag-drop against a built `.app` until the post-spec-012
+/// hardware test.
 fn handle_drag_drop_event(app: &tauri::AppHandle, drag: DragDropEvent) {
-    use tauri::Manager;
-    // CSS-pixel position. Tauri gives us physical pixels in
-    // PhysicalPosition<f64>; divide by the main window's scale_factor
-    // to get the CSS coordinates document.elementFromPoint expects.
-    let scale = app
-        .get_webview_window("main")
-        .and_then(|w| w.scale_factor().ok())
-        .unwrap_or(1.0);
-
     // Enter / Over / Leave are routed by the WebView's own
     // drag-tracking layer (set per-zone via React onDragOver +
     // data-zone-id). Rust only needs to fan out the Drop event with
-    // the OS file paths + the CSS-pixel position.
+    // the OS file paths + the position.
     if let DragDropEvent::Drop { paths, position } = drag {
         #[derive(serde::Serialize, Clone)]
         struct FileDroppedPayload {
@@ -329,8 +331,8 @@ fn handle_drag_drop_event(app: &tauri::AppHandle, drag: DragDropEvent) {
         let payload = FileDroppedPayload {
             paths,
             position: CssPosition {
-                x: position.x / scale,
-                y: position.y / scale,
+                x: position.x,
+                y: position.y,
             },
         };
         let _ = app.emit("juradrop://file-dropped", payload);

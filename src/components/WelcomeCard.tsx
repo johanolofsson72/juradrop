@@ -11,8 +11,16 @@ import { useStatusStore, statusMessage } from '@/lib/status-store';
 // live status string driven by the zustand store wired to Tauri events.
 // The disabled "Kom igång" button from spec 001 is removed because the
 // status string is now the meaningful content (not a placeholder).
+//
+// Post-spec-012 polish: when state is `klar` (happy path — sidecar up,
+// model pulled, nothing to say), return null so the zone grid gets the
+// full window without visual chrome competing for attention. The card
+// re-appears automatically for begar_samtycke, laddar_ner_modell, and
+// every fel_*/modell_saknas_avbruten state — preserving Principle VIII
+// honest-failure-state surfacing.
 export function WelcomeCard() {
   const status = useStatusStore((s) => s.status);
+  if (status.visible === 'klar') return null;
   const message = statusMessage(status);
   const isError = status.visible.startsWith('fel_') || status.visible === 'modell_saknas_avbruten';
 
