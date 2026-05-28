@@ -1,0 +1,5 @@
+{
+  "_comment": "Spec 011 / T001 — pinned Swedish copy for crash-recovery surfaces. `fel_ovantat` is the terminal state after retry budget is exhausted (welcome card displays this until quit). `model_error` is the in-flight DropJob terminal when sidecar crashes mid-dispatch. Both are duplicated in the existing zone-error-strings.json fixture (spec 003 lineage) for the cross-fixture drift test in T012.",
+  "fel_ovantat": "AI-motorn svarar inte. Starta om JuraDrop.",
+  "model_error": "AI-motorn svarade inte — försök igen"
+}

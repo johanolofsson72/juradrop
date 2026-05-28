@@ -1,0 +1,474 @@
+-- allium: 3
+
+-- Formal spec for spec 011: error recovery — sidecar crash detection,
+-- one-shot auto-restart, Swedish-only failure surface, no-leakage, no-telemetry.
+-- Source: specs/011-error-recovery/spec.md
+-- Elicited: 2026-05-28
+--
+-- This file RATIFIES existing behavior across specs 002/003/008 and
+-- adds two NEW invariants (English-leakage denylist, telemetry-library
+-- denylist) plus one NEW formal contract (per-app-lifetime retry budget
+-- with monotonic counter).
+--
+-- What is RATIFIED vs NEW (mirrors spec.md table):
+--   RATIFIED: sidecar-crashed event channel, retry listener, GAP-4
+--     post-retry bootstrap, FelOvantat copy, error_override pattern.
+--   NEW: 14-entry English-leakage denylist (FR-013), 18-entry
+--     telemetry-library denylist (FR-015), pull-cancel-on-crash
+--     contract (FR-011), retry-counter monotonicity (SC-003).
+
+-- ============================================================
+-- External entities (defined by spec 002 / 003 / 007 / 008 / 010)
+-- ============================================================
+
+-- Defined in specs/002-ollama-sidecar-poc/spec.allium. Spec 011
+-- extends the visible_state machine with the Crashed→Starting
+-- retry arc and pins the retry_count semantics.
+external entity OllamaSidecar {
+    status: not_started | starting | ready | crashed | stopping | stopped
+    retry_count: Integer            -- AtomicU8; per-app-lifetime; 0..=1
+}
+
+-- Defined in spec 002. The post-ready bootstrap re-runs the model
+-- listing + pull-trigger logic. Spec 011 RATIFIES that the retry
+-- listener calls this after a successful re-spawn (GAP-4).
+external entity AppState {
+    model_status: not_present | downloading | ready | download_failed
+    consent: not_asked | fortsatt | avbryt
+    error_override: String?
+    pull_cancel_token_id: String         -- opaque handle for the cancel token; tracked symbolically
+}
+
+-- Defined in specs/003-first-zone-sammanfatta/spec.allium. Spec 011
+-- ratifies that a sidecar crash mid-dispatch terminates the in-flight
+-- job with ZoneFailure::ModelError.
+external entity DropJob {
+    id: String
+    outcome: in_flight | success | failure | cancelled
+    failure_variant: String?
+}
+
+-- Defined in specs/002-ollama-sidecar-poc/spec.allium.
+external entity OllamaClient {
+    base_url: String                -- always `http://127.0.0.1:11434`
+}
+
+-- Inherited from spec 003. Spec 011 ratifies that the FelOvantat
+-- copy is wrapped in this same SwedishCopy value (Principle V).
+external entity SwedishCopy {
+    text: String
+}
+
+-- ============================================================
+-- New enums
+-- ============================================================
+
+-- The user-visible status set inherited from spec 002 / 008 / 010.
+-- Spec 011 pins the contract that FelOvantat is the EXCLUSIVE
+-- terminal state for an exhausted-retry crash.
+enum UserVisibleStatus {
+    startar
+    klar
+    laddar_ner_modell
+    begar_samtycke
+    fel_kunde_inte_starta
+    fel_porten_upptagen
+    fel_disk_full
+    fel_modellnedladdning_avbroten
+    fel_ovantat                                   -- crash-exhausted terminal
+    modell_saknas_avbruten
+}
+
+-- The retry-counter regime. Per-app-lifetime; never decremented.
+enum RetryBudgetPhase {
+    fresh                                          -- retry_count = 0
+    used                                           -- retry_count = 1 (terminal within session)
+}
+
+-- The crash-payload exit code class. Used only for debug-stderr
+-- logging; NEVER surfaced in user-facing copy (Clarification Q4).
+enum CrashExitClass {
+    clean_zero                                     -- exit code 0 — extremely rare
+    nonzero_status                                 -- exit code 1..=255
+    signal_terminated                              -- SIGKILL / SIGSEGV / etc.
+}
+
+-- ============================================================
+-- Value objects
+-- ============================================================
+
+-- The Tauri-event payload fired on `juradrop://sidecar-crashed`.
+-- Carries the integer exit code. NEVER carries PII, path, or
+-- user-content fragment.
+value SidecarCrashEvent {
+    channel: String                                -- = `juradrop://sidecar-crashed`
+    exit_code: Integer
+    fired_at: Timestamp
+}
+
+-- The 14-entry English-leakage denylist (Clarification Q1).
+-- Pinned in code as `static ENGLISH_LEAKAGE_DENYLIST: [&str; 14]`.
+value EnglishLeakageDenylist {
+    entries: Set<String>                           -- pinned size = 14 (see invariant below)
+}
+
+-- The 18-entry telemetry-library denylist (Clarification Q2).
+-- Pinned in code as `static TELEMETRY_DENYLIST: [&str; 18]`.
+value TelemetryDependencyDenylist {
+    entries: Set<String>                           -- pinned size = 18
+}
+
+-- ============================================================
+-- Config / fixed boundaries
+-- ============================================================
+
+config {
+    -- FR-002 / FR-003 — per-app-lifetime retry budget. The AtomicU8
+    -- starts at 0; the listener increments to 1 on the first crash.
+    -- Any subsequent crash sees != 0 and holds FelOvantat.
+    max_retries_per_app_lifetime: Integer = 1
+
+    -- FR-005 — re-spawn must reach Ready within this many seconds
+    -- on the happy path. Matches the existing wait_ready timeout.
+    respawn_ready_timeout_seconds: Integer = 10
+
+    -- FR-007 / Clarification Q3 — the pinned FelOvantat Swedish copy.
+    -- Includes the recovery instruction (FR-009).
+    fel_ovantat_copy: String = `AI-motorn svarar inte. Starta om JuraDrop.`
+
+    -- FR-008 — the pinned ModelError Swedish copy, inherited from spec 003.
+    -- Spec 011 ratifies its use as the in-flight-DropJob-crash terminal.
+    model_error_copy: String = `AI-motorn svarade inte — försök igen`
+
+    -- FR-013 / Clarification Q1 — count and exact contents.
+    english_leakage_denylist_size: Integer = 14
+
+    -- FR-015 / Clarification Q2 — count and exact contents.
+    telemetry_denylist_size: Integer = 18
+
+    -- FR-001 — the unique channel name. No collision with
+    -- juradrop://status / juradrop://progress / juradrop://zone/* / etc.
+    crash_event_channel: String = `juradrop://sidecar-crashed`
+
+    -- DRIFT-1 (post-distill) — the drain task ALSO emits this
+    -- "terminated" channel on every exit (clean or crash). No
+    -- listener acts on it for retry; it's used by tests + as a
+    -- general process-lifecycle signal. Documented here so future
+    -- distill runs don't flag it again.
+    terminated_event_channel: String = `juradrop://sidecar-terminated`
+
+    -- SC-008 — preserve existing per-zone error-clear schedule.
+    zone_error_clear_budget_seconds: Integer = 4
+}
+
+-- ============================================================
+-- Rules — crash detection + auto-restart
+-- ============================================================
+
+-- FR-001 — the drain task in manager.rs awaits child.wait() once.
+-- On EVERY exit, fires the `terminated` channel. On unexpected exit
+-- (sidecar.status != stopping at the moment of exit), ALSO fires the
+-- `crashed` channel that gates the retry. Exactly one of each per
+-- child-process exit. (DRIFT-1 post-distill update.)
+rule SidecarDrainEmitsOnExit {
+    when: SidecarChildExited(sidecar, exit_code)
+    ensures:
+        emit(terminated_event_channel, exit_code)
+        if sidecar.status != stopping:
+            sidecar.status = crashed
+            SidecarCrashEvent.created(
+                channel: crash_event_channel,
+                exit_code: exit_code,
+                fired_at: now
+            )
+        if sidecar.status = stopping:
+            sidecar.status = stopped
+}
+
+-- FR-002 + FR-003 — listener observes the crash event and gates
+-- the retry on the current retry_count value. The increment-first
+-- pattern ensures two concurrent crash events serialize cleanly:
+-- only the one that sees 0 wins the retry slot.
+rule SidecarCrashedListenerGatesOnRetryCount {
+    when: SidecarCrashEvent(event)
+    ensures:
+        let sc = CurrentSidecar
+        if sc.retry_count = 0:
+            let prev = sc.increment_retry()
+            if prev = 1:
+                RespawnTaskScheduled(sidecar: sc)
+        if sc.retry_count != 0:
+            DebugLog(message: `retry budget exhausted; holding Crashed`)
+}
+
+-- FR-005 + FR-006 — re-spawn task within 10s budget; on success,
+-- re-run the post-ready bootstrap to clear stale error_override
+-- and re-trigger the pull if needed.
+rule RespawnTaskCompletesWithinBudget {
+    when: RespawnTaskScheduled(sidecar)
+    requires: sidecar.status = crashed
+    ensures:
+        let spawn_result = SpawnSidecar(sidecar, timeout: respawn_ready_timeout_seconds)
+        if spawn_result = ok:
+            sidecar.status = ready
+            AppState.error_override = null
+            AfterSidecarReadyInvoked(sidecar: sidecar)
+        if spawn_result = err:
+            AppState.error_override = fel_ovantat_copy
+}
+
+-- FR-007 — second crash (or retry failure) sets error_override
+-- to FelOvantat. The user-visible welcome card surfaces the
+-- pinned Swedish copy until the app quits.
+rule SecondCrashOrRetryFailureSurfacesFelOvantat {
+    when: SidecarCrashEvent(event)
+    requires: CurrentSidecar.retry_count != 0
+    ensures:
+        AppState.error_override = fel_ovantat_copy
+        WelcomeCardDisplayedCopy = fel_ovantat_copy
+}
+
+-- ============================================================
+-- Rules — pull-cancel-on-crash
+-- ============================================================
+
+-- FR-011 — sidecar crash mid-pull terminates the reqwest stream
+-- (bytes_stream drops on connection loss). The wizard's progress
+-- slice resets to 0 on the next status emit. Ollama owns the
+-- partial-blob cleanup.
+rule CrashMidPullDiscardsPartialDownload {
+    when: SidecarCrashEvent(event)
+    requires:
+        AppState.model_status = downloading
+    ensures:
+        AppState.pull_cancel.cancel()
+        AppState.model_status = not_present
+        WizardProgressPercent = 0
+}
+
+-- FR-012 — after a successful re-spawn during a pulled-mid-flight
+-- crash, after_sidecar_ready sees model_status = not_present AND
+-- consent = fortsatt, and re-triggers the pull task with a fresh
+-- cancellation token.
+rule PullResumesAfterCrashRecovery {
+    when: AfterSidecarReadyInvoked(sidecar)
+    requires:
+        AppState.model_status = not_present
+        AppState.consent = fortsatt
+    ensures:
+        AppState.pull_cancel = CancellationToken.created()
+        AppState.model_status = downloading
+        WizardProgressPercent = 0
+}
+
+-- ============================================================
+-- Rules — crash-during-dispatch
+-- ============================================================
+
+-- FR-008 — in-flight DropJob terminates with ModelError when its
+-- generate() call returns Err (sidecar disappeared mid-inference).
+-- The zone returns to idle via the existing error-clear schedule.
+rule InFlightDropJobTerminatesWithModelErrorOnSidecarLoss {
+    when: SidecarGenerateCallFailed(job, reason: connection_lost)
+    requires: job.outcome = in_flight
+    ensures:
+        job.outcome = failure
+        job.failure_variant = `ModelError`
+        ZoneFailureRaised(
+            zone: job.zone,
+            failure: model_error,
+            message: SwedishCopy(text: model_error_copy)
+        )
+        ZoneReturnsToIdleAfter(seconds: zone_error_clear_budget_seconds)
+}
+
+-- ============================================================
+-- Invariants
+-- ============================================================
+
+invariant RetryCounterMonotonic {
+    -- SC-003 — the AtomicU8 retry_count is monotonic within a single
+    -- app lifetime. No code path may decrement it. The fetch_add(1)
+    -- in increment_retry() is the only mutator.
+    for sidecar in OllamaSidecars:
+        sidecar.retry_count >= 0 and
+        sidecar.retry_count <= max_retries_per_app_lifetime
+}
+
+invariant RetryBudgetExclusivelyResetByConstructor {
+    -- Clarification Q5 — retry_count is reset to 0 ONLY by
+    -- OllamaSidecar::new(). There is no in-session reset path,
+    -- no decay timer, no user-facing button. A new lifetime begins
+    -- only at process boot.
+    for sidecar in OllamaSidecars:
+        sidecar.retry_count_reset_callers = {`OllamaSidecar::new`}
+}
+
+invariant CrashEventEmittedExactlyOncePerCrash {
+    -- FR-001 — the drain task awaits child.wait() ONCE. Compiler
+    -- ownership rules prevent a second await. Therefore at most
+    -- one juradrop://sidecar-crashed event fires per crash.
+    for crash in SidecarCrashes:
+        SidecarCrashEvents.where(e => e.crash = crash).count = 1
+}
+
+invariant CrashListenerNeverSpawnsTwice {
+    -- SC-002 — after the retry budget is exhausted, the listener
+    -- MUST NOT call sidecar.spawn a second time. The retry_count
+    -- != 0 gate enforces this; verified by a counter in tests.
+    for crash in SidecarCrashes where crash.was_second_in_session:
+        crash.resulted_in_spawn_call = false
+}
+
+invariant FelOvantatCopyPinned {
+    -- FR-007 + FR-009 + Clarification Q3 — the pinned Swedish
+    -- copy is exact. Includes the recovery instruction.
+    fel_ovantat_copy = `AI-motorn svarar inte. Starta om JuraDrop.` and
+    fel_ovantat_copy.length <= 80
+}
+
+invariant ModelErrorCopyPinned {
+    -- FR-008 — the pinned ModelError copy is exact. Inherited
+    -- from spec 003 but pinned here so the cross-language drift
+    -- test covers it.
+    model_error_copy = `AI-motorn svarade inte — försök igen` and
+    model_error_copy.length <= 80
+}
+
+invariant NoEnglishTellsInUserFacingStrings {
+    -- FR-013 + Clarification Q1 — no user-facing string in any
+    -- Swedish copy fixture, in any React component literal, or
+    -- in any Tauri command's String error return contains any
+    -- of the 14 denylist substrings. Enforced by CI grep test.
+    for s in UserFacingStrings:
+        for needle in EnglishLeakageDenylist.entries:
+            not s.contains(needle)
+}
+
+invariant EnglishLeakageDenylistSizePinned {
+    -- FR-013 / Clarification Q1 — exactly 14 entries.
+    EnglishLeakageDenylist.entries.count = english_leakage_denylist_size
+}
+
+invariant NoTelemetryLibrariesInDepTree {
+    -- FR-015 + Clarification Q2 — no dep-manifest file contains
+    -- any of the 18 denylisted substrings (case-insensitive).
+    -- Enforced by CI grep test on Cargo.toml, Cargo.lock,
+    -- package.json, package-lock.json.
+    for manifest in DependencyManifests:
+        for needle in TelemetryDependencyDenylist.entries:
+            not manifest.contents.to_lower.contains(needle.to_lower)
+}
+
+invariant TelemetryDenylistSizePinned {
+    -- FR-015 / Clarification Q2 — exactly 18 entries.
+    TelemetryDependencyDenylist.entries.count = telemetry_denylist_size
+}
+
+invariant NoOutboundFromCrashHandlingCode {
+    -- FR-017 + SC-007 + Principle I — the sidecar-crash listener
+    -- MUST NOT import any outbound-HTTP-capable type. Enforced
+    -- by static-grep test on src-tauri/src/lib.rs's listener
+    -- closure block: no `reqwest::`, no `tauri-plugin-http::`,
+    -- no `tauri-plugin-shell::open` (the latter is allowed at
+    -- the call-site level via the spec 010 capability scope,
+    -- but the crash listener specifically MUST NOT use it).
+    for handler in CrashHandlingCodePaths:
+        not handler.uses(`reqwest::Client`) and
+        not handler.uses(`tauri::http::Client`) and
+        not handler.uses(`shell::open`)
+}
+
+invariant CrashExitCodeNeverInUserFacingStrings {
+    -- Clarification Q4 — the integer exit code from the crash
+    -- payload is consumed ONLY by debug-stderr logging via
+    -- eprintln!. Never appears in any user-facing string,
+    -- never serialized into a Tauri error return.
+    for s in UserFacingStrings:
+        not s.matches(`exit code \d+`) and
+        not s.matches(`exit \d+`) and
+        not s.contains(`SIGKILL`) and
+        not s.contains(`SIGSEGV`)
+}
+
+invariant FelOvantatExclusiveTerminalForExhaustedRetry {
+    -- FR-007 — when retry_count is exhausted AND a crash has just
+    -- happened, error_override MUST equal fel_ovantat_copy. Other
+    -- terminal states (FelKundeInteStarta, FelDiskFull, etc.) cover
+    -- different failure paths and MUST NOT fire from the crash
+    -- listener.
+    for sidecar in OllamaSidecars where sidecar.status = crashed and sidecar.retry_count != 0:
+        AppState.error_override = fel_ovantat_copy
+}
+
+invariant SidecarStateMachineExtendedTransitionsValid {
+    -- FR-005 + FR-006 — the new transitions added by spec 011 are:
+    --   crashed -> starting   (retry listener calls spawn)
+    --   starting -> ready     (wait_ready succeeds within 10s)
+    --   starting -> crashed   (wait_ready times out OR spawn fails)
+    -- All other transitions are inherited from spec 002. No new
+    -- transitions outside this set.
+    for sidecar in OllamaSidecars:
+        sidecar.status in {not_started, starting, ready, crashed, stopping, stopped}
+}
+
+invariant PartialDownloadDiscardedOnCrash {
+    -- FR-011 — when crash fires during model_status = downloading,
+    -- the next observed progress event after re-spawn is at 0%.
+    -- The partial blob is NOT persisted on disk by JuraDrop;
+    -- Ollama owns the cleanup.
+    for crash in SidecarCrashes where crash.during_pull = true:
+        WizardProgressAfter(crash) = 0
+}
+
+invariant ZoneCrashRecoveryAllowsRetryWithoutQuit {
+    -- FR-008 + SC-008 — after a crash-induced ModelError, the
+    -- zone returns to idle within the standard error-clear budget.
+    -- The user can drop the same file again without quitting JuraDrop.
+    for job in DropJobs where job.failure_variant = `ModelError` and job.caused_by_crash = true:
+        ZoneIdleAgainWithin(seconds: zone_error_clear_budget_seconds)
+}
+
+invariant CrashChannelNameUnique {
+    -- FR-001 — the channel name `juradrop://sidecar-crashed` does
+    -- not collide with any other Tauri event channel: juradrop://
+    -- status, juradrop://progress, juradrop://file-dropped,
+    -- juradrop://update-status, juradrop://zone/<slug>,
+    -- juradrop://settings/tier-download-requested.
+    crash_event_channel = `juradrop://sidecar-crashed` and
+    for other in TauriEventChannels where other != `juradrop://sidecar-crashed`:
+        other != crash_event_channel
+}
+
+-- ============================================================
+-- Surfaces
+-- ============================================================
+
+actor LawStudent { identified_by: `the local user` }
+
+surface WelcomeCardFailureSurface {
+    facing viewer: LawStudent
+    context state: AppState where viewer.identified_by = `the local user`
+    exposes:
+        state.error_override
+        fel_ovantat_copy
+}
+
+-- ============================================================
+-- Deferred
+-- ============================================================
+
+deferred PerCrashTelemetryReport                  -- explicitly forbidden by FR-015 + Principle I. Lives nowhere; any future contributor reaching for this needs a constitutional amendment.
+deferred RetryWithExponentialBackoff              -- max_retries_per_app_lifetime = 1 makes backoff meaningless. If retries-per-minute were ever introduced, would live in src-tauri/src/sidecar/manager.rs.
+deferred UserVisibleRetryCounterUI                -- the user does not need to know about retry attempts. A future "diagnostics" panel could surface this but is out of scope.
+deferred PanicHookCustomRegistration              -- Rust's default panic hook (stderr) is sufficient. If ever needed, would live in src-tauri/src/main.rs.
+deferred CrashReproductionLogging                 -- writing crash details to a local file (for user-to-developer transmission via email) would need explicit consent + a scrub pipeline. Lives in a future spec if at all.
+
+-- ============================================================
+-- Open questions
+-- ============================================================
+
+-- (No open questions remain — five clarifications were auto-picked
+-- and integrated into spec.md on 2026-05-28. Retry budget semantics,
+-- denylist sizes, race-condition handling, exit-code visibility, and
+-- reset semantics are all pinned.)

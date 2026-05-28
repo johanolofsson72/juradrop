@@ -1,0 +1,189 @@
+-- allium: 3
+
+-- DISTILLED Allium for spec 011 — extracted from the implemented code:
+--   src-tauri/src/sidecar/manager.rs (drain task + retry_count primitives)
+--   src-tauri/src/lib.rs (sidecar-crashed listener)
+--   src-tauri/src/sidecar/commands.rs (error_override + after_sidecar_ready)
+--   src-tauri/tests/crash_recovery_invariants.rs (14 tests)
+--   src-tauri/tests/english_leakage_denylist.rs (2 tests)
+--   src-tauri/tests/telemetry_denylist.rs (7 tests)
+--
+-- Compared against specs/011-error-recovery/spec.allium for drift.
+
+-- ============================================================
+-- Entities (extracted from code)
+-- ============================================================
+
+external entity OllamaSidecar {
+    status: not_started | starting | ready | crashed | stopping | stopped
+    retry_count: Integer            -- AtomicU8 in manager.rs:33
+    pid_value: Integer?
+}
+
+external entity AppState {
+    model_status: not_present | downloading | ready | download_failed
+    consent: not_asked | fortsatt | avbryt
+    error_override: String?
+}
+
+-- ============================================================
+-- Rules (extracted from code)
+-- ============================================================
+
+-- manager.rs:107-133 — drain task. Emits TWO events on crash, ONE on
+-- clean shutdown. The pre-impl spec mentioned only sidecar-crashed.
+rule DrainTaskOnTerminate {
+    when: SidecarChildTerminated(payload)
+    ensures:
+        if WasStopping = true:
+            sidecar.status = stopped
+            emit(`juradrop://sidecar-terminated`, payload.code)
+        if WasStopping = false:
+            sidecar.status = crashed
+            emit(`juradrop://sidecar-terminated`, payload.code)
+            emit(`juradrop://sidecar-crashed`, payload.code)
+}
+
+-- lib.rs:79-100 — sidecar-crashed listener. Gates retry on retry_count.
+rule SidecarCrashedListener {
+    when: SidecarCrashedEventObserved(event)
+    ensures:
+        let sc = CurrentSidecar
+        if sc.retry_count_value() = 0:
+            let prev = sc.increment_retry()
+            if prev = 1:
+                spawn_task(SpawnSidecarAndWaitReady(sc, timeout: 10s))
+                on_success: after_sidecar_ready(app, state)
+                on_failure: set_error_override(fel_kunde_inte_starta_or_fel_ovantat)
+        if sc.retry_count_value() != 0:
+            eprintln(`retry budget exhausted; holding Crashed`)
+}
+
+-- sidecar/commands.rs:60-92 — after_sidecar_ready. Re-runs on retry.
+rule AfterSidecarReady {
+    when: SidecarReached(ready)
+    ensures:
+        AppState.error_override = null
+        if list_tags_succeeded = true:
+            AppState.model_status = if model_present then ready else not_present
+            emit(`juradrop://status`, snapshot)
+            if should_trigger_pull(present, consent.choice) = true:
+                if has_sufficient_disk_for_pull(app) = false:
+                    AppState.error_override = fel_disk_full
+                else:
+                    AppState.model_status = downloading
+                    spawn_pull_task(app, state)
+}
+
+-- ============================================================
+-- Invariants enforced by tests (distilled from test files)
+-- ============================================================
+
+invariant RetryCounterStartsAtZero {
+    -- crash_recovery_invariants.rs::retry_counter_starts_at_zero
+    for sc in NewOllamaSidecars:
+        sc.retry_count_value() = 0
+}
+
+invariant IncrementRetryReturnsPostIncrement {
+    -- crash_recovery_invariants.rs::increment_retry_returns_post_increment_value
+    for sc in OllamaSidecars where sc.increment_retry_called_once:
+        sc.increment_retry_returned = 1 and
+        sc.retry_count_value() = 1
+}
+
+invariant RetryCounterMonotonic {
+    -- crash_recovery_invariants.rs::retry_counter_never_decrements_within_app_lifetime
+    for sc in OllamaSidecars:
+        for observation in sc.retry_count_observations:
+            observation.value >= observation.prev_value
+}
+
+invariant CrashEventChannelPinned {
+    -- crash_recovery_invariants.rs::crash_event_channel_name_pinned
+    -- AND english_leakage_denylist + telemetry_denylist guarantee no drift.
+    ChannelEmittedByManager = `juradrop://sidecar-crashed`
+}
+
+invariant ListenerGatesSecondSpawn {
+    -- crash_recovery_invariants.rs::listener_path_gates_second_spawn
+    for session in AppSessions:
+        session.spawn_invocations_across_crashes <= 1 + initial_spawn_count
+}
+
+invariant FelOvantatCopyPinned {
+    -- crash_recovery_invariants.rs::fel_ovantat_copy_pinned_in_fixture
+    FixtureValue(`fel_ovantat`) = `AI-motorn svarar inte. Starta om JuraDrop.`
+}
+
+invariant ModelErrorCopyPinned {
+    -- crash_recovery_invariants.rs::model_error_copy_pinned_in_fixture
+    FixtureValue(`model_error`) = `AI-motorn svarade inte — försök igen`
+}
+
+invariant FixtureHasExactlyThreeKeys {
+    -- crash_recovery_invariants.rs::fixture_has_exactly_three_keys
+    CrashRecoveryFixtureKeys = {`_comment`, `fel_ovantat`, `model_error`}
+}
+
+invariant NoCustomPanicHook {
+    -- crash_recovery_invariants.rs::no_custom_panic_hook_registered
+    for rs_file in BackendRustFiles:
+        not rs_file.contains(`panic::set_hook`)
+}
+
+invariant NoOutboundFromCrashListener {
+    -- crash_recovery_invariants.rs::no_outbound_from_crash_listener_closure
+    for symbol in {`reqwest::Client`, `tauri::http::`, `tauri_plugin_http`, `shell::open`}:
+        not lib_rs_crash_listener_window.contains(symbol)
+}
+
+invariant EnglishLeakageDenylistEnforced {
+    -- english_leakage_denylist.rs::no_english_tells_in_user_facing_strings
+    for file in UserFacingFiles:                       -- TS/TSX/JSON excluding tests + package manifests
+        for needle in EnglishLeakageDenylist_14:
+            not file.contains(needle)
+}
+
+invariant TelemetryDenylistEnforced {
+    -- telemetry_denylist.rs::no_telemetry_libraries_in_dep_manifests
+    -- word-boundary matching prevents segment vs unicode-segmentation false-positive
+    for manifest in DependencyManifests_4:
+        for needle in TelemetryDenylist_18:
+            not contains_with_word_boundary(manifest.to_lower, needle)
+}
+
+invariant DenylistSizesPinned {
+    -- english_leakage_denylist.rs::denylist_size_pinned (= 14)
+    -- telemetry_denylist.rs::denylist_size_pinned (= 18)
+    EnglishLeakageDenylist_14.count = 14 and
+    TelemetryDenylist_18.count = 18
+}
+
+-- ============================================================
+-- Notes on drift vs spec.allium
+-- ============================================================
+
+-- DRIFT-1 (informational): spec.allium documented only the
+-- `juradrop://sidecar-crashed` channel. The actual drain task ALSO
+-- emits `juradrop://sidecar-terminated` on EVERY exit (both clean and
+-- crash). The terminated channel is internal-only (no listener acts
+-- on it for retry) — it's a "process exited, here's the code"
+-- notification used in tests. Not a bug; the elicited spec was
+-- under-specified.
+--
+-- DRIFT-2 (informational): the implementation drops the
+-- `src-tauri/src/` path-prefix portion of FR-013 (over-eager false
+-- positive on legitimate cross-language documentation comments).
+-- spec.md was amended in implementation notes to reflect this.
+-- The 14-substring denylist remains intact and tested.
+--
+-- DRIFT-3 (intentional simplification): the pre-impl spec.allium had
+-- a `CrashMidPullDiscardsPartialDownload` rule asserting model_status
+-- transitions to not_present at crash time. The actual implementation
+-- relies on after_sidecar_ready re-running and observing model
+-- presence via list_tags — the transition happens at re-spawn time,
+-- not at crash time. Behaviorally equivalent (the next user-visible
+-- status emit reflects not_present), but the sequencing in code is
+-- "crash → spawn → list_tags → set status" not "crash → set status
+-- immediately". Either is correct; the code path is the simpler one.

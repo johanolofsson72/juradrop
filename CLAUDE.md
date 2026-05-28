@@ -210,15 +210,15 @@ Read these files WHEN you need them — do not load everything upfront:
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 
-- Active spec: `specs/010-settings-panel/spec.md`
-- Allium spec: `specs/010-settings-panel/spec.allium`
-- Implementation plan: `specs/010-settings-panel/plan.md`
-- Research notes: `specs/010-settings-panel/research.md`
-- Data model: `specs/010-settings-panel/data-model.md`
-- Contracts: `specs/010-settings-panel/contracts/`
-- Quickstart: `specs/010-settings-panel/quickstart.md`
+- Active spec: `specs/011-error-recovery/spec.md`
+- Allium spec: `specs/011-error-recovery/spec.allium`
+- Implementation plan: `specs/011-error-recovery/plan.md`
+- Research notes: `specs/011-error-recovery/research.md`
+- Data model: `specs/011-error-recovery/data-model.md`
+- Contracts: `specs/011-error-recovery/contracts/`
+- Quickstart: `specs/011-error-recovery/quickstart.md`
 
-Previous specs (completed): `specs/001-tauri-bootstrap/`, `specs/002-ollama-sidecar-poc/`, `specs/003-first-zone-sammanfatta/`, `specs/004-all-six-zones/`, `specs/005-additional-input-formats/`, `specs/006-signing-and-ci/`, `specs/007-auto-updater/`, `specs/008-first-run-wizard/`, `specs/009-long-tail-formats/`
+Previous specs (completed): `specs/001-tauri-bootstrap/`, `specs/002-ollama-sidecar-poc/`, `specs/003-first-zone-sammanfatta/`, `specs/004-all-six-zones/`, `specs/005-additional-input-formats/`, `specs/006-signing-and-ci/`, `specs/007-auto-updater/`, `specs/008-first-run-wizard/`, `specs/009-long-tail-formats/`, `specs/010-settings-panel/`
 <!-- SPECKIT END -->
 
 ## graphify
