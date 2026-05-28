@@ -132,15 +132,15 @@ export function App() {
       {wizardPhase !== 'hidden' ? (
         <Wizard />
       ) : (
-        <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-8 pt-8">
+        <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-4 pt-2">
           <WelcomeCard />
           <section
             aria-label="Drop-zoner"
             className={[
-              'grid w-full gap-4',
+              'grid w-full gap-3',
               'grid-cols-1',         // < 520 px (rare on desktop)
               'sm:grid-cols-2',      // ≥ 520 px
-              'lg:grid-cols-3',      // ≥ 920 px (the canonical 2×3)
+              'lg:grid-cols-3',      // ≥ 920 px (the canonical 3×3, 9 zones)
             ].join(' ')}
           >
             {ZONE_ORDER.map((id) => (

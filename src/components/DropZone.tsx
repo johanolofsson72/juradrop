@@ -75,7 +75,7 @@ export function DropZone({ zoneId }: DropZoneProps) {
       data-disabled={disabled}
       className={[
         'group relative flex w-full select-none flex-col items-center justify-center',
-        'rounded-lg border-2 border-dashed border-border bg-transparent px-8 py-8',
+        'rounded-lg border-2 border-dashed border-border bg-transparent px-5 py-5',
         'transition-[border-color,background-color,opacity] duration-150 ease-out',
         'data-[state=dragover]:border-[#007aff] dark:data-[state=dragover]:border-[#0a84ff]',
         'data-[state=dragover]:bg-[#007aff]/5 dark:data-[state=dragover]:bg-[#0a84ff]/5',
@@ -88,7 +88,7 @@ export function DropZone({ zoneId }: DropZoneProps) {
         'data-[state=error]:bg-destructive/[0.08]',
         'data-[disabled=true]:cursor-not-allowed data-[disabled=true]:opacity-60',
       ].join(' ')}
-      style={{ minHeight: '14rem' }}
+      style={{ minHeight: '9.5rem' }}
     >
       {/* FR-018 — per-zone help popover, top-right corner. */}
       <ZoneHelpPopover zoneId={zoneId} />
@@ -96,14 +96,14 @@ export function DropZone({ zoneId }: DropZoneProps) {
       {(zoneSnap.state === 'idle' || disabled) && (
         <span
           aria-hidden="true"
-          className="mb-4 font-mono text-[10px] uppercase tracking-[0.32em] text-muted-foreground"
+          className="mb-2 font-mono text-[10px] uppercase tracking-[0.32em] text-muted-foreground"
         >
           [ docx ]
         </span>
       )}
 
       {zoneSnap.state === 'processing' && !disabled && (
-        <div className="mb-4 flex items-center gap-2 text-muted-foreground">
+        <div className="mb-2 flex items-center gap-2 text-muted-foreground">
           <Loader2
             aria-hidden="true"
             className="h-3.5 w-3.5 animate-spin text-[#007aff] dark:text-[#0a84ff]"
@@ -113,7 +113,7 @@ export function DropZone({ zoneId }: DropZoneProps) {
         </div>
       )}
 
-      <h2 className="text-xl font-semibold tracking-tight text-foreground">
+      <h2 className="text-center text-lg font-semibold leading-tight tracking-tight text-foreground">
         {identity.title}
       </h2>
 
@@ -137,7 +137,7 @@ export function DropZone({ zoneId }: DropZoneProps) {
           type="button"
           onClick={handleCancel}
           className={[
-            'mt-4 cursor-pointer text-xs font-normal',
+            'mt-3 cursor-pointer text-xs font-normal',
             'text-muted-foreground underline-offset-4',
             'hover:text-foreground hover:underline',
             'focus-visible:text-foreground focus-visible:underline focus-visible:outline-none',
