@@ -26,7 +26,7 @@ The pipeline track for each spec is triaged per `.claude/rules/specs.md`:
 - [x] 015 — parser-fuzzing — spec-only — robustness battery for the docx/pdf/rtf/odt/txt/md extractors; malformed/crafted input must never panic, hang, or leak a stack trace (reclassified light→spec-only: hardening-as-tests, no new entities/state, no `.allium`)
 - [x] 016 — click-to-browse-fallback — light — click-to-open native file picker per zone as a keyboard/accessibility alternative to OS drag-drop
 - [x] 017 — concurrency-stress — spec-only — integration tests for simultaneous multi-zone drops + cross-zone resource contention + auto-clear timer races
-- [ ] 018 — real-ollama-slow-suite — spec-only — gated real-`gemma3:4b` per-zone inference suite (runs `#[ignore]`'d / hardware, like sidecar_roundtrip) to catch prompt + model-version regressions
+- [x] 018 — real-ollama-slow-suite — spec-only — gated real-`gemma3:4b` per-zone inference suite (runs `#[ignore]`'d / hardware, like sidecar_roundtrip) to catch prompt + model-version regressions
 - [ ] 019 — macos-ui-test-harness — research — evaluate XCUITest / accessibility-API harness to drive the real WKWebView (BLOCKED: native tooling not runnable here — scaffolding + spike plan only)
 - [ ] 020 — release-signing-dmg — spec-only — produce the first signed + notarized DMG (BLOCKED on user: Apple Developer cert, GitHub secrets, real Mac, first tag — runbook + CI wiring only)
 - [ ] 021 — hardware-verification-run — spec-only — execute the deferred wall-clock success criteria on a real M-series Mac (BLOCKED on user: needs the hardware — manual checklist only)

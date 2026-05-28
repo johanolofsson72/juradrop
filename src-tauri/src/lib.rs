@@ -369,13 +369,16 @@ mod tests {
         let mut string_perms: Vec<&str> = perms.iter().filter_map(|v| v.as_str()).collect();
         string_perms.sort();
 
-        // Exactly these four core permissions — nothing more, nothing less.
+        // Exactly these string permissions — nothing more, nothing less.
+        // Spec 016 added `dialog:allow-open` (scoped native file picker;
+        // file-open only, no save, no arbitrary fs).
         assert_eq!(
             string_perms,
             vec![
                 "core:app:default",
                 "core:default",
                 "core:event:default",
+                "dialog:allow-open",
                 "shell:allow-kill",
             ],
             "capabilities allowlist drifted from spec.allium CapabilityAllowlistMinimal"

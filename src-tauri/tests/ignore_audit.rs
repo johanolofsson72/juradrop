@@ -44,10 +44,11 @@ fn every_ignored_test_has_a_hardware_reason() {
         "SC-004 violated — un-justified #[ignore] attributes:\n{}",
         offenders.join("\n")
     );
-    // Sanity: after the spec-013 audit exactly one hardware-bound test
-    // remains (sidecar_roundtrip). If this drifts, re-run the audit.
+    // Sanity: exactly two hardware-bound tests remain, both // HARDWARE:
+    // justified — `sidecar_roundtrip` (spec 003/013) and `real_ollama_zones`
+    // (spec 018). If this drifts, re-run the audit and update the count.
     assert_eq!(
-        ignore_count, 1,
-        "expected exactly 1 #[ignore]'d test after the spec-013 audit, found {ignore_count}"
+        ignore_count, 2,
+        "expected exactly 2 #[ignore]'d tests (sidecar_roundtrip + real_ollama_zones), found {ignore_count}"
     );
 }

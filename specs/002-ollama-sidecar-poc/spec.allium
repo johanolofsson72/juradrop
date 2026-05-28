@@ -381,6 +381,11 @@ invariant NoPromptOrResponseInLogs {
 invariant CapabilityAllowlistMinimal {
     -- FR-016: only the strictly required permissions are granted.
     -- Spec 001 had {} (empty). Spec 002 adds exactly these and nothing more.
+    -- Later specs extended the LITERAL Tauri allowlist (enforced by the
+    -- lib test `capabilities_allowlist_is_minimal_per_spec`): spec 010 added
+    -- shell:allow-open (scoped GitHub Releases URL), spec 016 added
+    -- dialog:allow-open (scoped native file picker, file-open only). Each is
+    -- minimal + scoped; none broadens to fs/http/arbitrary-shell.
     AllowedCapabilities = {
         sidecar_spawn_ollama,
         http_loopback,
