@@ -1,0 +1,198 @@
+-- allium: 3
+--
+-- Spec 026 — resilient Ollama coexistence + drop-zone affordances.
+--
+-- The defect being fixed: the global "ready" header and the per-zone
+-- disabled gate were driven by DIFFERENT signals and could disagree
+-- (header = ready while every zone = disabled). This spec makes a single
+-- SidecarReadiness the one source of truth for both, adds reuse of an
+-- already-running local Ollama, an honest port-conflict state, and the
+-- drag-over highlight wiring.
+
+enum Ownership { none | reused_external | we_started }
+
+config {
+    ai_host: String = `127.0.0.1`        -- localhost only (Principle III)
+    ai_port: Integer = 11434
+    probe_path: String = `/api/tags`
+    probe_timeout_ms: Integer = 2000
+    window_width: Integer = 1160
+    window_height: Integer = 760
+    three_column_breakpoint_px: Integer = 1024
+}
+
+external entity OllamaProcess {
+    listening: Boolean        -- something is bound to ai_port
+    answers_probe: Boolean    -- returns 2xx to probe_path within probe_timeout_ms
+}
+
+-- THE single source of truth. Both the global header status and every
+-- Zone.disabled gate are derived from this entity — never set independently.
+entity SidecarReadiness {
+    status: probing | ready | port_conflict | failed
+    ownership: Ownership
+
+    transitions status {
+        probing -> ready          -- reused external OR bundled came up
+        probing -> port_conflict  -- port held by a non-Ollama listener
+        probing -> failed         -- bundled spawn failed, port was free
+        ready -> failed           -- the AI we were using died mid-session
+        failed -> ready           -- spec 011 one-retry auto-restart recovered
+    }
+    -- NOTE (spec 026 boundary): entry into `failed` and recovery back to
+    -- `ready` are OWNED by spec 011 (sidecar crash detection + one-retry
+    -- auto-restart). Spec 026 does not re-model that failure path; it only
+    -- consumes `is_ready`. The `unreachableValue` warning on `failed` is
+    -- expected and intentional — the assigning rule lives in spec 011.
+
+    is_ready: status = ready
+
+    invariant ReadyHasOwner {
+        status = ready implies ownership in {reused_external, we_started}
+    }
+    invariant NotReadyHasNoOwner {
+        status in {probing, port_conflict, failed} implies ownership = none
+    }
+}
+
+enum ZoneState { idle | dragover | processing | success | error }
+
+entity Zone {
+    slug: String
+    state: ZoneState
+    -- DERIVED, not independently settable: the zone is interactive exactly
+    -- when the single readiness truth says ready.
+    disabled: not SidecarReadiness.is_ready
+
+    transitions state {
+        idle -> dragover
+        dragover -> idle
+        dragover -> processing
+        idle -> processing
+        processing -> success
+        processing -> error
+        success -> idle
+        error -> idle
+    }
+}
+
+-- ===== Startup readiness resolution =====
+
+rule ProbeOnStartup {
+    when: AppLaunched()
+    ensures:
+        SidecarReadiness.status = probing
+        ProbeRequested(host: ai_host, port: ai_port, path: probe_path)
+}
+
+rule ReuseExistingOllama {
+    when: ProbeResult(p)
+    requires: p.listening = true and p.answers_probe = true
+    ensures:
+        SidecarReadiness.status = ready
+        SidecarReadiness.ownership = reused_external
+}
+
+rule StartBundledWhenPortFree {
+    when: ProbeResult(p)
+    requires: p.listening = false
+    ensures:
+        BundledSidecarSpawnRequested()
+        SidecarReadiness.ownership = we_started
+}
+
+rule BundledBecameReady {
+    when: BundledSidecarServing()
+    requires: SidecarReadiness.ownership = we_started
+    ensures: SidecarReadiness.status = ready
+}
+
+rule DetectPortConflict {
+    when: ProbeResult(p)
+    requires: p.listening = true and p.answers_probe = false
+    ensures:
+        SidecarReadiness.status = port_conflict
+        SidecarReadiness.ownership = none
+        -- honest Swedish status state, NOT a modal/crash (Principle VIII)
+        UserVisibleError(kind: port_conflict)
+}
+
+-- Shutdown must never kill an AI we did not start.
+rule ShutdownStopsOwnedOnly {
+    when: AppShutdown()
+    ensures:
+        if SidecarReadiness.ownership = we_started:
+            BundledSidecarStopRequested()
+        if SidecarReadiness.ownership = reused_external:
+            not BundledSidecarStopRequested()
+}
+
+-- ===== Drop-zone affordances =====
+
+rule DragOverZone {
+    when: DragMovedOver(zone)
+    requires: SidecarReadiness.is_ready and zone.state = idle
+    ensures:
+        zone.state = dragover
+        for other in Zones where other != zone and other.state = dragover:
+            other.state = idle
+}
+
+rule DragLeaveOrEnd {
+    when: DragLeftAllZones()
+    for z in Zones where z.state = dragover:
+        ensures: z.state = idle
+}
+
+rule DropOnReadyZone {
+    when: FileDropped(zone)
+    requires: SidecarReadiness.is_ready
+    ensures: zone.state = processing
+}
+
+rule PickFileWhenReady {
+    when: VaeljFilClicked(zone)
+    requires: SidecarReadiness.is_ready and zone.disabled = false
+    ensures: NativePickerOpened(zone)
+}
+
+rule IgnoreInteractionWhenNotReady {
+    when: DragMovedOver(zone)
+    requires: not SidecarReadiness.is_ready
+    ensures: zone.state = idle    -- no highlight on an inert zone
+}
+
+-- ===== Global invariants =====
+
+-- THE headline invariant (FR-004 / SC-002): the global readiness and the
+-- per-zone disabled gate can never contradict each other.
+invariant ReadinessConsistency {
+    for z in Zones:
+        z.disabled = not SidecarReadiness.is_ready
+}
+
+-- FR-006 / SC-007 — a reused external AI is never terminated by us.
+invariant ReusedExternalNeverKilled {
+    SidecarReadiness.ownership = reused_external
+        implies not BundledSidecarStopRequested()
+}
+
+-- At most one zone is highlighted during a drag (FR-009).
+invariant AtMostOneDragover {
+    Zones.all(z => z.state = dragover).count <= 1
+}
+
+-- A highlighted zone implies the app is genuinely ready (FR-013).
+invariant DragoverImpliesReady {
+    for z in Zones where z.state = dragover:
+        SidecarReadiness.is_ready
+}
+
+-- Principle I + III — AI traffic is localhost-only; no remote override.
+invariant LocalhostOnly {
+    ai_host = `127.0.0.1`
+}
+
+-- NOTE: surface/actor blocks intentionally omitted — the user is a single
+-- local desktop actor with no role differentiation (constitution Principle IV),
+-- and the drop-zone exposure is fully captured by the rules + invariants above.

@@ -34,6 +34,7 @@ The pipeline track for each spec is triaged per `.claude/rules/specs.md`:
 - [x] 024 — large-file-guard — light — pre-read file-size cap returning a friendly Swedish "filen är för stor" error instead of reading a multi-GB file into memory (OOM risk)
 - [x] 025 — local-crash-diagnostics — full — opt-in (default OFF), local-only, content-scrubbed diagnostics log the user can inspect; enum-only API so document content CANNOT be logged; consent stored separately to keep SettingsSnapshot's 2-field privacy invariant intact (deferred from spec 011)
 - [x] 022 — prompt-injection-framing — light — wrap the dropped document in explicit delimiters + a system-prompt guard so the model treats it as DATA not instructions (except Generera, whose input IS the instruction); harden the untrusted-document → prompt seam
+- [/] 026 — resilient-ollama-and-drop-ux — full — coexist with a user's own Ollama on 127.0.0.1:11434 (detect + reuse it and mark the sidecar Ready, or an honest Swedish error — NEVER silently disable every zone behind a "ready" header); per-zone readiness reflects TRUE readiness; drag-over zone highlight + correct macOS drop cursor + clickable "Välj fil"; 1160×760 startup so all nine zones show
 
 ## Register history
 
