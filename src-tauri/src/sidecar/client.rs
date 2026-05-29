@@ -80,7 +80,13 @@ impl OllamaClient {
     /// the loopback invariant cannot be silently broken from a refactor.
     pub fn with_base_url(base_url: String) -> Self {
         let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
+            // Spec 026 — 180 s, not 30 s. Local inference on a CPU/GPU-shared
+            // Mac legitimately takes minutes for a long generation (Generera
+            // produces a full legal text; a cold model adds load time). The
+            // old 30 s ceiling surfaced as "AI-motorn svarade inte" on exactly
+            // those longer jobs. A 5 s connect timeout still fails fast if the
+            // sidecar is genuinely unreachable.
+            .timeout(Duration::from_secs(180))
             .connect_timeout(Duration::from_secs(5))
             .build()
             .expect("failed to build reqwest client");

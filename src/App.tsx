@@ -175,7 +175,7 @@ export function App() {
       {wizardPhase !== 'hidden' ? (
         <Wizard />
       ) : (
-        <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-4 pt-2">
+        <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-4 pt-12">
           <WelcomeCard />
           <section
             aria-label="Drop-zoner"
