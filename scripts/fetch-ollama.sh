@@ -23,7 +23,11 @@ EXPECTED_SHA256="8073624ec7986f9259f14a1234f5a5818f6285767f08b18cd0fbb4d1136599b
 # Paths
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BINARIES_DIR="${REPO_ROOT}/src-tauri/binaries"
-TARGET_BINARY="${BINARIES_DIR}/ollama-aarch64-apple-darwin"
+# Tauri sidecar naming: one file per target triple. The release build runs
+# `tauri build --target universal-apple-darwin`, which lipo-combines a
+# per-arch binary for EACH slice, so BOTH names must exist as real files.
+ARM_BINARY="${BINARIES_DIR}/ollama-aarch64-apple-darwin"
+X86_BINARY="${BINARIES_DIR}/ollama-x86_64-apple-darwin"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
@@ -71,11 +75,32 @@ if [[ -z "${SOURCE_BINARY}" ]]; then
     exit 3
 fi
 
-echo "[fetch-ollama] installing ${SOURCE_BINARY} -> ${TARGET_BINARY}"
-cp "${SOURCE_BINARY}" "${TARGET_BINARY}"
-chmod +x "${TARGET_BINARY}"
+# Upstream ships a UNIVERSAL (fat) Mach-O. `tauri build --target
+# universal-apple-darwin` lipo-combines a per-triple binary for each arch, so
+# feeding it two universal copies makes `lipo -create` choke on duplicate
+# architectures. Thin the fat binary into one arm64 slice and one x86_64
+# slice under the Tauri sidecar names instead.
+SOURCE_ARCHS="$(lipo -archs "${SOURCE_BINARY}" 2>/dev/null || echo "")"
+echo "[fetch-ollama] source archs: ${SOURCE_ARCHS:-<thin/unknown>}"
+
+if [[ "${SOURCE_ARCHS}" == *"arm64"* && "${SOURCE_ARCHS}" == *"x86_64"* ]]; then
+    echo "[fetch-ollama] thinning universal binary -> arm64 + x86_64 sidecars"
+    lipo "${SOURCE_BINARY}" -thin arm64  -output "${ARM_BINARY}"
+    lipo "${SOURCE_BINARY}" -thin x86_64 -output "${X86_BINARY}"
+else
+    # Upstream shipped a thin binary (unexpected). Place it under both names so
+    # the universal build still resolves each slice; lipo will no-op the match.
+    echo "[fetch-ollama] WARNING: source is not universal — copying as-is to both arch names"
+    cp "${SOURCE_BINARY}" "${ARM_BINARY}"
+    cp "${SOURCE_BINARY}" "${X86_BINARY}"
+fi
+
+chmod +x "${ARM_BINARY}" "${X86_BINARY}"
 
 # Strip macOS quarantine attribute so dev runs don't trip Gatekeeper.
-xattr -d com.apple.quarantine "${TARGET_BINARY}" 2>/dev/null || true
+xattr -d com.apple.quarantine "${ARM_BINARY}" 2>/dev/null || true
+xattr -d com.apple.quarantine "${X86_BINARY}" 2>/dev/null || true
 
-echo "[fetch-ollama] done. Binary at ${TARGET_BINARY} ($(stat -f '%z' "${TARGET_BINARY}") bytes)"
+echo "[fetch-ollama] done."
+echo "  arm64 : ${ARM_BINARY} ($(stat -f '%z' "${ARM_BINARY}") bytes, archs: $(lipo -archs "${ARM_BINARY}"))"
+echo "  x86_64: ${X86_BINARY} ($(stat -f '%z' "${X86_BINARY}") bytes, archs: $(lipo -archs "${X86_BINARY}"))"
