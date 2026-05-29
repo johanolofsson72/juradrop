@@ -6,10 +6,15 @@
 //          the same filesystem.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::Local;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+
+/// Spec 026 — monotonic counter so concurrent writes in the same directory
+/// pick distinct temp names (combined with the pid).
+static WRITE_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 use super::errors::ZoneFailure;
 use super::output_format::OutputFormat;
@@ -78,13 +83,17 @@ pub async fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), ZoneFailu
         let _ = fs::create_dir_all(parent).await;
     }
 
-    // Spec 005 — append `.tmp` to the FULL path instead of replacing
-    // the extension. The old `.with_extension("docx.tmp")` form hard-
-    // coded the docx extension; the format-aware writers need to drop
-    // `.tmp` next to `.txt` / `.md` sidecars too.
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".tmp");
-    let tmp: PathBuf = tmp.into();
+    // Spec 026 — write to a GENERIC hidden temp name in the same directory,
+    // NOT `<final>.tmp`. A `<final>.tmp` sibling carries the output's
+    // identifying suffix, so a directory scan for the result (a Finder
+    // watcher, or the test harness globbing the zone suffix) can catch the
+    // half-written temp and mistake it for the finished file — that is the
+    // `.docx.tmp` flake. A neutral `.juradrop-write-<pid>-<n>.tmp` name can't
+    // be confused with the output. Same directory → the rename stays
+    // POSIX-atomic on one filesystem.
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let n = WRITE_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = parent.join(format!(".juradrop-write-{}-{n}.tmp", std::process::id()));
 
     // Write phase
     let mut file = match fs::File::create(&tmp).await {
@@ -101,13 +110,42 @@ pub async fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), ZoneFailu
     }
     drop(file);
 
-    // Rename phase
+    // Rename phase — atomic replace of the final path.
     if fs::rename(&tmp, path).await.is_err() {
         let _ = fs::remove_file(&tmp).await;
         return Err(ZoneFailure::SaveError);
     }
+
+    // Spec 026 — strip `com.apple.quarantine` so the auto-open (and any app
+    // the user opens the result with) can read it. An unsigned/dev build
+    // stamps files it writes with quarantine, which Word refuses to open with
+    // a misleading "no access permission" error. Best-effort, no shell
+    // (respects the sidecar capability sandbox).
+    strip_quarantine(path);
+
     Ok(())
 }
+
+/// Spec 026 — remove the macOS quarantine xattr from a finished output file.
+/// Best-effort: a missing attribute (ENOATTR) or any failure is ignored.
+#[cfg(target_os = "macos")]
+fn strip_quarantine(path: &Path) {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    if let (Ok(c_path), Ok(c_name)) = (
+        CString::new(path.as_os_str().as_bytes()),
+        CString::new("com.apple.quarantine"),
+    ) {
+        // SAFETY: both are valid NUL-terminated C strings live for the call;
+        // removexattr does not retain them. Errors are intentionally ignored.
+        unsafe {
+            libc::removexattr(c_path.as_ptr(), c_name.as_ptr(), 0);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn strip_quarantine(_path: &Path) {}
 
 #[cfg(test)]
 mod tests {
@@ -146,6 +184,19 @@ mod tests {
         write_atomically(&target, b"hello world").await.unwrap();
         assert!(target.exists());
         assert!(!target.with_extension("docx.tmp").exists());
+        // Spec 026 — NO temp file of any name may linger, and the temp must
+        // not carry the output's suffix (so a dir scan for the result can't
+        // catch it mid-write — the `.docx.tmp` flake).
+        let leftovers: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.ends_with(".tmp") || n.contains("sammanfatta.docx.tmp"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "no .tmp file may remain: {leftovers:?}"
+        );
         assert_eq!(std::fs::read(&target).unwrap(), b"hello world");
     }
 
