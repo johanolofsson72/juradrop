@@ -2,10 +2,12 @@ import type { Config } from 'tailwindcss';
 import defaultTheme from 'tailwindcss/defaultTheme';
 
 // JuraDrop bootstrap — Tailwind config
-// darkMode: 'media' so the WebView follows macOS appearance natively via
-// prefers-color-scheme. No explicit toggle at this spec (research.md R-001).
+// Spec 026 — darkMode: 'class' (was 'media'). A `.dark` class on <html> drives
+// dark mode so the user can pick Ljust / Mörkt / Följ systemet. The default
+// preference is "system", and the theme controller applies `.dark` whenever
+// the OS is dark — reproducing the old prefers-color-scheme behavior exactly.
 const config: Config = {
-  darkMode: 'media',
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {

@@ -44,6 +44,10 @@ fn fixture_contains_exactly_the_expected_panel_keys() {
         "tier_not_downloaded_badge",
         "appearance_light",
         "appearance_dark",
+        // Spec 026 — appearance picker option labels.
+        "appearance_option_light",
+        "appearance_option_dark",
+        "appearance_option_system",
         "about_app_name",
         "about_license",
         "about_github_button",

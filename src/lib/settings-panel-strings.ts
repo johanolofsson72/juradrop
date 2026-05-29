@@ -26,6 +26,10 @@ export type SettingsPanelStringKey =
   | 'tier_not_downloaded_badge'
   | 'appearance_light'
   | 'appearance_dark'
+  // Spec 026 — appearance picker option labels.
+  | 'appearance_option_light'
+  | 'appearance_option_dark'
+  | 'appearance_option_system'
   | 'about_app_name'
   | 'about_license'
   | 'about_github_button'
@@ -55,6 +59,10 @@ export const SETTINGS_PANEL_STRINGS: Record<SettingsPanelStringKey, string> = {
   tier_not_downloaded_badge: 'Inte nedladdad',
   appearance_light: 'Ljust läge (följer systemet)',
   appearance_dark: 'Mörkt läge (följer systemet)',
+  // Spec 026 — picker options (standard macOS Swedish terms).
+  appearance_option_light: 'Ljust',
+  appearance_option_dark: 'Mörkt',
+  appearance_option_system: 'Följ systemet',
   about_app_name: 'JuraDrop',
   about_license: 'Öppen källkod, MIT-licens',
   about_github_button: 'Visa utgåvor på GitHub',

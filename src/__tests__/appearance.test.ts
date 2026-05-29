@@ -13,21 +13,20 @@ const cssPath = resolve(__dirname, '../styles/globals.css');
 const css = readFileSync(cssPath, 'utf-8');
 
 describe('System appearance / dark mode CSS wiring', () => {
-  it('declares the prefers-color-scheme dark media query', () => {
-    expect(css).toMatch(/@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)/);
+  // Spec 026 — dark mode moved from `@media (prefers-color-scheme: dark)` to a
+  // class-based `.dark` selector so the appearance picker can override the OS.
+  // The "Följ systemet" preference re-introduces OS-following at runtime.
+  it('declares a class-based .dark selector block', () => {
+    expect(css).toMatch(/\.dark\s*{/);
   });
 
-  it('overrides the --background variable for dark mode', () => {
-    const darkBlock = css.match(
-      /@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*{[\s\S]*?--background:[\s\S]*?}/,
-    );
+  it('overrides the --background variable in the .dark block', () => {
+    const darkBlock = css.match(/\.dark\s*{[\s\S]*?--background:[\s\S]*?}/);
     expect(darkBlock).not.toBeNull();
   });
 
-  it('overrides the --foreground variable for dark mode', () => {
-    const darkBlock = css.match(
-      /@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*{[\s\S]*?--foreground:[\s\S]*?}/,
-    );
+  it('overrides the --foreground variable in the .dark block', () => {
+    const darkBlock = css.match(/\.dark\s*{[\s\S]*?--foreground:[\s\S]*?}/);
     expect(darkBlock).not.toBeNull();
   });
 

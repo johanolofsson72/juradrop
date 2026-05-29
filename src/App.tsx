@@ -18,6 +18,8 @@ import { useHelpPanel } from '@/lib/use-help-panel';
 import { useSettingsPanel } from '@/lib/use-settings-panel';
 import { useWizardState } from '@/lib/use-wizard-state';
 import { createDragHoverTracker } from '@/lib/drag-hover';
+import { applyAppearance } from '@/lib/appearance';
+import { useAppearanceStore } from '@/lib/appearance-store';
 import {
   dispatchToZone,
   getStatus,
@@ -43,6 +45,20 @@ import {
 export function App() {
   const setStatus = useStatusStore((s) => s.setStatus);
   const setProgress = useStatusStore((s) => s.setProgress);
+  const appearance = useAppearanceStore((s) => s.appearance);
+
+  // Spec 026 — theme controller. Apply the saved appearance, and when it's
+  // "system", re-apply whenever the OS light/dark flips. The inline script in
+  // index.html applies it before first paint; this keeps it reactive.
+  useEffect(() => {
+    applyAppearance(appearance);
+    if (appearance !== 'system') return;
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () => applyAppearance('system');
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, [appearance]);
 
   useEffect(() => {
     let statusUnsub: (() => void) | undefined;

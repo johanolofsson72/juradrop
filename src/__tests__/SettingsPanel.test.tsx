@@ -103,20 +103,44 @@ describe('ModelTierSection', () => {
   });
 });
 
-describe('AppearanceSection (FR-013, FR-014)', () => {
-  it('renders the Swedish appearance row (light by default in jsdom)', () => {
-    const { container } = render(<AppearanceSection />);
-    const row = container.querySelector('[data-settings-appearance]');
-    expect(row?.textContent).toBe(SETTINGS_PANEL_STRINGS.appearance_light);
+describe('AppearanceSection (spec 026 — Ljust / Mörkt / Följ systemet picker)', () => {
+  afterEach(() => {
+    // The appearance store is a module singleton + mutates <html>; reset both.
+    document.documentElement.classList.remove('dark');
+    window.localStorage.clear();
   });
 
-  it('FR-014 — has zero interactive descendants', () => {
+  it('renders the three appearance options in a radiogroup', () => {
     const { container } = render(<AppearanceSection />);
-    const section = container.querySelector('section');
-    const interactives = section?.querySelectorAll(
-      'input, button, select, [role="switch"], [role="checkbox"], [role="radio"]',
-    );
-    expect(interactives?.length ?? 0).toBe(0);
+    expect(
+      container.querySelector('[data-settings-appearance][role="radiogroup"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelectorAll('input[type="radio"][name="appearance"]'),
+    ).toHaveLength(3);
+    expect(
+      screen.getByText(SETTINGS_PANEL_STRINGS.appearance_option_light),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(SETTINGS_PANEL_STRINGS.appearance_option_dark),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(SETTINGS_PANEL_STRINGS.appearance_option_system),
+    ).toBeInTheDocument();
+  });
+
+  it('selecting Mörkt adds the dark class to <html>; Ljust removes it', () => {
+    const { container } = render(<AppearanceSection />);
+    const radio = (v: string) =>
+      container.querySelector(
+        `[data-appearance-option="${v}"] input[type="radio"]`,
+      ) as HTMLInputElement;
+
+    fireEvent.click(radio('dark'));
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+
+    fireEvent.click(radio('light'));
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 });
 
