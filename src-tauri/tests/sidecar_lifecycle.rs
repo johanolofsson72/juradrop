@@ -28,7 +28,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use juradrop_lib::sidecar::manager::{OllamaSidecar, SidecarError};
+use juradrop_lib::sidecar::manager::{OllamaSidecar, Ownership, SidecarError};
 use juradrop_lib::sidecar::status::SidecarStatus;
 use tauri::test::{mock_builder, mock_context, noop_assets};
 use tokio::sync::Mutex;
@@ -200,6 +200,25 @@ fn new_returns_arc_with_not_started_status() {
     let sidecar = OllamaSidecar::new();
     assert_eq!(sidecar.status(), SidecarStatus::NotStarted);
     assert_eq!(sidecar.retry_count(), 0);
+}
+
+/// Spec 026 — a fresh sidecar owns nothing; reuse-readiness adopts an
+/// already-running external Ollama (Ready) WITHOUT claiming we started it,
+/// so shutdown will never kill it.
+#[test]
+fn mark_reused_ready_is_ready_and_reused_external() {
+    let sidecar = OllamaSidecar::new();
+    assert_eq!(sidecar.ownership(), Ownership::None);
+
+    sidecar.mark_reused_ready();
+
+    assert_eq!(sidecar.status(), SidecarStatus::Ready);
+    assert_eq!(
+        sidecar.ownership(),
+        Ownership::ReusedExternal,
+        "reusing an external Ollama must NOT mark it as we-started \
+         (FR-006 / SC-007 — we never kill what we didn't start)"
+    );
 }
 
 /// T069 / SC-003 — the bundled Ollama process must be gone within 5 s of
