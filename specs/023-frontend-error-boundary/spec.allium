@@ -1,0 +1,47 @@
+-- allium: 3
+--
+-- Spec 023 — frontend-error-boundary
+-- A top-level React boundary turns a render crash into an honest Swedish
+-- fallback instead of a blank WKWebView (Principle VIII, frontend side).
+
+entity ErrorBoundary {
+    caught: Boolean         -- a render error has been caught
+    fallback_shown: Boolean -- the Swedish fallback is rendered
+
+    transitions caught {
+        false -> true       -- a child throws during render
+    }
+
+    -- FR-001 — fallback is shown exactly when an error has been caught.
+    invariant FallbackIffCaught {
+        this.fallback_shown = this.caught
+    }
+}
+
+-- FR-001 — catching a render error flips to the fallback.
+rule CatchRenderError {
+    when: ChildThrowsDuringRender(boundary)
+    ensures:
+        boundary.caught = true
+        boundary.fallback_shown = true
+}
+
+-- FR-003 / Principle VIII — the fallback never leaks the error text/stack.
+invariant FallbackLeaksNoStack {
+    for b in ErrorBoundary where b.fallback_shown:
+        b.shows_raw_error = false and b.shows_stack = false
+}
+
+-- FR-002 — the only recovery offered is a clean reload.
+rule RestartReloadsWebview {
+    when: ClickRestart()
+    requires: ErrorBoundary.fallback_shown = true
+    ensures: WebviewReloaded()
+}
+
+surface ErrorFallback {
+    facing user: LawStudent
+    exposes: ErrorBoundary.fallback_shown
+}
+
+external entity LawStudent { }

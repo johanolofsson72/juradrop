@@ -30,6 +30,8 @@ The pipeline track for each spec is triaged per `.claude/rules/specs.md`:
 - [!] 019 — macos-ui-test-harness — research — evaluate XCUITest / accessibility-API harness to drive the real WKWebView (BLOCKED: native tooling not runnable here — scaffolding + spike plan only)
 - [!] 020 — release-signing-dmg — spec-only — produce the first signed + notarized DMG (BLOCKED on user: Apple Developer cert, GitHub secrets, real Mac, first tag — runbook + CI wiring only)
 - [!] 021 — hardware-verification-run — spec-only — execute the deferred wall-clock success criteria on a real M-series Mac (BLOCKED on user: needs the hardware — manual checklist only)
+- [x] 023 — frontend-error-boundary — light — React error boundary so a render crash shows a Swedish honest-failure message instead of a white screen (Principle VIII on the frontend)
+- [ ] 024 — large-file-guard — light — pre-read file-size cap returning a friendly Swedish "filen är för stor" error instead of reading a multi-GB file into memory (OOM risk)
 - [x] 022 — prompt-injection-framing — light — wrap the dropped document in explicit delimiters + a system-prompt guard so the model treats it as DATA not instructions (except Generera, whose input IS the instruction); harden the untrusted-document → prompt seam
 
 ## Register history
