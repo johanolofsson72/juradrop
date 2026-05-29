@@ -78,7 +78,7 @@ function TierRow({ tier, mode, isSelected, onSelect, onDownload }: TierRowProps)
         className={[
           'rounded-md border p-3 transition-colors',
           isSelected
-            ? 'border-accent bg-accent/5'
+            ? 'border-[#007aff] bg-[#007aff]/5 dark:border-[#0a84ff] dark:bg-[#0a84ff]/5'
             : 'border-border hover:bg-muted/30',
         ].join(' ')}
       >
@@ -119,7 +119,7 @@ function TierRow({ tier, mode, isSelected, onSelect, onDownload }: TierRowProps)
         <button
           type="button"
           onClick={onDownload}
-          className="shrink-0 rounded-md border border-accent px-3 py-1 text-xs font-medium text-accent hover:bg-accent/10"
+          className="shrink-0 rounded-md border border-[#007aff] px-3 py-1 text-xs font-medium text-[#007aff] transition-colors duration-150 hover:bg-[#007aff]/10 dark:border-[#0a84ff] dark:text-[#0a84ff] dark:hover:bg-[#0a84ff]/10"
         >
           {SETTINGS_PANEL_STRINGS.tier_ladda_ned_button}
         </button>
