@@ -28,6 +28,10 @@ BINARIES_DIR="${REPO_ROOT}/src-tauri/binaries"
 # per-arch binary for EACH slice, so BOTH names must exist as real files.
 ARM_BINARY="${BINARIES_DIR}/ollama-aarch64-apple-darwin"
 X86_BINARY="${BINARIES_DIR}/ollama-x86_64-apple-darwin"
+# The universal-target BUNDLE step resolves the `universal-apple-darwin`
+# triple and needs the fat binary under this name too (the per-arch compile
+# sub-builds use the thin slices above).
+UNIVERSAL_BINARY="${BINARIES_DIR}/ollama-universal-apple-darwin"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
@@ -83,24 +87,29 @@ fi
 SOURCE_ARCHS="$(lipo -archs "${SOURCE_BINARY}" 2>/dev/null || echo "")"
 echo "[fetch-ollama] source archs: ${SOURCE_ARCHS:-<thin/unknown>}"
 
+# The fat binary itself is the universal sidecar the bundle step copies.
+cp "${SOURCE_BINARY}" "${UNIVERSAL_BINARY}"
+
 if [[ "${SOURCE_ARCHS}" == *"arm64"* && "${SOURCE_ARCHS}" == *"x86_64"* ]]; then
     echo "[fetch-ollama] thinning universal binary -> arm64 + x86_64 sidecars"
     lipo "${SOURCE_BINARY}" -thin arm64  -output "${ARM_BINARY}"
     lipo "${SOURCE_BINARY}" -thin x86_64 -output "${X86_BINARY}"
 else
-    # Upstream shipped a thin binary (unexpected). Place it under both names so
-    # the universal build still resolves each slice; lipo will no-op the match.
+    # Upstream shipped a thin binary (unexpected). Place it under both arch
+    # names so each per-arch sub-build still resolves its slice.
     echo "[fetch-ollama] WARNING: source is not universal — copying as-is to both arch names"
     cp "${SOURCE_BINARY}" "${ARM_BINARY}"
     cp "${SOURCE_BINARY}" "${X86_BINARY}"
 fi
 
-chmod +x "${ARM_BINARY}" "${X86_BINARY}"
+chmod +x "${ARM_BINARY}" "${X86_BINARY}" "${UNIVERSAL_BINARY}"
 
 # Strip macOS quarantine attribute so dev runs don't trip Gatekeeper.
 xattr -d com.apple.quarantine "${ARM_BINARY}" 2>/dev/null || true
 xattr -d com.apple.quarantine "${X86_BINARY}" 2>/dev/null || true
+xattr -d com.apple.quarantine "${UNIVERSAL_BINARY}" 2>/dev/null || true
 
 echo "[fetch-ollama] done."
-echo "  arm64 : ${ARM_BINARY} ($(stat -f '%z' "${ARM_BINARY}") bytes, archs: $(lipo -archs "${ARM_BINARY}"))"
-echo "  x86_64: ${X86_BINARY} ($(stat -f '%z' "${X86_BINARY}") bytes, archs: $(lipo -archs "${X86_BINARY}"))"
+echo "  arm64    : ${ARM_BINARY} ($(stat -f '%z' "${ARM_BINARY}") bytes, archs: $(lipo -archs "${ARM_BINARY}"))"
+echo "  x86_64   : ${X86_BINARY} ($(stat -f '%z' "${X86_BINARY}") bytes, archs: $(lipo -archs "${X86_BINARY}"))"
+echo "  universal: ${UNIVERSAL_BINARY} ($(stat -f '%z' "${UNIVERSAL_BINARY}") bytes, archs: $(lipo -archs "${UNIVERSAL_BINARY}"))"
