@@ -128,15 +128,19 @@ async fn sidecar_starts_and_stops_cleanly() {
     let sidecar = OllamaSidecar::new();
     assert_eq!(sidecar.status(), SidecarStatus::NotStarted);
 
-    // FC-001 — spawn + wait_ready(10s).
+    // FC-001 — spawn + wait_ready. 60 s (not 10) because a cold GitHub
+    // `macos-latest` runner's first-ever `ollama serve` start is far slower
+    // than a warm dev Mac (cold disk, no cached runtime). This is a generous
+    // CI ceiling, NOT a product SLA — SC-001's 60 s cold-launch budget is
+    // hardware-verified separately. On real hardware this still returns in ~1 s.
     sidecar
         .spawn(&handle)
         .await
         .expect("sidecar spawn should succeed when port is free and binary present");
     sidecar
-        .wait_ready(Duration::from_secs(10))
+        .wait_ready(Duration::from_secs(60))
         .await
-        .expect("sidecar should reach Ready within 10 s");
+        .expect("sidecar should reach Ready within 60 s");
     assert_eq!(sidecar.status(), SidecarStatus::Ready);
 
     // Sanity check: /api/tags must be 2xx now (wait_ready already proved
@@ -226,8 +230,10 @@ async fn stop_leaves_no_orphan_process() {
 
     let sidecar = OllamaSidecar::new();
     sidecar.spawn(&handle).await.expect("spawn");
+    // 60 s, not 10 — cold-CI cold-start tolerance; see the note in
+    // sidecar_starts_and_stops_cleanly above.
     sidecar
-        .wait_ready(Duration::from_secs(10))
+        .wait_ready(Duration::from_secs(60))
         .await
         .expect("wait_ready");
 
