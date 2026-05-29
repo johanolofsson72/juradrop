@@ -48,9 +48,16 @@ export function DropZone({ zoneId }: DropZoneProps) {
     return () => unlisten?.();
   }, [zoneId, setZone]);
 
-  // Reactive disabled gate — disabled when this zone's snapshot says
-  // so OR when the global status is non-Klar.
-  const disabled = zoneSnap.disabled || status.visible !== 'klar';
+  // Spec 026 — single readiness truth. The zone is disabled iff the GLOBAL
+  // status is not Klar. We deliberately do NOT consult zoneSnap.disabled:
+  // that per-zone flag rides a backend event that races the zone
+  // subscription at startup (there is no initial per-zone pull, unlike the
+  // global get_status on mount), so it gets stuck at its seed `true` even
+  // when the AI is genuinely ready — which silently disabled every zone
+  // behind an "AI är redo" header. The global status IS reliably synced
+  // (get_status on mount + subscribeStatus), so it is the one trustworthy
+  // gate (FR-004 / SC-002).
+  const disabled = status.visible !== 'klar';
 
   const handleCancel = () => {
     if (zoneSnap.job_id) void cancelSummary(zoneId, zoneSnap.job_id);

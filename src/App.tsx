@@ -64,7 +64,13 @@ export function App() {
         const zoneEl = el?.closest('[data-zone-id]') as HTMLElement | null;
         return (zoneEl?.dataset.zoneId as ZoneId | undefined) ?? null;
       },
-      getZone: (id) => useStatusStore.getState().zones[id],
+      getZone: (id) => {
+        // Spec 026 — gate the hover highlight on the GLOBAL readiness truth
+        // (same as DropZone), not the racy per-zone disabled flag.
+        const st = useStatusStore.getState();
+        const snap = st.zones[id];
+        return snap ? { ...snap, disabled: st.status.visible !== 'klar' } : undefined;
+      },
       setZone: (id, next) => useStatusStore.getState().setZone(id, next),
     });
 
