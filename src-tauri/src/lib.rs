@@ -332,29 +332,49 @@ pub fn run() {
 /// real drag-drop against a built `.app` until the post-spec-012
 /// hardware test.
 fn handle_drag_drop_event(app: &tauri::AppHandle, drag: DragDropEvent) {
-    // Enter / Over / Leave are routed by the WebView's own
-    // drag-tracking layer (set per-zone via React onDragOver +
-    // data-zone-id). Rust only needs to fan out the Drop event with
-    // the OS file paths + the position.
-    if let DragDropEvent::Drop { paths, position } = drag {
-        #[derive(serde::Serialize, Clone)]
-        struct FileDroppedPayload {
-            paths: Vec<std::path::PathBuf>,
-            position: CssPosition,
+    #[derive(serde::Serialize, Clone)]
+    struct CssPosition {
+        x: f64,
+        y: f64,
+    }
+
+    // Spec 026 — the WebView never receives HTML5 drag events because
+    // Tauri's OS-level drag-drop is enabled (dragDropEnabled defaults to
+    // true), which suppresses them. So the hover highlight MUST be driven
+    // from these native Over/Leave events, not React onDragOver. Position
+    // is in logical pixels (matches document.elementFromPoint) — see the
+    // Drop arm's no-scale-division rationale in the doc-comment above.
+    match drag {
+        DragDropEvent::Over { position } => {
+            let _ = app.emit(
+                "juradrop://file-dragover",
+                CssPosition {
+                    x: position.x,
+                    y: position.y,
+                },
+            );
         }
-        #[derive(serde::Serialize, Clone)]
-        struct CssPosition {
-            x: f64,
-            y: f64,
+        DragDropEvent::Leave => {
+            let _ = app.emit("juradrop://file-dragleave", ());
         }
-        let payload = FileDroppedPayload {
-            paths,
-            position: CssPosition {
-                x: position.x,
-                y: position.y,
-            },
-        };
-        let _ = app.emit("juradrop://file-dropped", payload);
+        DragDropEvent::Drop { paths, position } => {
+            #[derive(serde::Serialize, Clone)]
+            struct FileDroppedPayload {
+                paths: Vec<std::path::PathBuf>,
+                position: CssPosition,
+            }
+            let payload = FileDroppedPayload {
+                paths,
+                position: CssPosition {
+                    x: position.x,
+                    y: position.y,
+                },
+            };
+            let _ = app.emit("juradrop://file-dropped", payload);
+        }
+        // Enter delivers the first position, but Over follows immediately
+        // with the same data, so Over owns the highlight.
+        _ => {}
     }
 }
 

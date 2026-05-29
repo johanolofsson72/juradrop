@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "JuraDrop",
-        "width": 900,
-        "height": 650,
+        "width": 1160,
+        "height": 760,
         "minWidth": 700,
         "minHeight": 500,
         "resizable": true,

@@ -17,9 +17,12 @@ import { useCmdComma } from '@/lib/use-cmd-comma';
 import { useHelpPanel } from '@/lib/use-help-panel';
 import { useSettingsPanel } from '@/lib/use-settings-panel';
 import { useWizardState } from '@/lib/use-wizard-state';
+import { createDragHoverTracker } from '@/lib/drag-hover';
 import {
   dispatchToZone,
   getStatus,
+  subscribeFileDragLeave,
+  subscribeFileDragOver,
   subscribeFileDropped,
   subscribeProgress,
   subscribeStatus,
@@ -45,8 +48,25 @@ export function App() {
     let statusUnsub: (() => void) | undefined;
     let progressUnsub: (() => void) | undefined;
     let dropUnsub: (() => void) | undefined;
+    let dragoverUnsub: (() => void) | undefined;
+    let dragleaveUnsub: (() => void) | undefined;
 
     const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+    // Spec 026 — drives the per-zone hover highlight during an OS drag.
+    // Tauri's OS-level drag-drop suppresses the WebView's HTML5 dragover,
+    // so the highlight rides the native Over/Leave events forwarded by
+    // Rust (lib.rs). Routing logic lives in createDragHoverTracker, which
+    // is unit-tested in drag-hover.test.ts.
+    const hover = createDragHoverTracker({
+      zoneAtPoint: (x, y) => {
+        const el = document.elementFromPoint(x, y);
+        const zoneEl = el?.closest('[data-zone-id]') as HTMLElement | null;
+        return (zoneEl?.dataset.zoneId as ZoneId | undefined) ?? null;
+      },
+      getZone: (id) => useStatusStore.getState().zones[id],
+      setZone: (id, next) => useStatusStore.getState().setZone(id, next),
+    });
 
     if (inTauri) {
       void getStatus()
@@ -69,6 +89,7 @@ export function App() {
 
       // FR-010a — OS drop → elementFromPoint → dispatch_to_zone.
       void subscribeFileDropped(({ paths, position }) => {
+        hover.clear();
         const el = document.elementFromPoint(position.x, position.y);
         const zoneEl = el?.closest('[data-zone-id]') as HTMLElement | null;
         if (!zoneEl) return; // drop outside any zone — silently ignore
@@ -78,12 +99,28 @@ export function App() {
       }).then((fn) => {
         dropUnsub = fn;
       });
+
+      // Spec 026 — light up the idle zone under the cursor while dragging.
+      void subscribeFileDragOver((position) => {
+        hover.over(position.x, position.y);
+      }).then((fn) => {
+        dragoverUnsub = fn;
+      });
+
+      // Spec 026 — drag left the window without dropping → clear highlight.
+      void subscribeFileDragLeave(() => {
+        hover.clear();
+      }).then((fn) => {
+        dragleaveUnsub = fn;
+      });
     }
 
     return () => {
       statusUnsub?.();
       progressUnsub?.();
       dropUnsub?.();
+      dragoverUnsub?.();
+      dragleaveUnsub?.();
     };
   }, [setStatus, setProgress]);
 

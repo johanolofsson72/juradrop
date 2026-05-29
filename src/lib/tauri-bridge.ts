@@ -194,6 +194,22 @@ export function subscribeFileDropped(
   return listen<FileDroppedPayload>('juradrop://file-dropped', (event) => cb(event.payload));
 }
 
+/** Spec 026 — OS drag hover position (logical px) for lighting up the zone
+ *  under the cursor. HTML5 `dragover` never fires in the WebView while
+ *  Tauri's OS-level drag-drop is enabled, so the highlight rides this. */
+export function subscribeFileDragOver(
+  cb: (position: { x: number; y: number }) => void,
+): Promise<UnlistenFn> {
+  return listen<{ x: number; y: number }>('juradrop://file-dragover', (event) =>
+    cb(event.payload),
+  );
+}
+
+/** Spec 026 — the drag left the window without dropping; clear any highlight. */
+export function subscribeFileDragLeave(cb: () => void): Promise<UnlistenFn> {
+  return listen('juradrop://file-dragleave', () => cb());
+}
+
 // =====================================================================
 // Spec 007 — auto-updater types + commands + subscription.
 // =====================================================================
