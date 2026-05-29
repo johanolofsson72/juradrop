@@ -41,8 +41,12 @@ pub fn extract_text_from_bytes(bytes: &[u8]) -> Result<ExtractedText, ZoneFailur
     // (4) Run pdf-extract page-by-page. The by-pages API returns one
     // String per page; we both join them (for the model body) AND use
     // the per-page lengths for the FR-002a partial-extraction flag.
-    let per_page =
-        pdf_extract::extract_text_from_mem_by_pages(bytes).map_err(|_| ZoneFailure::ParseError)?;
+    // Spec 029 — pdf-extract 0.7.12 prints "missing char … falling back to
+    // encoding" via unconditional `println!` (stdout) from its font-decoding
+    // path; there is no log-level knob. Silence stdout for the duration of the
+    // call so it doesn't spam the dev terminal. Transparent to the result.
+    let per_page = with_stdout_silenced(|| pdf_extract::extract_text_from_mem_by_pages(bytes))
+        .map_err(|_| ZoneFailure::ParseError)?;
 
     let pages_with_text = per_page.iter().filter(|s| !s.trim().is_empty()).count();
     let raw_text = per_page.join("\n\n");
@@ -95,9 +99,72 @@ fn is_encrypted(bytes: &[u8]) -> bool {
     }
 }
 
+/// Spec 029 — run `f` with the process stdout (fd 1) redirected to
+/// `/dev/null`, then restore it. Suppresses `pdf-extract`'s unconditional
+/// `println!` font-fallback chatter. ONLY stdout is touched — all JuraDrop
+/// logging uses `eprintln!`/stderr, which stays visible. The redirect window
+/// is serialized by a mutex so concurrent extractions never race the saved
+/// fd, and an RAII guard restores fd 1 even if `f` panics.
+#[cfg(unix)]
+fn with_stdout_silenced<T>(f: impl FnOnce() -> T) -> T {
+    use std::io::Write;
+    use std::sync::Mutex;
+
+    static GUARD: Mutex<()> = Mutex::new(());
+    let _lock = GUARD.lock().unwrap_or_else(|e| e.into_inner());
+
+    // Restores the original stdout on drop (covers panic / early return).
+    struct Restore(libc::c_int);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            let _ = std::io::stdout().flush();
+            if self.0 >= 0 {
+                // SAFETY: `self.0` is a live dup of the original fd 1.
+                unsafe {
+                    libc::dup2(self.0, libc::STDOUT_FILENO);
+                    libc::close(self.0);
+                }
+            }
+        }
+    }
+
+    let _ = std::io::stdout().flush();
+    // SAFETY: standard fd dance with valid constant args.
+    let saved = unsafe { libc::dup(libc::STDOUT_FILENO) };
+    let _restore = Restore(saved);
+    let devnull = unsafe {
+        libc::open(
+            b"/dev/null\0".as_ptr() as *const libc::c_char,
+            libc::O_WRONLY,
+        )
+    };
+    if saved >= 0 && devnull >= 0 {
+        // SAFETY: devnull is a freshly opened, valid fd.
+        unsafe {
+            libc::dup2(devnull, libc::STDOUT_FILENO);
+            libc::close(devnull);
+        }
+    } else if devnull >= 0 {
+        unsafe { libc::close(devnull) };
+    }
+    f()
+}
+
+#[cfg(not(unix))]
+fn with_stdout_silenced<T>(f: impl FnOnce() -> T) -> T {
+    f()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stdout_silence_is_transparent_to_return_value() {
+        // Spec 029 FR-002 — the wrapper returns exactly what the closure does.
+        assert_eq!(with_stdout_silenced(|| 42_u32), 42);
+        assert_eq!(with_stdout_silenced(|| "hej".to_string()), "hej");
+    }
 
     #[test]
     fn garbage_bytes_return_parse_error() {
