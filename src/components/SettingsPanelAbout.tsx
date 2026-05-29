@@ -54,7 +54,7 @@ export function AboutSection() {
         <button
           type="button"
           onClick={handleGitHubClick}
-          className="mt-1 self-start rounded-md border border-accent px-3 py-1 text-xs font-medium text-accent hover:bg-accent/10"
+          className="mt-1 self-start rounded-md border border-[#007aff] px-3 py-1 text-xs font-medium text-[#007aff] transition-colors duration-150 hover:bg-[#007aff]/10 dark:border-[#0a84ff] dark:text-[#0a84ff] dark:hover:bg-[#0a84ff]/10"
           data-settings-github
         >
           {SETTINGS_PANEL_STRINGS.about_github_button}

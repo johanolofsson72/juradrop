@@ -29,6 +29,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["app", "dmg"],
     "icon": [
       "icons/32x32.png",
@@ -46,7 +47,7 @@
   },
   "plugins": {
     "shell": {
-      "open": false
+      "open": true
     },
     "updater": {
       "active": true,
