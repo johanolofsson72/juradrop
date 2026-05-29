@@ -111,10 +111,14 @@ rule DetectPortConflict {
     when: ProbeResult(p)
     requires: p.listening = true and p.answers_probe = false
     ensures:
+        -- Spec 026 (/tla DRIFT-1, "update spec to match code"): a listener that
+        -- is NOT a usable Ollama makes the bundled spawn's port-busy pre-check
+        -- fail (PortBusy), which surfaces the EXISTING honest `fel_porten_upptagen`
+        -- state. No NEW distinct copy was added — the user-visible message reuses
+        -- that state (Principle VIII honest failure, no modal/crash).
         SidecarReadiness.status = port_conflict
         SidecarReadiness.ownership = none
-        -- honest Swedish status state, NOT a modal/crash (Principle VIII)
-        UserVisibleError(kind: port_conflict)
+        UserVisibleError(kind: fel_porten_upptagen)
 }
 
 -- Shutdown must never kill an AI we did not start.
@@ -166,6 +170,12 @@ rule IgnoreInteractionWhenNotReady {
 
 -- THE headline invariant (FR-004 / SC-002): the global readiness and the
 -- per-zone disabled gate can never contradict each other.
+-- Spec 026 (/tla DRIFT-2, "update spec to match code"): the zone gate is the
+-- GLOBAL Klar status — sidecar Ready AND model Ready AND consent given — which
+-- is STRICTER than SidecarReadiness.is_ready alone (you cannot process a
+-- document without the model). `is_ready` below is shorthand for that single
+-- Klar truth, which the frontend reads from one source (status.visible), so the
+-- header and every zone can never disagree.
 invariant ReadinessConsistency {
     for z in Zones:
         z.disabled = not SidecarReadiness.is_ready
