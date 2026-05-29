@@ -27,10 +27,22 @@ pub enum SidecarError {
     Plugin(String),
 }
 
+/// Spec 026 — did we start the AI, or are we reusing one the user already
+/// had running on the loopback port? Decides shutdown behavior (never kill
+/// what we did not start) and underpins the single readiness truth.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ownership {
+    None,
+    ReusedExternal,
+    WeStarted,
+}
+
 pub struct OllamaSidecar {
     status: RwLock<SidecarStatus>,
     child: RwLock<Option<CommandChild>>,
     retry_count: AtomicU8,
+    /// Spec 026 — ownership of the AI process we are using.
+    ownership: RwLock<Ownership>,
     /// F4 / T045: weak self-reference so the drain background task can
     /// re-spawn on first crash without holding a strong cycle.
     self_weak: Weak<Self>,
@@ -42,6 +54,7 @@ impl OllamaSidecar {
             status: RwLock::new(SidecarStatus::NotStarted),
             child: RwLock::new(None),
             retry_count: AtomicU8::new(0),
+            ownership: RwLock::new(Ownership::None),
             self_weak: weak.clone(),
         })
     }
@@ -54,6 +67,41 @@ impl OllamaSidecar {
         *self.status.write() = s;
     }
 
+    /// Spec 026 — who started the AI we are using.
+    pub fn ownership(&self) -> Ownership {
+        *self.ownership.read()
+    }
+
+    /// Spec 026 — is a usable Ollama ALREADY serving on the loopback port
+    /// (the user started their own, or one was left running)? Loopback-only
+    /// (Principle I/III); reuses the same `/api/tags` 2xx signal `wait_ready`
+    /// trusts. 2xx ⇒ reuse; anything else ⇒ not a usable external Ollama.
+    pub async fn external_ollama_reachable(&self) -> bool {
+        let Ok(client) = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+        else {
+            return false;
+        };
+        matches!(
+            client
+                .get("http://127.0.0.1:11434/api/tags")
+                .send()
+                .await
+                .map(|r| r.status().is_success()),
+            Ok(true)
+        )
+    }
+
+    /// Spec 026 — adopt an already-running external Ollama: mark Ready WITHOUT
+    /// spawning a bundled process that could not bind the busy port (and would
+    /// die, clobbering readiness). `ownership = ReusedExternal` so shutdown
+    /// never kills a process we did not start.
+    pub fn mark_reused_ready(&self) {
+        self.set_status(SidecarStatus::Ready);
+        *self.ownership.write() = Ownership::ReusedExternal;
+    }
+
     pub async fn spawn<R: Runtime>(&self, app: &AppHandle<R>) -> Result<(), SidecarError> {
         // Pre-flight port check.
         if Self::port_busy(11434) {
@@ -61,6 +109,9 @@ impl OllamaSidecar {
             return Err(SidecarError::PortBusy);
         }
         self.set_status(SidecarStatus::Starting);
+        // Spec 026 — we are starting the bundled process ourselves; we own it
+        // and MUST stop it on shutdown.
+        *self.ownership.write() = Ownership::WeStarted;
 
         let shell = app.shell();
         let cmd = shell

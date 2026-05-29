@@ -249,22 +249,36 @@ pub fn run() {
                 }
 
                 if let Some(state) = app_handle.try_state::<AppState>() {
-                    if let Err(e) = state.sidecar.spawn(&app_handle).await {
-                        eprintln!("[juradrop] sidecar spawn failed: {e}");
-                        *state.error_override.write() = Some(UserVisibleStatus::from(&e));
+                    // Spec 026 — probe the loopback port FIRST. If the user
+                    // already has an Ollama serving, REUSE it (mark Ready,
+                    // ownership = ReusedExternal) and do NOT spawn a bundled
+                    // process: one that cannot bind the busy port dies, races
+                    // the readiness flag against the crash drain-task, and
+                    // leaves every zone disabled behind a "ready" header. Only
+                    // spawn the bundled sidecar when the port is genuinely free.
+                    if state.sidecar.external_ollama_reachable().await {
+                        state.sidecar.mark_reused_ready();
                         let _ = app_handle.emit("juradrop://status", state.snapshot());
-                        return;
-                    }
-                    let _ = app_handle.emit("juradrop://status", state.snapshot());
-
-                    match state.sidecar.wait_ready(Duration::from_secs(10)).await {
-                        Ok(()) => {
-                            after_sidecar_ready(app_handle.clone(), state.inner().clone()).await;
-                        }
-                        Err(e) => {
-                            eprintln!("[juradrop] sidecar wait_ready failed: {e}");
+                        after_sidecar_ready(app_handle.clone(), state.inner().clone()).await;
+                    } else {
+                        if let Err(e) = state.sidecar.spawn(&app_handle).await {
+                            eprintln!("[juradrop] sidecar spawn failed: {e}");
                             *state.error_override.write() = Some(UserVisibleStatus::from(&e));
                             let _ = app_handle.emit("juradrop://status", state.snapshot());
+                            return;
+                        }
+                        let _ = app_handle.emit("juradrop://status", state.snapshot());
+
+                        match state.sidecar.wait_ready(Duration::from_secs(10)).await {
+                            Ok(()) => {
+                                after_sidecar_ready(app_handle.clone(), state.inner().clone())
+                                    .await;
+                            }
+                            Err(e) => {
+                                eprintln!("[juradrop] sidecar wait_ready failed: {e}");
+                                *state.error_override.write() = Some(UserVisibleStatus::from(&e));
+                                let _ = app_handle.emit("juradrop://status", state.snapshot());
+                            }
                         }
                     }
                 }
