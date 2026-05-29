@@ -17,9 +17,10 @@ pub mod updater;
 pub mod zones;
 
 use settings::commands::{
-    get_app_version, get_settings, get_tier_pull_state, init_settings_state, set_model_tier,
-    trigger_tier_download,
+    cancel_tier_download, get_app_version, get_settings, get_tier_download_state,
+    get_tier_pull_state, init_settings_state, set_model_tier, start_tier_download,
 };
+use settings::tier_download::TierDownloadHandle;
 use sidecar::commands::{
     after_sidecar_ready, cancel_consent, cancel_model_pull, cancel_summary, dispatch_to_zone,
     get_status, give_consent, run_roundtrip_dev, AppState,
@@ -62,7 +63,10 @@ pub fn run() {
             get_settings,
             set_model_tier,
             get_tier_pull_state,
-            trigger_tier_download,
+            // Spec 027 — on-demand tier download (replaces the spec-010 stub).
+            start_tier_download,
+            cancel_tier_download,
+            get_tier_download_state,
             get_app_version,
             // Spec 025 — opt-in local diagnostics.
             diagnostics::commands::get_diagnostics_status,
@@ -76,6 +80,12 @@ pub fn run() {
             // Done BEFORE the sidecar bootstrap so the dispatch path can
             // read the active tier from frame zero.
             init_settings_state(app.handle());
+
+            // Spec 027 — manage the at-most-one tier-download slot. Held as
+            // its own state (NOT in SettingsSnapshot, which keeps a strict
+            // 2-key on-disk privacy invariant); download state is purely
+            // in-memory session state and never persisted.
+            app.manage(std::sync::Arc::new(TierDownloadHandle::new()));
 
             // Spec 025 — initialize the opt-in diagnostics log (default OFF,
             // local-only, content-free). Consent + log live under

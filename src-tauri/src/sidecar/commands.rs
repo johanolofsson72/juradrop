@@ -191,7 +191,7 @@ pub fn spawn_pull_task(app: AppHandle, state: AppState) {
             .unwrap_or_else(Instant::now);
 
         let pull_future = state.client.pull(DEFAULT_MODEL, |event| match event {
-            PullEvent::Progress { percent } => {
+            PullEvent::Progress { percent, .. } => {
                 *state_inner.progress.write() = Some(percent);
                 let now = Instant::now();
                 let changed = last_pct != Some(percent);

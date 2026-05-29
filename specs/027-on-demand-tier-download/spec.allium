@@ -1,0 +1,191 @@
+-- allium: 3
+--
+-- Spec 027 — on-demand tier download.
+--
+-- Makes the settings "Ladda ned" button actually pull a non-bundled model
+-- tier (Snabb llama3.2:1b / Stor gemma3:12b) through the local Ollama,
+-- with streaming progress, an honest failure state, and cancel — replacing
+-- the spec-010 stub whose event (`trigger_tier_download`) was emitted to a
+-- listener (`subscribeTierDownloadRequested`) wired nowhere.
+
+enum ModelTier { snabb | smart | stor }
+
+-- Why a download failed — drives which Swedish message the row shows.
+enum DownloadFailure { network | disk_full | not_ready | not_found }
+
+config {
+    ai_host: String = `127.0.0.1`        -- localhost only (Principle I + III)
+    ai_port: Integer = 11434
+    pull_path: String = `/api/pull`
+    snabb_model: String = `llama3.2:1b`
+    smart_model: String = `gemma3:4b`    -- the bundled tier (spec 008)
+    stor_model: String = `gemma3:12b`
+}
+
+-- Readiness comes from spec 026's single truth. We only consume `is_ready`
+-- plus "is the first-run bundled pull still running"; we never set them.
+external entity SidecarReadiness {
+    is_ready: Boolean
+    bundled_pull_active: Boolean         -- spec 008 wizard still pulling Smart
+}
+
+-- The download lifecycle of ONE tier. Snabb and Stor each have one; the
+-- bundled Smart tier is pulled by spec 008 and never enters `downloading`
+-- through this feature (it starts life `pulled`).
+entity TierDownload {
+    tier: ModelTier
+    model_id: String                     -- snabb_model | stor_model
+    status: not_pulled | downloading | pulled | error
+
+    -- Progress is meaningful ONLY while downloading. `total_bytes = 0`
+    -- (or unknown) means the row shows the indeterminate "Laddar ned…"
+    -- label instead of a percentage (FR-003).
+    completed_bytes: Integer when status = downloading
+    total_bytes: Integer when status = downloading
+    indeterminate: total_bytes = 0 when status = downloading
+
+    -- A categorised reason is present exactly when in the error state (FR-006).
+    failure: DownloadFailure when status = error
+
+    -- DERIVED: a tier is selectable as the active model exactly when pulled.
+    -- This is the spec-010 row-mode truth (radio vs button), consumed here.
+    selectable: status = pulled
+
+    transitions status {
+        not_pulled -> downloading        -- StartDownload (Ladda ned)
+        downloading -> pulled            -- DownloadCompleted
+        downloading -> error             -- DownloadFailed
+        downloading -> not_pulled        -- CancelDownload (Avbryt)
+        error -> downloading             -- RetryDownload (Försök igen)
+        terminal: pulled
+    }
+
+    invariant ErrorHasReason {
+        status = error implies failure != null
+    }
+    invariant OnlyPulledIsSelectable {
+        selectable = (status = pulled)
+    }
+}
+
+-- ===== Starting a download =====
+
+rule StartDownload {
+    when: LaddaNedClicked(d)
+    requires:
+        d.status = not_pulled
+        SidecarReadiness.is_ready = true
+        SidecarReadiness.bundled_pull_active = false
+        not TierDownload.any(other => other != d and other.status = downloading)
+    ensures:
+        d.status = downloading
+        d.completed_bytes = 0
+        PullRequested(host: ai_host, port: ai_port, path: pull_path, model: d.model_id)
+}
+
+-- FR-010 — refuse honestly instead of starting a doomed pull.
+rule StartDownloadRefusedNotReady {
+    when: LaddaNedClicked(d)
+    requires:
+        d.status = not_pulled
+        SidecarReadiness.is_ready = false or SidecarReadiness.bundled_pull_active = true
+    ensures:
+        d.status = not_pulled                 -- unchanged, no pull starts
+        UserVisibleMessage(kind: ai_inte_redo)
+}
+
+-- ===== Progress, completion, failure =====
+
+rule ProgressUpdate {
+    when: PullProgress(d, completed, total)
+    requires: d.status = downloading
+    ensures:
+        d.completed_bytes = completed
+        d.total_bytes = total
+}
+
+rule DownloadCompleted {
+    when: PullStreamDone(d)
+    requires: d.status = downloading
+    ensures:
+        d.status = pulled                     -- row flips to radio_selectable (FR-005)
+        TierPullStateRefreshed(tier: d.tier)
+}
+
+-- The active model tier is NOT changed by completion (auto-select is out of
+-- scope) — selecting stays an explicit, separate user action (spec 010).
+rule DownloadFailed {
+    when: PullStreamError(d, reason)
+    requires: d.status = downloading
+    ensures:
+        d.status = error
+        d.failure = reason
+        UserVisibleMessage(kind: pull_failed, reason: reason)  -- Swedish, no stack trace
+}
+
+-- ===== Retry and cancel =====
+
+rule RetryDownload {
+    when: ForsokIgenClicked(d)
+    requires:
+        d.status = error
+        SidecarReadiness.is_ready = true
+        not TierDownload.any(other => other != d and other.status = downloading)
+    ensures:
+        d.status = downloading                -- unlimited, user-initiated (FR-007)
+        d.completed_bytes = 0
+        PullRequested(host: ai_host, port: ai_port, path: pull_path, model: d.model_id)
+}
+
+rule CancelDownload {
+    when: AvbrytClicked(d)
+    requires: d.status = downloading
+    ensures:
+        d.status = not_pulled                 -- a cancelled partial pull is NOT pulled (FR-008)
+        PullCancelled(model: d.model_id)
+}
+
+-- ===== Global invariants =====
+
+-- FR-009 — at most one tier downloads at a time (download-vs-download only;
+-- this does NOT gate document inference, see FR-015 / no rule blocks generate).
+invariant AtMostOneDownloading {
+    TierDownload.all(d => d.status = downloading).count <= 1
+}
+
+-- FR-008 / SC-004 — a tier that is not `pulled` is never reported as installed.
+-- (Cancel and failure both leave the tier non-pulled.)
+invariant NotPulledIsNotSelectable {
+    for d in TierDownload where d.status != pulled:
+        d.selectable = false
+}
+
+-- FR-005 — completion is the ONLY way a tier this feature manages becomes
+-- selectable; downloading/error/cancelled rows are never selectable.
+invariant SelectableImpliesPulled {
+    for d in TierDownload where d.selectable = true:
+        d.status = pulled
+}
+
+-- Principle I + III — the pull targets localhost Ollama only; no remote host.
+invariant LocalhostOnly {
+    ai_host = `127.0.0.1`
+}
+
+-- FR-002 / FR-013 — every pull this feature starts goes to the localhost
+-- Ollama pull endpoint and carries only a model id (never document content).
+invariant PullsAreLocalModelOnly {
+    for d in TierDownload where d.status = downloading:
+        d.model_id in {snabb_model, stor_model}
+}
+
+-- NOTE: surface/actor blocks omitted — single local desktop actor
+-- (constitution Principle IV); the settings panel is the only surface and
+-- its exposure is fully captured by the rules + invariants above.
+--
+-- NOTE: FR-011 (download survives panel close) is a lifetime property of the
+-- backend-owned pull task, not a state-machine transition — it is asserted by
+-- test (the task is keyed by tier, not by any frontend component), so it has
+-- no Allium rule. FR-015 (download may run concurrently with inference) is the
+-- ABSENCE of a blocking rule between PullRequested and document generation —
+-- expressed by there being no rule that gates one on the other.

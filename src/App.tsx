@@ -11,6 +11,7 @@ import { UpdateIndicator } from '@/components/UpdateIndicator';
 import { UpdateRetryFootnote } from '@/components/UpdateRetryFootnote';
 import { Wizard } from '@/components/Wizard';
 import { ensureSettingsSubscription, useSettingsStore } from '@/lib/settings-store';
+import { ensureTierDownloadSubscription } from '@/lib/tier-download-store';
 import { useStatusStore } from '@/lib/status-store';
 import { ensureUpdateStatusSubscription } from '@/lib/update-store';
 import { useCmdComma } from '@/lib/use-cmd-comma';
@@ -159,7 +160,12 @@ export function App() {
   // paths but auto-disables itself while the wizard is up (FR-005a).
   useEffect(() => {
     const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-    if (inTauri) ensureSettingsSubscription();
+    if (inTauri) {
+      ensureSettingsSubscription();
+      // Spec 027 — hydrate + subscribe to on-demand tier downloads so an
+      // in-flight pull survives the panel closing/reopening (FR-011).
+      ensureTierDownloadSubscription();
+    }
   }, []);
   const settingsPanel = useSettingsPanel();
   // Spec 013 — help panel + mutual exclusion (FR-023): at most one

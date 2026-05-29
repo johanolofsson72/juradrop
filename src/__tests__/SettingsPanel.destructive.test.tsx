@@ -73,11 +73,12 @@ describe('Destructive — boundary values (coalescing)', () => {
     act(() => {
       for (let i = 0; i < 50; i++) fireEvent.click(button as Element);
     });
-    // We don't promise dedup at the click layer (that's a wizard
-    // concern), but we DO promise none of the clicks accidentally
-    // routes through set_model_tier — every one stays as
-    // trigger_tier_download.
-    const tierCalls = invokeMock.mock.calls.filter((c) => c[0] === 'trigger_tier_download');
+    // Spec 027 — the backend `try_start` is idempotent (a second start for
+    // a tier already downloading is a no-op Ok), so rapid clicks are safe.
+    // The click layer doesn't dedup, but we DO promise none of the clicks
+    // accidentally routes through set_model_tier — every one stays as
+    // start_tier_download.
+    const tierCalls = invokeMock.mock.calls.filter((c) => c[0] === 'start_tier_download');
     const setCalls = invokeMock.mock.calls.filter((c) => c[0] === 'set_model_tier');
     expect(tierCalls.length).toBe(50);
     expect(setCalls.length).toBe(0);

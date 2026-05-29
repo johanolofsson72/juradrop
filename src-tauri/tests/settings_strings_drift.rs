@@ -42,6 +42,14 @@ fn fixture_contains_exactly_the_expected_panel_keys() {
         "tier_stor_size",
         "tier_ladda_ned_button",
         "tier_not_downloaded_badge",
+        // Spec 027 — on-demand tier download UI.
+        "tier_downloading_label",
+        "tier_download_cancel",
+        "tier_download_retry",
+        "tier_download_err_network",
+        "tier_download_err_disk_full",
+        "tier_download_err_not_ready",
+        "tier_download_err_not_found",
         "appearance_light",
         "appearance_dark",
         // Spec 026 — appearance picker option labels.

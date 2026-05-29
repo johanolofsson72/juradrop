@@ -242,12 +242,18 @@ mod tests {
         // Spec 028 — the Pages message must name Pages AND tell the user
         // what to do (export first), not pretend a transient read failed.
         let copy = ZoneFailure::PagesUnsupported.to_string();
-        assert!(copy.contains("Pages"), "Pages message must name Pages: {copy:?}");
+        assert!(
+            copy.contains("Pages"),
+            "Pages message must name Pages: {copy:?}"
+        );
         assert!(
             copy.to_lowercase().contains("word") || copy.to_lowercase().contains("pdf"),
             "Pages message must point to an export target: {copy:?}"
         );
-        assert!(!copy.contains(".pages"), "must not reference the dead .pages reader");
+        assert!(
+            !copy.contains(".pages"),
+            "must not reference the dead .pages reader"
+        );
     }
 
     #[test]

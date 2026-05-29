@@ -302,26 +302,49 @@ export async function getTierPullState(): Promise<TierPullState> {
   return invoke<TierPullState>('get_tier_pull_state');
 }
 
-export async function triggerTierDownload(tier: ModelTier): Promise<void> {
-  await invoke<void>('trigger_tier_download', { tier });
-}
-
 export async function getAppVersion(): Promise<string> {
   return invoke<string>('get_app_version');
 }
 
-export interface TierDownloadRequest {
+// ===== Spec 027 — on-demand tier download =====
+
+export type TierDownloadPhase = 'downloading' | 'error' | 'done' | 'cancelled';
+export type TierDownloadFailure = 'network' | 'disk_full' | 'not_ready' | 'not_found';
+
+/** A frame on the `juradrop://settings/tier-download` channel (and the shape
+ *  returned by `getTierDownloadState`). Carries only tier, phase, byte counts,
+ *  and failure category — never document content (Principle I). */
+export interface TierDownloadEvent {
   tier: ModelTier;
-  model_id: string;
+  phase: TierDownloadPhase;
+  percent: number;
+  completed: number;
+  total: number;
+  failure: TierDownloadFailure | null;
 }
 
-/** Subscribe to the `Ladda ned` intent channel. The spec 008 wizard
- *  picks this up and runs the existing model-pull flow. */
-export function subscribeTierDownloadRequested(
-  cb: (req: TierDownloadRequest) => void,
+/** Start a real pull of a non-bundled tier. Rejects with a stable string
+ *  (`not_ready` / `busy` / `already_pulled`) the store maps to UI. */
+export async function startTierDownload(tier: ModelTier): Promise<void> {
+  await invoke<void>('start_tier_download', { tier });
+}
+
+/** Cancel an in-flight tier download (FR-008). */
+export async function cancelTierDownload(tier: ModelTier): Promise<void> {
+  await invoke<void>('cancel_tier_download', { tier });
+}
+
+/** Current download state, for hydrating the panel on open (FR-011). */
+export async function getTierDownloadState(): Promise<TierDownloadEvent | null> {
+  return invoke<TierDownloadEvent | null>('get_tier_download_state');
+}
+
+/** Subscribe to streaming tier-download progress + terminal events. */
+export function subscribeTierDownload(
+  cb: (event: TierDownloadEvent) => void,
 ): Promise<UnlistenFn> {
-  return listen<TierDownloadRequest>(
-    'juradrop://settings/tier-download-requested',
+  return listen<TierDownloadEvent>(
+    'juradrop://settings/tier-download',
     (event) => cb(event.payload),
   );
 }

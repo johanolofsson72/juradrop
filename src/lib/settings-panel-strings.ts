@@ -24,6 +24,14 @@ export type SettingsPanelStringKey =
   | 'tier_stor_size'
   | 'tier_ladda_ned_button'
   | 'tier_not_downloaded_badge'
+  // Spec 027 — on-demand tier download UI.
+  | 'tier_downloading_label'
+  | 'tier_download_cancel'
+  | 'tier_download_retry'
+  | 'tier_download_err_network'
+  | 'tier_download_err_disk_full'
+  | 'tier_download_err_not_ready'
+  | 'tier_download_err_not_found'
   | 'appearance_light'
   | 'appearance_dark'
   // Spec 026 — appearance picker option labels.
@@ -57,6 +65,14 @@ export const SETTINGS_PANEL_STRINGS: Record<SettingsPanelStringKey, string> = {
   tier_stor_size: '~8.1 GB',
   tier_ladda_ned_button: 'Ladda ned',
   tier_not_downloaded_badge: 'Inte nedladdad',
+  // Spec 027 — on-demand tier download UI (humanizer-reviewed).
+  tier_downloading_label: 'Laddar ned…',
+  tier_download_cancel: 'Avbryt',
+  tier_download_retry: 'Försök igen',
+  tier_download_err_network: 'Nedladdningen avbröts — kolla din uppkoppling.',
+  tier_download_err_disk_full: 'Det finns inte plats på disken för modellen.',
+  tier_download_err_not_ready: 'AI är inte redo ännu — vänta en stund.',
+  tier_download_err_not_found: 'Modellen kunde inte hittas.',
   appearance_light: 'Ljust läge (följer systemet)',
   appearance_dark: 'Mörkt läge (följer systemet)',
   // Spec 026 — picker options (standard macOS Swedish terms).

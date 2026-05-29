@@ -7,4 +7,5 @@
 pub mod commands;
 pub mod file_io;
 pub mod snapshot;
+pub mod tier_download;
 pub mod tier_map;

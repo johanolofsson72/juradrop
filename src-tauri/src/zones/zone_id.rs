@@ -93,12 +93,8 @@ impl ZoneId {
     pub fn hint_copy(self) -> &'static str {
         match self {
             ZoneId::Sammanfatta => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för sammanfattning",
-            ZoneId::TillEngelska => {
-                "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för engelsk översättning"
-            }
-            ZoneId::TillSvenska => {
-                "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för svensk översättning"
-            }
+            ZoneId::TillEngelska => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för engelsk översättning",
+            ZoneId::TillSvenska => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för svensk översättning",
             ZoneId::Punktlista => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för punktlista",
             ZoneId::Anonymisera => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för anonymisering",
             ZoneId::Forenkla => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för klarspråk",

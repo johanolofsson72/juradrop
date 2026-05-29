@@ -5,22 +5,23 @@
 //
 // `set_model_tier` writes synchronously (from the user's POV) to disk
 // inside the same critical section that updates the in-memory snapshot.
-// `trigger_tier_download` is a stub here that emits a Tauri event the
-// frontend listens for — wiring into the spec 008 wizard's real pull
-// path is intentionally minimal in this iteration: we surface the
-// intent, the panel + store reacts, and the existing spec 008 download
-// UI handles the rest. The auto-select-after-pull listener in
-// `settings-store.ts` listens for the same `juradrop://status` event
-// the wizard already emits.
+// Spec 027 — `start_tier_download` / `cancel_tier_download` /
+// `get_tier_download_state` drive a REAL on-demand pull through
+// `tier_download.rs` (its own backend-owned state + streaming
+// `juradrop://settings/tier-download` channel), replacing the spec-010
+// `trigger_tier_download` stub that emitted into a dead listener.
+
+use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 use super::file_io::{load_or_default, save, settings_file_path};
 use super::snapshot::{SettingsSnapshot, SettingsState};
+use super::tier_download;
 use super::tier_map::ModelTier;
 use crate::sidecar::commands::AppState;
-use crate::sidecar::status::ModelStatus;
+use crate::sidecar::status::{ModelStatus, SidecarStatus};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct TierPullState {
@@ -84,31 +85,58 @@ pub async fn get_tier_pull_state(
     })
 }
 
-/// Spec 010 / T017 — request that a not-yet-pulled tier's model be
-/// downloaded. Emits `juradrop://settings/tier-download-requested`
-/// with the target tier; the spec 008 wizard's existing model-pull
-/// path is invoked separately by the frontend's existing flow. This
-/// minimal implementation keeps the spec 008 wizard's call signature
-/// unchanged (the X1 remediation is satisfied because we add NO new
-/// fields to start_model_pull, and the panel-aware event surface is
-/// additive — old callers see nothing).
+/// Spec 027 — start a REAL on-demand pull of a non-bundled tier's model
+/// (Snabb `llama3.2:1b`, Stor `gemma3:12b`). Replaces the spec-010 stub
+/// (`trigger_tier_download`) whose event was wired to nothing. Refuses
+/// honestly when the sidecar is not ready or a bundled first-run pull is
+/// active (FR-010), or when another tier is already downloading (FR-009).
 #[tauri::command]
-pub async fn trigger_tier_download(app: AppHandle, tier: ModelTier) -> Result<(), String> {
-    app.emit(
-        "juradrop://settings/tier-download-requested",
-        TierDownloadRequest {
-            tier,
-            model_id: tier.model_id().to_string(),
-        },
-    )
-    .map_err(|e| format!("emit failed: {e}"))?;
+pub async fn start_tier_download(
+    app: AppHandle,
+    sidecar: tauri::State<'_, AppState>,
+    handle: tauri::State<'_, Arc<tier_download::TierDownloadHandle>>,
+    tier: ModelTier,
+) -> Result<(), String> {
+    let already = tier_is_pulled(&sidecar, tier).await;
+    // Ready to pull = Ollama reachable AND the spec-008 bundled pull is not
+    // already running (no two pulls at once).
+    let ready = matches!(sidecar.sidecar.status(), SidecarStatus::Ready)
+        && !matches!(*sidecar.model_status.read(), ModelStatus::Downloading);
+    let handle = handle.inner().clone();
+    match tier_download::try_start(&handle, tier, ready, already) {
+        tier_download::StartOutcome::Started => {
+            tier_download::spawn_pull_task(app, handle, sidecar.client.clone(), tier);
+            Ok(())
+        }
+        // Idempotent: a rapid double-click on a tier already downloading.
+        tier_download::StartOutcome::AlreadyDownloadingThisTier => Ok(()),
+        tier_download::StartOutcome::RefusedNotReady => Err("not_ready".into()),
+        tier_download::StartOutcome::RefusedBusy => Err("busy".into()),
+        tier_download::StartOutcome::RefusedAlreadyPulled => Err("already_pulled".into()),
+    }
+}
+
+/// Spec 027 — cancel an in-flight tier download (FR-008). Trips the cancel
+/// token, clears the slot, and emits a `cancelled` terminal event. The tier
+/// is NOT reported pulled afterwards (a cancelled partial pull is not
+/// installed). No-op if the given tier is not currently downloading.
+#[tauri::command]
+pub async fn cancel_tier_download(
+    app: AppHandle,
+    handle: tauri::State<'_, Arc<tier_download::TierDownloadHandle>>,
+    tier: ModelTier,
+) -> Result<(), String> {
+    tier_download::cancel(&app, handle.inner(), tier);
     Ok(())
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct TierDownloadRequest {
-    pub tier: ModelTier,
-    pub model_id: String,
+/// Spec 027 — current download state, for the panel to hydrate on open
+/// (FR-011 — the pull is backend-owned and survives the panel closing).
+#[tauri::command]
+pub async fn get_tier_download_state(
+    handle: tauri::State<'_, Arc<tier_download::TierDownloadHandle>>,
+) -> Result<Option<tier_download::TierDownloadPayload>, String> {
+    Ok(tier_download::current_payload(handle.inner()))
 }
 
 #[tauri::command]

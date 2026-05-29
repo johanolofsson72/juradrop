@@ -26,7 +26,15 @@ pub enum ClientError {
 
 #[derive(Debug, Clone)]
 pub enum PullEvent {
-    Progress { percent: u8 },
+    /// `completed`/`total` are the raw byte counts from the pull stream.
+    /// Spec 008's bundled flow reads only `percent`; spec 027's tier
+    /// download uses the bytes to render "5,0 / 8,1 GB". `total == 0`
+    /// never reaches here (filtered in `into_event`).
+    Progress {
+        percent: u8,
+        completed: u64,
+        total: u64,
+    },
     Completed,
     Failed(String),
 }
@@ -249,7 +257,11 @@ impl PullLine {
                 return None;
             }
             let percent = ((done as u128 * 100) / total as u128).min(100) as u8;
-            return Some(PullEvent::Progress { percent });
+            return Some(PullEvent::Progress {
+                percent,
+                completed: done,
+                total,
+            });
         }
         None
     }
@@ -315,7 +327,16 @@ mod tests {
         )
         .unwrap();
         match line.into_event() {
-            Some(PullEvent::Progress { percent }) => assert_eq!(percent, 25),
+            // Spec 027 — byte fields now ride along with the percent.
+            Some(PullEvent::Progress {
+                percent,
+                completed,
+                total,
+            }) => {
+                assert_eq!(percent, 25);
+                assert_eq!(completed, 250);
+                assert_eq!(total, 1000);
+            }
             other => panic!("expected Progress(25), got {other:?}"),
         }
     }
@@ -326,7 +347,12 @@ mod tests {
             serde_json::from_str(r#"{"status":"downloading","total":100,"completed":150}"#)
                 .unwrap();
         match line.into_event() {
-            Some(PullEvent::Progress { percent }) => assert_eq!(percent, 100),
+            Some(PullEvent::Progress {
+                percent, completed, ..
+            }) => {
+                assert_eq!(percent, 100);
+                assert_eq!(completed, 150); // raw bytes preserved even when clamped
+            }
             other => panic!("expected Progress(100), got {other:?}"),
         }
     }

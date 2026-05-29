@@ -394,8 +394,10 @@ mod tests {
             "juradrop://zone/kontakter",
             "juradrop://zone/generera",
             "juradrop://zone/kallor",
-            // Spec 010 — settings panel events.
-            "juradrop://settings/tier-download-requested",
+            // Spec 010 — settings panel events. Spec 027 replaced the
+            // emit-only `tier-download-requested` stub with the streaming
+            // `tier-download` progress channel.
+            "juradrop://settings/tier-download",
         ];
         for existing in existing_channels {
             assert_ne!(

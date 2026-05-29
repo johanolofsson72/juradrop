@@ -85,13 +85,13 @@ describe('ModelTierSection', () => {
     expect(invokeMock).toHaveBeenCalledWith('set_model_tier', { tier: 'Snabb' });
   });
 
-  it('clicking Ladda ned fires trigger_tier_download — not set_model_tier (FR-012)', () => {
+  it('clicking Ladda ned fires start_tier_download — not set_model_tier (spec 027 / FR-012)', () => {
     setSettings({ tier: 'Smart', pulled: { snabb: false, smart: true, stor: false } });
     invokeMock.mockResolvedValue(undefined);
     render(<ModelTierSection />);
     const button = document.querySelector('[data-tier="Stor"] button');
     fireEvent.click(button as Element);
-    expect(invokeMock).toHaveBeenCalledWith('trigger_tier_download', { tier: 'Stor' });
+    expect(invokeMock).toHaveBeenCalledWith('start_tier_download', { tier: 'Stor' });
     expect(invokeMock).not.toHaveBeenCalledWith('set_model_tier', expect.anything());
   });
 
