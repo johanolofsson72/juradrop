@@ -6,7 +6,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 const startMock = vi.fn();
 const cancelMock = vi.fn();
 const refreshMock = vi.fn();
-const getStateMock = vi.fn<[], Promise<unknown>>(() => Promise.resolve(null));
+const getStateMock = vi.fn(() => Promise.resolve<unknown>(null));
 
 vi.mock('@/lib/tauri-bridge', () => ({
   startTierDownload: (tier: string) => startMock(tier),
