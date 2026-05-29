@@ -1,0 +1,129 @@
+-- allium: 3
+--
+-- Spec 025 — local-crash-diagnostics
+-- Opt-in (default OFF), local-only, content-scrubbed diagnostics log.
+-- Content-safety is structural: the log API takes a category enum, never
+-- free text, so document content cannot be logged.
+
+-- Content-free event categories. NO variant carries document text, prompts,
+-- model output, or file paths.
+enum DiagnosticCategory {
+    sidecar_crash | sidecar_restart | zone_failure
+}
+
+value DiagnosticEvent {
+    category: DiagnosticCategory
+    attempt: Integer?         -- restart attempt number (a count, not content)
+    zone_failure_tag: String? -- a ZoneFailure serde tag (e.g. `model_error`), not content
+
+    -- The only String field is a fixed enum-tag from a closed set, never
+    -- free-form user content.
+    invariant TagIsClosedSet {
+        zone_failure_tag != null implies zone_failure_tag.is_zone_failure_serde_tag
+    }
+}
+
+-- Persisted opt-in consent. Lives in the diagnostics module's OWN file,
+-- NOT SettingsSnapshot (preserving its 2-field privacy invariant).
+entity DiagnosticsConsent {
+    enabled: Boolean
+
+    transitions enabled {
+        false -> true    -- user opts in via Settings
+        true -> false    -- user opts out
+    }
+}
+
+-- One appended log entry. Every field is content-free by construction.
+entity DiagnosticLine {
+    timestamp: Timestamp
+    category: DiagnosticCategory
+    content_free: Boolean
+}
+
+config {
+    default_enabled: Boolean = false
+    log_size_cap_bytes: Integer = 65536   -- ~64 KB
+}
+
+external entity SettingsSnapshot { }   -- spec 010; MUST stay exactly 2 fields
+
+-- FR-002 — logging only happens when consent is enabled; each line is a
+-- fixed content-free format.
+rule LogEventWhenEnabled {
+    when: LogEvent(event)
+    requires: DiagnosticsConsent.enabled = true
+    ensures:
+        DiagnosticLine.appended(
+            timestamp: now,
+            category: event.category,
+            content_free: true
+        )
+}
+
+-- FR-002 — when disabled (the default), logging is a no-op.
+rule LogEventNoopWhenDisabled {
+    when: LogEvent(event)
+    requires: DiagnosticsConsent.enabled = false
+    ensures: not DiagnosticLine.appended
+}
+
+-- FR-004 — toggling persists consent to the diagnostics file.
+rule SetDiagnosticsEnabled {
+    when: SetDiagnosticsEnabled(value)
+    ensures:
+        DiagnosticsConsent.enabled = value
+        DiagnosticsConsent.persisted = true
+}
+
+-- ---- Invariants (Principle I) ----
+
+-- SC-001 — diagnostics are OFF until the user opts in.
+invariant DefaultOff {
+    DiagnosticsConsent.initial_enabled = config.default_enabled
+}
+
+-- SC-003 / Principle I — the log never contains user content. Structural:
+-- the only inputs are enum categories + counts + fixed tags + timestamp.
+invariant LogIsContentFree {
+    for line in DiagnosticLine:
+        not line.contains_document_text
+        and not line.contains_prompt
+        and not line.contains_model_output
+        and not line.contains_user_path
+}
+
+-- Principle I — diagnostics add NO outbound traffic; the log is local-only,
+-- never auto-sent.
+invariant DiagnosticsLocalOnly {
+    DiagnosticLog.emits_network = false
+    and DiagnosticLog.auto_sent = false
+}
+
+-- SC-004 — the consent flag is NOT a SettingsSnapshot field; that struct
+-- keeps its exactly-two-fields privacy invariant.
+invariant SettingsSnapshotUnchanged {
+    SettingsSnapshot.field_count = 2
+}
+
+-- SC-005 — the log is size-capped; it cannot grow unbounded.
+invariant LogSizeCapped {
+    for log in DiagnosticLog:
+        log.size_bytes <= config.log_size_cap_bytes
+}
+
+-- FR-006 — a failed write never crashes the app.
+invariant FailedWriteIsNoop {
+    DiagnosticLog.write_error implies AppContinues
+}
+
+surface DiagnosticsSettings {
+    facing user: LawStudent
+    context consent: DiagnosticsConsent
+    provides: SetDiagnosticsEnabled(value)
+    exposes: consent.enabled
+}
+
+external entity LawStudent { }
+
+deferred Diagnostics.auto_send   -- FORBIDDEN by Principle I; local-only forever. The user copies the file manually if they choose.

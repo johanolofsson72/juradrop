@@ -135,6 +135,22 @@ export async function dispatchToZone(zoneId: ZoneId, paths: string[]): Promise<v
   await invoke<void>('dispatch_to_zone', { zoneId, paths });
 }
 
+/** Spec 025 — opt-in local diagnostics status (consent + local log path). */
+export interface DiagnosticsStatus {
+  readonly enabled: boolean;
+  readonly log_path: string | null;
+}
+
+/** Spec 025 — read the current diagnostics consent + log path. */
+export async function getDiagnosticsStatus(): Promise<DiagnosticsStatus> {
+  return invoke<DiagnosticsStatus>('get_diagnostics_status');
+}
+
+/** Spec 025 — flip + persist the local-diagnostics opt-in. */
+export async function setDiagnosticsEnabled(enabled: boolean): Promise<DiagnosticsStatus> {
+  return invoke<DiagnosticsStatus>('set_diagnostics_enabled', { enabled });
+}
+
 /** Spec 016 — accepted file extensions per zone, for the native picker
  *  filter. Generera takes only instruction files; every other zone takes
  *  the full spec-009 set. Mirrors the formats the hint copy advertises. */

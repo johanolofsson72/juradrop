@@ -47,6 +47,11 @@ fn fixture_contains_exactly_the_expected_panel_keys() {
         "about_app_name",
         "about_license",
         "about_github_button",
+        // Spec 025 — diagnostics opt-in section.
+        "section_diagnostics_title",
+        "diagnostics_toggle_label",
+        "diagnostics_explanation",
+        "diagnostics_path_label",
     ]
     .into_iter()
     .collect();

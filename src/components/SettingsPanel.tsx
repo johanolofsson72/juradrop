@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 
 import { AboutSection } from '@/components/SettingsPanelAbout';
 import { AppearanceSection } from '@/components/SettingsPanelAppearance';
+import { DiagnosticsSection } from '@/components/SettingsPanelDiagnostics';
 import { ModelTierSection } from '@/components/SettingsPanelModelTier';
 import { SETTINGS_PANEL_STRINGS } from '@/lib/settings-panel-strings';
 import type { PanelVisibility } from '@/lib/settings-types';
@@ -84,6 +85,7 @@ export function SettingsPanel({ visibility, onClose }: Props) {
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <ModelTierSection />
           <AppearanceSection />
+          <DiagnosticsSection />
           <AboutSection />
         </div>
       </aside>

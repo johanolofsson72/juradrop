@@ -21,5 +21,9 @@
   "appearance_dark": "Mörkt läge (följer systemet)",
   "about_app_name": "JuraDrop",
   "about_license": "Öppen källkod, MIT-licens",
-  "about_github_button": "Visa utgåvor på GitHub"
+  "about_github_button": "Visa utgåvor på GitHub",
+  "section_diagnostics_title": "Felsökningslogg",
+  "diagnostics_toggle_label": "Spara felsökningslogg lokalt",
+  "diagnostics_explanation": "Av som standard. Loggen sparas bara på din dator, innehåller aldrig dokumenttext och skickas aldrig någonstans. Slå på den om du vill hjälpa till att felsöka.",
+  "diagnostics_path_label": "Loggfil:"
 }

@@ -91,6 +91,31 @@ pub enum ZoneFailure {
     FileTooLarge,
 }
 
+impl ZoneFailure {
+    /// Spec 025 — content-free serde tag (e.g. `model_error`) for the
+    /// opt-in diagnostics log. A closed-set category, never user content.
+    /// Mirrors the `#[serde(rename_all = "snake_case")]` wire form.
+    pub fn tag(&self) -> &'static str {
+        match self {
+            ZoneFailure::InvalidFormat => "invalid_format",
+            ZoneFailure::MultipleFiles => "multiple_files",
+            ZoneFailure::ZoneBusy => "zone_busy",
+            ZoneFailure::ZoneDisabled => "zone_disabled",
+            ZoneFailure::ParseError => "parse_error",
+            ZoneFailure::PasswordProtected => "password_protected",
+            ZoneFailure::EmptyText => "empty_text",
+            ZoneFailure::ModelError => "model_error",
+            ZoneFailure::SaveError => "save_error",
+            ZoneFailure::NoExtractableText => "no_extractable_text",
+            ZoneFailure::UnsupportedEncoding => "unsupported_encoding",
+            ZoneFailure::RtfParseError => "rtf_parse_error",
+            ZoneFailure::PagesParseError => "pages_parse_error",
+            ZoneFailure::OdtParseError => "odt_parse_error",
+            ZoneFailure::FileTooLarge => "file_too_large",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +203,17 @@ mod tests {
             let json = serde_json::to_string(v).unwrap();
             let back: ZoneFailure = serde_json::from_str(&json).unwrap();
             assert_eq!(*v, back);
+        }
+    }
+
+    #[test]
+    fn tag_matches_serde_wire_form() {
+        // Spec 025 — the diagnostics category tag must equal the serde
+        // snake_case wire form for every variant (a closed-set token).
+        for v in ALL_VARIANTS {
+            let json = serde_json::to_string(v).unwrap();
+            let expected = json.trim_matches('"');
+            assert_eq!(v.tag(), expected, "tag() drift for {v:?}");
         }
     }
 

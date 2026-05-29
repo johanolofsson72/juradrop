@@ -28,7 +28,12 @@ export type SettingsPanelStringKey =
   | 'appearance_dark'
   | 'about_app_name'
   | 'about_license'
-  | 'about_github_button';
+  | 'about_github_button'
+  // Spec 025 — diagnostics opt-in section.
+  | 'section_diagnostics_title'
+  | 'diagnostics_toggle_label'
+  | 'diagnostics_explanation'
+  | 'diagnostics_path_label';
 
 export const SETTINGS_PANEL_STRINGS: Record<SettingsPanelStringKey, string> = {
   gear_label: 'Inställningar',
@@ -53,6 +58,12 @@ export const SETTINGS_PANEL_STRINGS: Record<SettingsPanelStringKey, string> = {
   about_app_name: 'JuraDrop',
   about_license: 'Öppen källkod, MIT-licens',
   about_github_button: 'Visa utgåvor på GitHub',
+  // Spec 025 — diagnostics opt-in section.
+  section_diagnostics_title: 'Felsökningslogg',
+  diagnostics_toggle_label: 'Spara felsökningslogg lokalt',
+  diagnostics_explanation:
+    'Av som standard. Loggen sparas bara på din dator, innehåller aldrig dokumenttext och skickas aldrig någonstans. Slå på den om du vill hjälpa till att felsöka.',
+  diagnostics_path_label: 'Loggfil:',
 };
 
 /** Pinned URL for the About section's GitHub Releases button (FR-017). */

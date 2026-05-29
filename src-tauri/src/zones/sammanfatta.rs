@@ -389,6 +389,12 @@ impl DropZone {
         job_id: Uuid,
         failure: ZoneFailure,
     ) {
+        // Spec 025 — content-free failure category (no-op unless the user
+        // opted in to local diagnostics). Logs the ZoneFailure serde tag,
+        // never any document content.
+        crate::diagnostics::log_event(crate::diagnostics::DiagnosticEvent::ZoneFailureLogged {
+            category: failure.tag(),
+        });
         {
             let mut st = self.state.write();
             if let Some(ref mut job) = st.current_job {

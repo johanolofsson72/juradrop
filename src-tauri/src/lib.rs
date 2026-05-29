@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use tauri::{DragDropEvent, Emitter, Listener, Manager, RunEvent, WindowEvent};
 
+pub mod diagnostics;
 pub mod help;
 pub mod prompts;
 pub mod settings;
@@ -63,6 +64,9 @@ pub fn run() {
             get_tier_pull_state,
             trigger_tier_download,
             get_app_version,
+            // Spec 025 — opt-in local diagnostics.
+            diagnostics::commands::get_diagnostics_status,
+            diagnostics::commands::set_diagnostics_enabled,
         ])
         .setup(|app| {
             let state = AppState::new();
@@ -72,6 +76,14 @@ pub fn run() {
             // Done BEFORE the sidecar bootstrap so the dispatch path can
             // read the active tier from frame zero.
             init_settings_state(app.handle());
+
+            // Spec 025 — initialize the opt-in diagnostics log (default OFF,
+            // local-only, content-free). Consent + log live under
+            // <app_data>/diagnostics/. Best-effort: if the dir can't be
+            // resolved, diagnostics simply stays a no-op.
+            if let Ok(app_data) = app.path().app_data_dir() {
+                diagnostics::init(app_data.join("diagnostics"));
+            }
 
             // T045 / F4 — SidecarOneRetry. The drain task in manager.rs emits
             // `juradrop://sidecar-crashed` on unexpected exit; this listener
@@ -85,10 +97,16 @@ pub fn run() {
                     let app = listener_handle.clone();
                     tauri::async_runtime::spawn(async move {
                         if let Some(state) = app.try_state::<AppState>() {
+                            // Spec 025 — content-free crash event (no-op unless
+                            // the user opted in to local diagnostics).
+                            diagnostics::log_event(diagnostics::DiagnosticEvent::SidecarCrash);
                             if state.sidecar.retry_count_value() == 0 {
                                 let prev = state.sidecar.increment_retry();
                                 if prev == 1 {
                                     eprintln!("[juradrop] sidecar crashed; attempting one retry");
+                                    diagnostics::log_event(
+                                        diagnostics::DiagnosticEvent::SidecarRestart { attempt: 1 },
+                                    );
                                     if let Err(e) = state.sidecar.spawn(&app).await {
                                         eprintln!("[juradrop] retry spawn failed: {e}");
                                         *state.error_override.write() =
