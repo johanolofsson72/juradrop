@@ -1,0 +1,53 @@
+-- allium: 3
+--
+-- Spec 022 — prompt-injection-framing
+-- Harden the untrusted-document → model-prompt seam: frame the document as
+-- DATA with a guard (except Generera, whose input IS the instruction).
+
+external entity ZoneId { }
+
+config {
+    doc_begin: String = `--- DOKUMENT BÖRJAR ---`
+    doc_end: String = `--- DOKUMENT SLUTAR ---`
+    instr_begin: String = `--- INSTRUKTIONER BÖRJAR ---`
+    instr_end: String = `--- INSTRUKTIONER SLUTAR ---`
+    generera_zone: String = `generera`
+}
+
+-- The assembled model prompt for one dispatch.
+value FramedPrompt {
+    zone: ZoneId
+    text: String
+    has_guard: Boolean         -- anti-injection guard present
+    document_delimited: Boolean -- the document sits between markers
+
+    -- FR-002/FR-003 — the guard is present for every zone EXCEPT Generera.
+    invariant GuardForTransformZonesOnly {
+        this.has_guard = (this.zone != config.generera_zone)
+    }
+
+    -- FR-002/FR-003 — the untrusted content is ALWAYS delimited, every zone.
+    invariant DocumentAlwaysDelimited {
+        this.document_delimited = true
+    }
+}
+
+-- FR-001 — single assembly point. Transform zones get the guard +
+-- DOKUMENT markers; Generera gets INSTRUKTIONER markers, no guard.
+rule FramePrompt {
+    when: BuildPrompt(zone, system_prompt, document)
+    ensures:
+        if zone = config.generera_zone:
+            FramedPrompt.created(zone: zone, has_guard: false, document_delimited: true)
+        else:
+            FramedPrompt.created(zone: zone, has_guard: true, document_delimited: true)
+}
+
+-- The framed prompt is wrapped in Redacted before any logging (unchanged
+-- from spec 002 log-safety); framing adds no outbound surface.
+invariant FramedPromptStaysRedacted {
+    for p in FramedPrompt:
+        p.logged_only_as_redacted = true
+}
+
+deferred PromptFraming.content_sanitisation  -- stripping prose "instructions" is unreliable + destructive; framing is the robust approach

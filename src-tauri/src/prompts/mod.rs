@@ -9,6 +9,10 @@
 // en sammanfattning:" — which then ends up at the top of the user's
 // .docx output and looks AI-tinged.
 
+// Spec 022 — prompt-injection input framing: single assembly point that
+// wraps the untrusted document so it can't hijack the system prompt.
+pub mod framing;
+
 pub mod anonymisera;
 pub mod forenkla;
 pub mod generera;
@@ -18,6 +22,8 @@ pub mod punktlista;
 pub mod sammanfatta;
 pub mod tillengelska;
 pub mod tillsvenska;
+
+pub use framing::frame_prompt;
 
 pub use anonymisera::ANONYMISERA_SYSTEM_PROMPT;
 pub use forenkla::FORENKLA_SYSTEM_PROMPT;

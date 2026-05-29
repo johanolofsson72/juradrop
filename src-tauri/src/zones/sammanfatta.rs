@@ -211,10 +211,14 @@ impl DropZone {
         // system prompt comes from self.id.system_prompt() so each
         // zone fires its own Swedish instruction. Wrap in Redacted
         // immediately so logging stays safe end-to-end.
-        let full_prompt = format!(
-            "{}\n\n{}",
+        // Spec 022 — frame the untrusted document so it can't hijack the
+        // system prompt (delimiters + anti-injection guard; Generera is
+        // framed as instructions instead). Wrap in Redacted immediately so
+        // logging stays safe end-to-end.
+        let full_prompt = crate::prompts::frame_prompt(
+            self.id,
             self.id.system_prompt(),
-            extracted.raw.as_inner()
+            extracted.raw.as_inner(),
         );
         let prompt = Redacted::new(full_prompt);
 
