@@ -132,12 +132,8 @@ fn with_stdout_silenced<T>(f: impl FnOnce() -> T) -> T {
     // SAFETY: standard fd dance with valid constant args.
     let saved = unsafe { libc::dup(libc::STDOUT_FILENO) };
     let _restore = Restore(saved);
-    let devnull = unsafe {
-        libc::open(
-            b"/dev/null\0".as_ptr() as *const libc::c_char,
-            libc::O_WRONLY,
-        )
-    };
+    // SAFETY: `c"/dev/null"` is a static NUL-terminated C string.
+    let devnull = unsafe { libc::open(c"/dev/null".as_ptr(), libc::O_WRONLY) };
     if saved >= 0 && devnull >= 0 {
         // SAFETY: devnull is a freshly opened, valid fd.
         unsafe {
