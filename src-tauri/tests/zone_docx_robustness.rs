@@ -186,10 +186,11 @@ fn every_zone_failure_string_matches_the_cross_language_fixture() {
     // new variant added to the enum without a fixture entry (or vice
     // versa) fails here.
     let fixture_obj = fixture.as_object().expect("fixture is an object");
-    // _comment + 14 variants (9 from spec 003 + 2 from spec 005 + 3 from spec 009) = 15 keys.
+    // _comment + 15 variants (9 spec 003 + 2 spec 005 + 3 spec 009 + 1 spec 024
+    // file_too_large) = 16 keys.
     assert_eq!(
         fixture_obj.len(),
-        15,
-        "fixture must list exactly 14 ZoneFailure variants + 1 _comment field"
+        16,
+        "fixture must list exactly 15 ZoneFailure variants + 1 _comment field"
     );
 }

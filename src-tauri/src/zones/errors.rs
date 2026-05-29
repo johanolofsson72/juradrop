@@ -83,6 +83,12 @@ pub enum ZoneFailure {
     /// the password-protected branch per FR-008.
     #[error("Kunde inte läsa .odt-filen")]
     OdtParseError,
+
+    /// Spec 024 — file exceeds `MAX_INPUT_FILE_BYTES` (50 MB). Rejected by
+    /// a pre-read metadata check before the whole file is loaded into
+    /// memory (OOM guard). Honest Swedish message instead of a crash.
+    #[error("Filen är för stor — max 50 MB")]
+    FileTooLarge,
 }
 
 #[cfg(test)]
@@ -105,6 +111,8 @@ mod tests {
         ZoneFailure::RtfParseError,
         ZoneFailure::PagesParseError,
         ZoneFailure::OdtParseError,
+        // Spec 024 — oversized-file guard.
+        ZoneFailure::FileTooLarge,
     ];
 
     #[test]

@@ -25,6 +25,8 @@ export const SWEDISH_ZONE_ERROR = {
   rtf_parse_error: 'Kunde inte läsa .rtf-filen',
   pages_parse_error: 'Kunde inte läsa .pages-filen',
   odt_parse_error: 'Kunde inte läsa .odt-filen',
+  // Spec 024 — oversized-file guard.
+  file_too_large: 'Filen är för stor — max 50 MB',
 } as const satisfies Record<ZoneFailure, string>;
 
 export type ZoneFailureCopy = (typeof SWEDISH_ZONE_ERROR)[ZoneFailure];

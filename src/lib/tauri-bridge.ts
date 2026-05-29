@@ -88,7 +88,9 @@ export type ZoneFailure =
   // Spec 009 — format-named long-tail variants.
   | 'rtf_parse_error'
   | 'pages_parse_error'
-  | 'odt_parse_error';
+  | 'odt_parse_error'
+  // Spec 024 — oversized-file guard.
+  | 'file_too_large';
 
 export interface ZoneSnapshot {
   state: ZoneState;

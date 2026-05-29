@@ -13,5 +13,6 @@
   "unsupported_encoding": "Tecken-kodning stöds inte — spara filen som UTF-8 och försök igen",
   "rtf_parse_error": "Kunde inte läsa .rtf-filen",
   "pages_parse_error": "Kunde inte läsa .pages-filen",
-  "odt_parse_error": "Kunde inte läsa .odt-filen"
+  "odt_parse_error": "Kunde inte läsa .odt-filen",
+  "file_too_large": "Filen är för stor — max 50 MB"
 }

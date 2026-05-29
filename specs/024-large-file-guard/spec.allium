@@ -1,0 +1,39 @@
+-- allium: 3
+--
+-- Spec 024 — large-file-guard
+-- A pre-read size cap turns an unbounded read (OOM risk) into an honest
+-- Swedish failure. New terminal ZoneFailure variant; the DropZone state
+-- machine is unchanged (this is a precondition on extraction).
+
+external entity ZoneFailure { }  -- enum extended with file_too_large (spec 003 lineage)
+
+config {
+    max_input_file_bytes: Integer = 52428800   -- 50 * 1024 * 1024
+}
+
+-- FR-003 — the guard runs before any per-format read.
+rule GuardFileSizeBeforeExtraction {
+    when: ExtractText(path, format)
+    ensures:
+        let size = file_size(path)
+        if size > config.max_input_file_bytes:
+            ExtractFailed(reason: file_too_large)
+        else:
+            ProceedToFormatExtractor(path, format)
+}
+
+-- The oversized file is rejected WITHOUT reading its full contents.
+invariant OversizedFileNotFullyRead {
+    for e in ExtractText where file_size(e.path) > config.max_input_file_bytes:
+        e.full_bytes_read = false
+}
+
+-- The new failure copy obeys the existing ZoneFailure invariants
+-- (spec 003 value SwedishCopy): no English "error", <= 80 chars, non-empty.
+invariant FileTooLargeCopyWellFormed {
+    SwedishCopy(file_too_large).length <= 80
+    and SwedishCopy(file_too_large).length > 0
+    and not SwedishCopy(file_too_large).contains(`error`)
+}
+
+deferred LargeFile.streaming_extraction  -- out of scope; reject politely, don't stream multi-GB files

@@ -19,6 +19,11 @@ use super::input_format::InputFormat;
 /// than English.
 pub const TRUNCATION_CHAR_LIMIT: usize = 24_000;
 
+/// Spec 024 — pre-read file-size cap. Every extractor reads the whole
+/// file into memory; without this guard a multi-GB drop could OOM the
+/// app. 50 MB is generous for legal documents while bounding the read.
+pub const MAX_INPUT_FILE_BYTES: u64 = 50 * 1024 * 1024;
+
 /// FR-002 — runs of ≥ `BLANK_LINE_COLLAPSE_MIN` consecutive blank
 /// lines collapse down to exactly `BLANK_LINE_COLLAPSE_TARGET`.
 pub const BLANK_LINE_COLLAPSE_MIN: usize = 3;
@@ -99,6 +104,15 @@ pub fn truncate_to_char_limit(text: String, limit: usize) -> (String, bool) {
 /// this function owns both shared post-processing passes so every
 /// format gets identical treatment.
 pub fn extract_text(path: &Path, format: InputFormat) -> Result<ExtractedText, ZoneFailure> {
+    // Spec 024 — reject oversized files BEFORE any per-format read pulls
+    // the whole thing into memory (OOM guard). A metadata error falls
+    // through to the per-format extractor's own fs-error handling.
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.len() > MAX_INPUT_FILE_BYTES {
+            return Err(ZoneFailure::FileTooLarge);
+        }
+    }
+
     match format {
         InputFormat::Docx => super::docx_extract::extract_text(path),
         InputFormat::Pdf => super::pdf_extract::extract_text(path),
