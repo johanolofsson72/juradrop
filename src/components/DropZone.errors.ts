@@ -9,7 +9,7 @@
 import type { ZoneFailure } from '@/lib/tauri-bridge';
 
 export const SWEDISH_ZONE_ERROR = {
-  invalid_format: 'Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf, .pages eller .odt',
+  invalid_format: 'Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf eller .odt',
   multiple_files: 'Ett dokument i taget',
   zone_busy: 'Vänta tills föregående dokument är klart',
   zone_disabled: 'AI är inte redo ännu',
@@ -21,9 +21,10 @@ export const SWEDISH_ZONE_ERROR = {
   // Spec 005 — PDF image-only + text-encoding errors.
   no_extractable_text: 'Hittade ingen text att läsa i PDF-filen — skannade bilder stöds inte än',
   unsupported_encoding: 'Tecken-kodning stöds inte — spara filen som UTF-8 och försök igen',
-  // Spec 009 — format-named long-tail variants.
+  // Spec 009 — format-named long-tail variants. Spec 028 turned the Pages
+  // variant into an actionable not-supported message.
   rtf_parse_error: 'Kunde inte läsa .rtf-filen',
-  pages_parse_error: 'Kunde inte läsa .pages-filen',
+  pages_unsupported: 'Pages-filer stöds inte — exportera till Word eller PDF först',
   odt_parse_error: 'Kunde inte läsa .odt-filen',
   // Spec 024 — oversized-file guard.
   file_too_large: 'Filen är för stor — max 50 MB',

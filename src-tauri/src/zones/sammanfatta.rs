@@ -93,19 +93,21 @@ impl DropZone {
             return; // empty drop — defensive, shouldn't happen
         };
 
-        // Spec 005 FR-010 + spec 009 FR-019 — extension routing.
-        //   1. Directory-form `.pages` (legacy macOS, pre-v5) bundles
-        //      route to InvalidFormat BEFORE any zip-extraction is
-        //      attempted. The user did not drop a file in the modern
-        //      sense; "best-effort extraction" cannot meaningfully apply.
-        //   2. Any extension outside the 7-format supported set
-        //      surfaces InvalidFormat (FR-010).
+        // Spec 005 FR-010 + spec 028 — extension routing.
+        //   1. Any `.pages` (modern zip-form OR legacy directory bundle,
+        //      any letter case) routes to the actionable PagesUnsupported
+        //      message BEFORE the generic fallthrough. Spec 028 removed
+        //      .pages: modern Pages stores text in undecodable `.iwa` blobs,
+        //      so we tell the user to export to Word/PDF first instead of
+        //      faking a parse attempt that always failed.
+        //   2. Any extension outside the 6-format supported set surfaces
+        //      InvalidFormat (FR-010).
         let lower_ext = source
             .extension()
             .and_then(|s| s.to_str())
             .map(|s| s.to_lowercase());
-        if lower_ext.as_deref() == Some("pages") && source.is_dir() {
-            self.emit_failure(&app, ZoneFailure::InvalidFormat);
+        if lower_ext.as_deref() == Some("pages") {
+            self.emit_failure(&app, ZoneFailure::PagesUnsupported);
             self.schedule_error_clear(&app);
             return;
         }

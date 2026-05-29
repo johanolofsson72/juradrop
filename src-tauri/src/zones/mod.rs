@@ -37,9 +37,8 @@ pub mod pdf_extract;
 pub mod txt_extract;
 pub mod txt_write;
 
-// Spec 009 — long-tail input formats (.rtf, .pages, .odt).
+// Spec 009 — long-tail input formats (.rtf, .odt). Spec 028 removed .pages.
 pub mod odt_extract;
-pub mod pages_extract;
 pub mod rtf_extract;
 
 // Spec 014 — Anonymisera output-side PII-residue sweep.

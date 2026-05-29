@@ -19,7 +19,7 @@ export const ZONE_IDENTITIES = {
   sammanfatta: {
     slug: 'sammanfatta',
     title: 'Sammanfatta',
-    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för sammanfattning',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.odt för sammanfattning',
     sidecarSuffix: 'sammanfatta',
     processingHint: 'Sammanfattar…',
     hasDisclaimer: false,
@@ -27,7 +27,7 @@ export const ZONE_IDENTITIES = {
   tillengelska: {
     slug: 'tillengelska',
     title: 'Till engelska',
-    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för engelsk översättning',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.odt för engelsk översättning',
     sidecarSuffix: 'tillengelska',
     processingHint: 'Översätter…',
     hasDisclaimer: false,
@@ -35,7 +35,7 @@ export const ZONE_IDENTITIES = {
   tillsvenska: {
     slug: 'tillsvenska',
     title: 'Till svenska',
-    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för svensk översättning',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.odt för svensk översättning',
     sidecarSuffix: 'tillsvenska',
     processingHint: 'Översätter…',
     hasDisclaimer: false,
@@ -43,7 +43,7 @@ export const ZONE_IDENTITIES = {
   punktlista: {
     slug: 'punktlista',
     title: 'Punktlista',
-    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för punktlista',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.odt för punktlista',
     sidecarSuffix: 'punktlista',
     processingHint: 'Listar…',
     hasDisclaimer: false,
@@ -51,7 +51,7 @@ export const ZONE_IDENTITIES = {
   anonymisera: {
     slug: 'anonymisera',
     title: 'Anonymisera',
-    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för anonymisering',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.odt för anonymisering',
     // Past-participle adjective — matches Rust's ZoneId::sidecar_suffix.
     sidecarSuffix: 'anonymiserad',
     processingHint: 'Anonymiserar…',
@@ -60,7 +60,7 @@ export const ZONE_IDENTITIES = {
   forenkla: {
     slug: 'forenkla',
     title: 'Förenkla',
-    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för klarspråk',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.odt för klarspråk',
     sidecarSuffix: 'forenkla',
     processingHint: 'Förenklar…',
     hasDisclaimer: true,
@@ -69,7 +69,7 @@ export const ZONE_IDENTITIES = {
   kontakter: {
     slug: 'kontakter',
     title: 'Plocka ut kontaktuppgifter',
-    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för kontaktuppgifter',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.odt för kontaktuppgifter',
     sidecarSuffix: 'kontakter',
     processingHint: 'Plockar ut kontaktuppgifter…',
     hasDisclaimer: false,
@@ -85,7 +85,7 @@ export const ZONE_IDENTITIES = {
   kallor: {
     slug: 'kallor',
     title: 'Källförteckning',
-    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för källförteckning',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.odt för källförteckning',
     sidecarSuffix: 'kallor',
     processingHint: 'Bygger källförteckning…',
     hasDisclaimer: false,

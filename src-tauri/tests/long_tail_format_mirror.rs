@@ -1,7 +1,7 @@
-// Spec 009 — output mirror rule parametric coverage for the three
-// new long-tail input formats × six zones = 18 (input, zone) pairs.
+// Spec 009 — output mirror rule parametric coverage for the long-tail
+// input formats × zones. Spec 028 removed Pages, leaving {Rtf, Odt}.
 //
-// Asserts: for every (InputFormat ∈ {Rtf, Pages, Odt}, ZoneId) pair,
+// Asserts: for every (InputFormat ∈ {Rtf, Odt}, ZoneId) pair,
 // OutputFormat::mirror_from returns Docx, and the resulting sidecar
 // filename ends with the canonical `<stem>.<zone_suffix>.docx` form.
 // This pins FR-009 (long-tail fallback) and C-013 (sidecar filename
@@ -13,7 +13,7 @@ use juradrop_lib::zones::sidecar_path::canonical_for_format;
 use juradrop_lib::zones::{InputFormat, OutputFormat, ZoneId};
 
 fn long_tail_inputs() -> &'static [InputFormat] {
-    &[InputFormat::Rtf, InputFormat::Pages, InputFormat::Odt]
+    &[InputFormat::Rtf, InputFormat::Odt]
 }
 
 #[test]

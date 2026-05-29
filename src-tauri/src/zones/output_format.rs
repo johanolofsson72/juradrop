@@ -2,8 +2,6 @@
 //
 // The mirror rule has exceptions:
 //   - PDF input → DOCX output (writing a polished PDF is out of scope).
-//   - Pages input → DOCX output (Apple Pages bundles are proprietary;
-//     JuraDrop never writes them back regardless of writer availability).
 //   - RTF input → DOCX output (no pure-Rust RTF writer is selected;
 //     see specs/009-long-tail-formats/research.md R-005).
 //   - ODT input → DOCX output (no pure-Rust ODT writer is selected;
@@ -29,9 +27,9 @@ pub enum OutputFormat {
 }
 
 impl OutputFormat {
-    /// FR-009 / FR-011 — output format mirrors input with four exceptions:
-    /// PDF, Pages, RTF, and ODT all fall back to DOCX. The remaining
-    /// three input formats (DOCX, TXT, MD) map identity.
+    /// FR-009 / FR-011 — output format mirrors input with three exceptions:
+    /// PDF, RTF, and ODT all fall back to DOCX. The remaining three input
+    /// formats (DOCX, TXT, MD) map identity. (Pages removed in spec 028.)
     pub const fn mirror_from(input: InputFormat) -> Self {
         match input {
             InputFormat::Docx => Self::Docx,
@@ -40,7 +38,6 @@ impl OutputFormat {
             InputFormat::Md => Self::Md,
             // Spec 009 — long-tail formats all fall back to .docx.
             InputFormat::Rtf => Self::Docx,
-            InputFormat::Pages => Self::Docx,
             InputFormat::Odt => Self::Docx,
         }
     }
@@ -109,16 +106,6 @@ mod tests {
         // .rtf inputs fall back to .docx sidecar.
         assert_eq!(
             OutputFormat::mirror_from(InputFormat::Rtf),
-            OutputFormat::Docx
-        );
-    }
-
-    #[test]
-    fn pages_in_docx_out_always() {
-        // Spec 009 FR-009 — Apple Pages bundle is proprietary;
-        // JuraDrop never writes it back regardless of writer availability.
-        assert_eq!(
-            OutputFormat::mirror_from(InputFormat::Pages),
             OutputFormat::Docx
         );
     }

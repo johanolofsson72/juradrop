@@ -37,7 +37,7 @@ interface Fixture {
   unsupported_encoding: string;
   // Spec 009 — format-named long-tail variants.
   rtf_parse_error: string;
-  pages_parse_error: string;
+  pages_unsupported: string;
   odt_parse_error: string;
 }
 
@@ -101,7 +101,7 @@ describe('SammanfattaZone — Swedish error copy (T047)', () => {
     'unsupported_encoding',
     // Spec 009 — format-named long-tail variants.
     'rtf_parse_error',
-    'pages_parse_error',
+    'pages_unsupported',
     'odt_parse_error',
   ];
 
@@ -188,7 +188,7 @@ describe('Cross-language Swedish copy drift (T048)', () => {
       'unsupported_encoding',
       // Spec 009 — format-named long-tail variants.
       'rtf_parse_error',
-      'pages_parse_error',
+      'pages_unsupported',
       'odt_parse_error',
     ];
 
@@ -201,7 +201,7 @@ describe('Cross-language Swedish copy drift (T048)', () => {
     // Spec 003 introduced 9 variants; spec 005 added two more
     // (no_extractable_text + unsupported_encoding) for the four-format
     // input matrix; spec 009 added three format-named long-tail
-    // variants (rtf_parse_error, pages_parse_error, odt_parse_error);
+    // variants (rtf_parse_error, pages_unsupported, odt_parse_error);
     // spec 024 added file_too_large (oversized-file guard).
     const tsKeys = Object.keys(SWEDISH_ZONE_ERROR).sort();
     const expected = [
@@ -212,7 +212,7 @@ describe('Cross-language Swedish copy drift (T048)', () => {
       'multiple_files',
       'no_extractable_text',
       'odt_parse_error',
-      'pages_parse_error',
+      'pages_unsupported',
       'parse_error',
       'password_protected',
       'rtf_parse_error',

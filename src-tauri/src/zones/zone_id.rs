@@ -86,25 +86,25 @@ impl ZoneId {
     }
 
     /// FR-005 + spec 005 FR-017 + spec 009 FR-011 — per-zone Swedish
-    /// hint copy. Spec 009 extended the format list to seven entries
-    /// (.docx, .pdf, .txt, .md, .rtf, .pages, .odt) and switched to a
-    /// slash-separated presentation with the `ett` article dropped.
+    /// hint copy. Spec 009 extended the format list; spec 028 removed
+    /// .pages, leaving six entries (.docx, .pdf, .txt, .md, .rtf, .odt)
+    /// in a slash-separated presentation with the `ett` article dropped.
     /// Spec 013 — Generera takes only .txt/.md instructions.
     pub fn hint_copy(self) -> &'static str {
         match self {
-            ZoneId::Sammanfatta => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för sammanfattning",
+            ZoneId::Sammanfatta => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för sammanfattning",
             ZoneId::TillEngelska => {
-                "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för engelsk översättning"
+                "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för engelsk översättning"
             }
             ZoneId::TillSvenska => {
-                "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för svensk översättning"
+                "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för svensk översättning"
             }
-            ZoneId::Punktlista => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för punktlista",
-            ZoneId::Anonymisera => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för anonymisering",
-            ZoneId::Forenkla => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för klarspråk",
-            ZoneId::Kontakter => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för kontaktuppgifter",
+            ZoneId::Punktlista => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för punktlista",
+            ZoneId::Anonymisera => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för anonymisering",
+            ZoneId::Forenkla => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för klarspråk",
+            ZoneId::Kontakter => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för kontaktuppgifter",
             ZoneId::Generera => "Släpp .txt eller .md med instruktioner för juridisk text",
-            ZoneId::Kallor => "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för källförteckning",
+            ZoneId::Kallor => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för källförteckning",
         }
     }
 

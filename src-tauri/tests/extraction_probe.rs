@@ -2,9 +2,9 @@
 //
 // The 6 committed `extraction-probe.<ext>` fixtures (docx/pdf/txt/md/rtf/odt)
 // all carry the SAME canonical Swedish paragraph. Each format extracts back
-// to that paragraph (modulo per-format whitespace normalization). `.pages`
-// is excluded from the probe set (FR-009a) and has a dedicated failure-mode
-// test (FR-012a) since Apple IWA extraction is deferred.
+// to that paragraph (modulo per-format whitespace normalization). Spec 028
+// removed `.pages` entirely — a dropped `.pages` now routes to
+// ZoneFailure::PagesUnsupported at the drop handler, not through an extractor.
 //
 // These run on every `cargo test` — no `--ignored`, no network, no Ollama.
 
@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 
 use juradrop_lib::zones::extract::extract_text;
 use juradrop_lib::zones::input_format::InputFormat;
-use juradrop_lib::zones::ZoneFailure;
 
 // FR-010 — the canonical paragraph, byte-pinned to the committed .txt
 // fixture (single source of truth, shared with the generator).
@@ -73,22 +72,6 @@ fn probe_rtf_extracts_canonical() {
 #[test]
 fn probe_odt_extracts_canonical() {
     assert_extracts_canonical("odt", InputFormat::Odt);
-}
-
-/// FR-012a — `.pages` failure-mode: a malformed (zero-byte) `.pages` file
-/// must surface `PagesParseError` (spec 009 FR-006), proving the
-/// named-format-error path stays wired even though full `.pages` extraction
-/// is deferred (Apple IWA proprietary).
-#[test]
-fn probe_pages_malformed_yields_pages_parse_error() {
-    let dir = tempfile::TempDir::new().expect("tempdir");
-    let pages = dir.path().join("broken.pages");
-    std::fs::write(&pages, b"").expect("write zero-byte .pages");
-    let result = extract_text(&pages, InputFormat::Pages);
-    assert!(
-        matches!(result, Err(ZoneFailure::PagesParseError)),
-        "expected PagesParseError for malformed .pages, got {result:?}"
-    );
 }
 
 /// FR-010 — the canonical text is non-trivial and contains the Swedish

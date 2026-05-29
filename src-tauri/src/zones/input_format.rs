@@ -6,9 +6,11 @@
 // pages_extract, odt_extract) and indirectly which writer runs
 // (via OutputFormat::mirror_from).
 //
-// Spec 009 added three long-tail variants (Rtf, Pages, Odt). The
-// existing four (Docx, Pdf, Txt, Md) keep their identifiers, serde
-// rename, and semantics. Total variant count is pinned at 7.
+// Spec 009 added three long-tail variants (Rtf, Pages, Odt). Spec 028
+// REMOVED Pages — modern Pages (v5+) stores text in Snappy+Protobuf `.iwa`
+// blobs with no stable extraction path, so the app no longer claims to read
+// it (a dropped `.pages` now routes to `ZoneFailure::PagesUnsupported`).
+// Total variant count is pinned at 6.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -20,9 +22,8 @@ pub enum InputFormat {
     Pdf,
     Txt,
     Md,
-    // Spec 009 — long-tail formats.
+    // Spec 009 — long-tail formats (Pages removed in spec 028).
     Rtf,
-    Pages,
     Odt,
 }
 
@@ -38,7 +39,6 @@ impl InputFormat {
             "txt" => Some(Self::Txt),
             "md" => Some(Self::Md),
             "rtf" => Some(Self::Rtf),
-            "pages" => Some(Self::Pages),
             "odt" => Some(Self::Odt),
             _ => None,
         }
@@ -51,18 +51,16 @@ impl InputFormat {
             Self::Txt => "txt",
             Self::Md => "md",
             Self::Rtf => "rtf",
-            Self::Pages => "pages",
             Self::Odt => "odt",
         }
     }
 
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 6] = [
         Self::Docx,
         Self::Pdf,
         Self::Txt,
         Self::Md,
         Self::Rtf,
-        Self::Pages,
         Self::Odt,
     ];
 }
@@ -96,10 +94,6 @@ mod tests {
             Some(InputFormat::Rtf)
         );
         assert_eq!(
-            InputFormat::detect_from_path(&PathBuf::from("f.pages")),
-            Some(InputFormat::Pages)
-        );
-        assert_eq!(
             InputFormat::detect_from_path(&PathBuf::from("g.odt")),
             Some(InputFormat::Odt)
         );
@@ -129,13 +123,23 @@ mod tests {
             Some(InputFormat::Rtf)
         );
         assert_eq!(
-            InputFormat::detect_from_path(&PathBuf::from("Letter.Pages")),
-            Some(InputFormat::Pages)
-        );
-        assert_eq!(
             InputFormat::detect_from_path(&PathBuf::from("Notes.OdT")),
             Some(InputFormat::Odt)
         );
+    }
+
+    #[test]
+    fn pages_is_no_longer_detected_any_case() {
+        // Spec 028 — .pages was removed from the supported set; detection
+        // returns None so the drop handler can route it to the explicit
+        // PagesUnsupported message.
+        for p in &["f.pages", "Letter.Pages", "X.PAGES", "project.old.pages"] {
+            assert_eq!(
+                InputFormat::detect_from_path(&PathBuf::from(*p)),
+                None,
+                "{p} must not detect as a supported format"
+            );
+        }
     }
 
     #[test]
@@ -150,6 +154,7 @@ mod tests {
             "foo.csv",
             "foo.eml",
             "foo.tar.gz",
+            "foo.pages", // spec 028 — Pages removed
         ] {
             assert_eq!(InputFormat::detect_from_path(&PathBuf::from(path)), None);
         }
@@ -182,10 +187,6 @@ mod tests {
             Some(InputFormat::Rtf)
         );
         assert_eq!(
-            InputFormat::detect_from_path(&PathBuf::from("project.old.pages")),
-            Some(InputFormat::Pages)
-        );
-        assert_eq!(
             InputFormat::detect_from_path(&PathBuf::from("notes.backup.odt")),
             Some(InputFormat::Odt)
         );
@@ -203,6 +204,6 @@ mod tests {
     fn all_constant_lists_every_variant_exactly_once() {
         use std::collections::HashSet;
         let unique: HashSet<_> = InputFormat::ALL.iter().collect();
-        assert_eq!(unique.len(), 7);
+        assert_eq!(unique.len(), 6);
     }
 }

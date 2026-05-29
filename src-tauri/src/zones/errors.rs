@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 pub enum ZoneFailure {
     /// FR-013 — extension outside the supported set. Spec 009 updated
     /// the copy to list all seven supported formats.
-    #[error("Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf, .pages eller .odt")]
+    #[error("Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf eller .odt")]
     InvalidFormat,
 
     /// FR-014 — 2+ files dropped at once.
@@ -74,10 +74,13 @@ pub enum ZoneFailure {
     #[error("Kunde inte läsa .rtf-filen")]
     RtfParseError,
 
-    /// Spec 009 FR-006 + FR-007 — any failure reading a `.pages`. Collapses
-    /// the password-protected branch per FR-008.
-    #[error("Kunde inte läsa .pages-filen")]
-    PagesParseError,
+    /// Spec 028 — `.pages` support removed. Modern Pages (v5+) stores text
+    /// in Snappy+Protobuf `.iwa` blobs that have no stable extraction path,
+    /// so the app no longer claims to read them. A dropped `.pages` routes
+    /// here with an ACTIONABLE message (export to Word/PDF first) instead of
+    /// a misleading parse error (was `PagesParseError`).
+    #[error("Pages-filer stöds inte — exportera till Word eller PDF först")]
+    PagesUnsupported,
 
     /// Spec 009 FR-006 + FR-007 — any failure reading a `.odt`. Collapses
     /// the password-protected branch per FR-008.
@@ -109,7 +112,7 @@ impl ZoneFailure {
             ZoneFailure::NoExtractableText => "no_extractable_text",
             ZoneFailure::UnsupportedEncoding => "unsupported_encoding",
             ZoneFailure::RtfParseError => "rtf_parse_error",
-            ZoneFailure::PagesParseError => "pages_parse_error",
+            ZoneFailure::PagesUnsupported => "pages_unsupported",
             ZoneFailure::OdtParseError => "odt_parse_error",
             ZoneFailure::FileTooLarge => "file_too_large",
         }
@@ -132,9 +135,10 @@ mod tests {
         ZoneFailure::SaveError,
         ZoneFailure::NoExtractableText,
         ZoneFailure::UnsupportedEncoding,
-        // Spec 009 — format-named long-tail variants.
+        // Spec 009 — format-named long-tail variants. Spec 028 turned the
+        // Pages variant into the unsupported-with-guidance message.
         ZoneFailure::RtfParseError,
-        ZoneFailure::PagesParseError,
+        ZoneFailure::PagesUnsupported,
         ZoneFailure::OdtParseError,
         // Spec 024 — oversized-file guard.
         ZoneFailure::FileTooLarge,
@@ -188,8 +192,8 @@ mod tests {
             "\"rtf_parse_error\""
         );
         assert_eq!(
-            serde_json::to_string(&ZoneFailure::PagesParseError).unwrap(),
-            "\"pages_parse_error\""
+            serde_json::to_string(&ZoneFailure::PagesUnsupported).unwrap(),
+            "\"pages_unsupported\""
         );
         assert_eq!(
             serde_json::to_string(&ZoneFailure::OdtParseError).unwrap(),
@@ -228,27 +232,39 @@ mod tests {
             "Kunde inte läsa .rtf-filen"
         );
         assert_eq!(
-            ZoneFailure::PagesParseError.to_string(),
-            "Kunde inte läsa .pages-filen"
-        );
-        assert_eq!(
             ZoneFailure::OdtParseError.to_string(),
             "Kunde inte läsa .odt-filen"
         );
     }
 
     #[test]
-    fn invalid_format_copy_lists_all_seven_formats() {
-        // Spec 009 FR-012 — InvalidFormat copy must mention every
-        // supported extension. Catches a copy regression after adding
-        // a new format.
+    fn pages_unsupported_names_pages_and_is_actionable() {
+        // Spec 028 — the Pages message must name Pages AND tell the user
+        // what to do (export first), not pretend a transient read failed.
+        let copy = ZoneFailure::PagesUnsupported.to_string();
+        assert!(copy.contains("Pages"), "Pages message must name Pages: {copy:?}");
+        assert!(
+            copy.to_lowercase().contains("word") || copy.to_lowercase().contains("pdf"),
+            "Pages message must point to an export target: {copy:?}"
+        );
+        assert!(!copy.contains(".pages"), "must not reference the dead .pages reader");
+    }
+
+    #[test]
+    fn invalid_format_copy_lists_all_six_formats() {
+        // Spec 009 FR-012 / spec 028 — InvalidFormat copy must mention every
+        // supported extension AND must no longer list the removed .pages.
         let copy = ZoneFailure::InvalidFormat.to_string();
-        for ext in &[".docx", ".pdf", ".txt", ".md", ".rtf", ".pages", ".odt"] {
+        for ext in &[".docx", ".pdf", ".txt", ".md", ".rtf", ".odt"] {
             assert!(
                 copy.contains(ext),
                 "InvalidFormat copy missing {ext}: {copy:?}"
             );
         }
+        assert!(
+            !copy.contains(".pages"),
+            "InvalidFormat copy must not list the removed .pages: {copy:?}"
+        );
         assert!(copy.chars().count() <= 80, "InvalidFormat copy > 80 chars");
     }
 }

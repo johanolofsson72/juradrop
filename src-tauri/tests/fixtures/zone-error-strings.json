@@ -1,6 +1,6 @@
 {
-  "_comment": "Spec 003 / T048 + spec 005 + spec 009 — single source of truth for the Swedish error strings emitted by the drop zones. Rust side (src-tauri/src/zones/errors.rs) and TS side (src/components/DropZone.errors.ts) both assert against this fixture in their drift-detection tests. Update all three together when changing a string. Spec 009 added three keys (rtf_parse_error, pages_parse_error, odt_parse_error) and updated invalid_format copy for the seven supported formats.",
-  "invalid_format": "Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf, .pages eller .odt",
+  "_comment": "Spec 003 / T048 + spec 005 + spec 009 — single source of truth for the Swedish error strings emitted by the drop zones. Rust side (src-tauri/src/zones/errors.rs) and TS side (src/components/DropZone.errors.ts) both assert against this fixture in their drift-detection tests. Update all three together when changing a string. Spec 009 added rtf/pages/odt keys; spec 028 removed .pages support — the pages_parse_error key became pages_unsupported (an actionable not-supported message) and invalid_format now lists six formats.",
+  "invalid_format": "Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf eller .odt",
   "multiple_files": "Ett dokument i taget",
   "zone_busy": "Vänta tills föregående dokument är klart",
   "zone_disabled": "AI är inte redo ännu",
@@ -12,7 +12,7 @@
   "no_extractable_text": "Hittade ingen text att läsa i PDF-filen — skannade bilder stöds inte än",
   "unsupported_encoding": "Tecken-kodning stöds inte — spara filen som UTF-8 och försök igen",
   "rtf_parse_error": "Kunde inte läsa .rtf-filen",
-  "pages_parse_error": "Kunde inte läsa .pages-filen",
+  "pages_unsupported": "Pages-filer stöds inte — exportera till Word eller PDF först",
   "odt_parse_error": "Kunde inte läsa .odt-filen",
   "file_too_large": "Filen är för stor — max 50 MB"
 }

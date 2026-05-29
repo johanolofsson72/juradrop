@@ -3,7 +3,7 @@
   "sammanfatta": {
     "slug": "sammanfatta",
     "title": "Sammanfatta",
-    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för sammanfattning",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för sammanfattning",
     "sidecar_suffix": "sammanfatta",
     "processing_hint": "Sammanfattar…",
     "has_disclaimer": false
@@ -11,7 +11,7 @@
   "tillengelska": {
     "slug": "tillengelska",
     "title": "Till engelska",
-    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för engelsk översättning",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för engelsk översättning",
     "sidecar_suffix": "tillengelska",
     "processing_hint": "Översätter…",
     "has_disclaimer": false
@@ -19,7 +19,7 @@
   "tillsvenska": {
     "slug": "tillsvenska",
     "title": "Till svenska",
-    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för svensk översättning",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för svensk översättning",
     "sidecar_suffix": "tillsvenska",
     "processing_hint": "Översätter…",
     "has_disclaimer": false
@@ -27,7 +27,7 @@
   "punktlista": {
     "slug": "punktlista",
     "title": "Punktlista",
-    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för punktlista",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för punktlista",
     "sidecar_suffix": "punktlista",
     "processing_hint": "Listar…",
     "has_disclaimer": false
@@ -35,7 +35,7 @@
   "anonymisera": {
     "slug": "anonymisera",
     "title": "Anonymisera",
-    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för anonymisering",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för anonymisering",
     "sidecar_suffix": "anonymiserad",
     "processing_hint": "Anonymiserar…",
     "has_disclaimer": true
@@ -43,7 +43,7 @@
   "forenkla": {
     "slug": "forenkla",
     "title": "Förenkla",
-    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för klarspråk",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för klarspråk",
     "sidecar_suffix": "forenkla",
     "processing_hint": "Förenklar…",
     "has_disclaimer": true
@@ -51,7 +51,7 @@
   "kontakter": {
     "slug": "kontakter",
     "title": "Plocka ut kontaktuppgifter",
-    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för kontaktuppgifter",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för kontaktuppgifter",
     "sidecar_suffix": "kontakter",
     "processing_hint": "Plockar ut kontaktuppgifter…",
     "has_disclaimer": false
@@ -67,7 +67,7 @@
   "kallor": {
     "slug": "kallor",
     "title": "Källförteckning",
-    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.pages/.odt för källförteckning",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för källförteckning",
     "sidecar_suffix": "kallor",
     "processing_hint": "Bygger källförteckning…",
     "has_disclaimer": false

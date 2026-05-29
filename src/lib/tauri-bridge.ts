@@ -85,9 +85,10 @@ export type ZoneFailure =
   // Spec 005 — two new variants for the four-format input matrix.
   | 'no_extractable_text'
   | 'unsupported_encoding'
-  // Spec 009 — format-named long-tail variants.
+  // Spec 009 — format-named long-tail variants. Spec 028 replaced the Pages
+  // parse-error with an actionable "not supported" message.
   | 'rtf_parse_error'
-  | 'pages_parse_error'
+  | 'pages_unsupported'
   | 'odt_parse_error'
   // Spec 024 — oversized-file guard.
   | 'file_too_large';
@@ -153,11 +154,12 @@ export async function setDiagnosticsEnabled(enabled: boolean): Promise<Diagnosti
 
 /** Spec 016 — accepted file extensions per zone, for the native picker
  *  filter. Generera takes only instruction files; every other zone takes
- *  the full spec-009 set. Mirrors the formats the hint copy advertises. */
+ *  the supported set. Mirrors the formats the hint copy advertises.
+ *  Spec 028 removed `.pages` (modern Pages stores text in undecodable .iwa). */
 export function formatFilterFor(zoneId: ZoneId): string[] {
   return zoneId === 'generera'
     ? ['txt', 'md']
-    : ['docx', 'pdf', 'txt', 'md', 'rtf', 'pages', 'odt'];
+    : ['docx', 'pdf', 'txt', 'md', 'rtf', 'odt'];
 }
 
 /** Spec 016 — open the native file picker filtered to the zone's accepted

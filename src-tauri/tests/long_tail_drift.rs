@@ -31,7 +31,7 @@ fn load_fixture() -> Value {
 fn long_tail_keys_present() {
     let fx = load_fixture();
     let obj = fx.as_object().expect("fixture is an object");
-    for key in &["rtf_parse_error", "pages_parse_error", "odt_parse_error"] {
+    for key in &["rtf_parse_error", "pages_unsupported", "odt_parse_error"] {
         assert!(
             obj.contains_key(*key),
             "fixture missing long-tail key {key:?}; spec 009 FR-013 requires it"
@@ -45,7 +45,7 @@ fn rust_display_matches_fixture_for_long_tail() {
     let obj = fx.as_object().unwrap();
     let cases: &[(&str, ZoneFailure)] = &[
         ("rtf_parse_error", ZoneFailure::RtfParseError),
-        ("pages_parse_error", ZoneFailure::PagesParseError),
+        ("pages_unsupported", ZoneFailure::PagesUnsupported),
         ("odt_parse_error", ZoneFailure::OdtParseError),
     ];
     for (key, variant) in cases {
@@ -68,11 +68,11 @@ fn no_format_named_error_leaks_path() {
     // impossible for the literal `#[error("Kunde inte läsa .X-filen")]`
     // strings, but this test pins the contract so a future refactor
     // that adds `{file}` / `{path}` placeholders trips immediately.
-    let variants = [
-        ZoneFailure::RtfParseError,
-        ZoneFailure::PagesParseError,
-        ZoneFailure::OdtParseError,
-    ];
+    // Spec 028 — PagesUnsupported is intentionally NOT in this list: it is no
+    // longer a "Kunde inte läsa .X-filen" parse error but an actionable
+    // "not supported" message. Its no-path-leak property is asserted in the
+    // errors.rs unit test (pages_unsupported_names_pages_and_is_actionable).
+    let variants = [ZoneFailure::RtfParseError, ZoneFailure::OdtParseError];
     for v in variants {
         let s = v.to_string();
         assert!(
@@ -103,20 +103,26 @@ fn no_format_named_error_leaks_path() {
 }
 
 #[test]
-fn invalid_format_copy_lists_all_seven_formats() {
+fn invalid_format_copy_lists_all_six_formats() {
+    // Spec 028 — .pages removed; the copy now lists six formats and must
+    // not mention .pages.
     let fx = load_fixture();
     let copy = fx["invalid_format"]
         .as_str()
         .expect("invalid_format is a string");
-    for ext in &[".docx", ".pdf", ".txt", ".md", ".rtf", ".pages", ".odt"] {
+    for ext in &[".docx", ".pdf", ".txt", ".md", ".rtf", ".odt"] {
         assert!(
             copy.contains(ext),
             "fixture invalid_format missing {ext}: {copy:?}"
         );
     }
+    assert!(
+        !copy.contains(".pages"),
+        "fixture invalid_format must not list the removed .pages: {copy:?}"
+    );
     assert_eq!(
-        copy, "Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf, .pages eller .odt",
-        "fixture invalid_format drifted from the spec 009 pinned copy"
+        copy, "Filformatet stöds inte — dra ett .docx, .pdf, .txt, .md, .rtf eller .odt",
+        "fixture invalid_format drifted from the spec 028 pinned copy"
     );
     assert!(
         copy.chars().count() <= 80,

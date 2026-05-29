@@ -1,9 +1,9 @@
-// Spec 009 — failure-taxonomy invariant test for the three long-tail
-// extractors.
+// Spec 009 — failure-taxonomy invariant test for the long-tail
+// extractors. Spec 028 removed the Pages extractor, leaving Rtf + Odt.
 //
-// For every fixture exercised across the three extractors, the
-// surfaced ZoneFailure variant MUST be in the allowed set
-// {RtfParseError, PagesParseError, OdtParseError, EmptyText}.
+// For every fixture exercised across the extractors, the surfaced
+// ZoneFailure variant MUST be in the allowed set
+// {RtfParseError, OdtParseError, EmptyText}.
 //
 // Specifically, the long-tail formats NEVER surface:
 //   - PasswordProtected   (FR-008 — collapsed into format-named error)
@@ -18,7 +18,7 @@
 use std::io::Write;
 
 use juradrop_lib::zones::ZoneFailure;
-use juradrop_lib::zones::{odt_extract, pages_extract, rtf_extract};
+use juradrop_lib::zones::{odt_extract, rtf_extract};
 use tempfile::NamedTempFile;
 use zip::write::FileOptions;
 use zip::ZipWriter;
@@ -28,25 +28,13 @@ const ODT_MIMETYPE: &str = "application/vnd.oasis.opendocument.text";
 fn allowed(failure: ZoneFailure) -> bool {
     matches!(
         failure,
-        ZoneFailure::RtfParseError
-            | ZoneFailure::PagesParseError
-            | ZoneFailure::OdtParseError
-            | ZoneFailure::EmptyText
+        ZoneFailure::RtfParseError | ZoneFailure::OdtParseError | ZoneFailure::EmptyText
     )
 }
 
 fn write_temp(bytes: &[u8]) -> NamedTempFile {
     let mut f = NamedTempFile::new().expect("tempfile");
     f.write_all(bytes).expect("write");
-    f
-}
-
-fn zip_with_index_xml(xml: &str) -> NamedTempFile {
-    let f = NamedTempFile::new().expect("tempfile");
-    let mut zw = ZipWriter::new(f.reopen().expect("reopen"));
-    zw.start_file("index.xml", FileOptions::default()).unwrap();
-    zw.write_all(xml.as_bytes()).unwrap();
-    zw.finish().unwrap();
     f
 }
 
@@ -99,44 +87,9 @@ fn rtf_extractor_failure_modes_are_in_allowed_set() {
     assert_eq!(r3, ZoneFailure::RtfParseError);
 }
 
-#[test]
-fn pages_extractor_failure_modes_are_in_allowed_set() {
-    // Garbage bytes.
-    let f1 = write_temp(&[0xFF; 1024]);
-    let r1 = pages_extract::extract_text(f1.path()).expect_err("garbage pages");
-    assert!(
-        allowed(r1),
-        "Pages garbage surfaced disallowed variant: {r1:?}"
-    );
-    assert_eq!(r1, ZoneFailure::PagesParseError);
-
-    // Modern IWA-only Pages → format-named error (FR-008 collapse).
-    let f2 = NamedTempFile::new().unwrap();
-    {
-        let mut zw = ZipWriter::new(f2.reopen().unwrap());
-        zw.start_file("Index/Document.iwa", FileOptions::default())
-            .unwrap();
-        zw.write_all(b"fake-iwa-bytes").unwrap();
-        zw.finish().unwrap();
-    }
-    let r2 = pages_extract::extract_text(f2.path()).expect_err("iwa pages");
-    assert!(allowed(r2));
-    assert_eq!(
-        r2,
-        ZoneFailure::PagesParseError,
-        "IWA Pages must surface format-named error, not PasswordProtected"
-    );
-
-    // Whitespace-only legacy Pages → EmptyText.
-    let xml = r#"<?xml version="1.0"?>
-<document xmlns:sf="http://example.com/sf">
-  <sf:section><sf:p>   </sf:p></sf:section>
-</document>"#;
-    let f3 = zip_with_index_xml(xml);
-    let r3 = pages_extract::extract_text(f3.path()).expect_err("empty pages");
-    assert!(allowed(r3));
-    assert_eq!(r3, ZoneFailure::EmptyText);
-}
+// Spec 028 — the Pages extractor was removed; a dropped .pages now routes to
+// ZoneFailure::PagesUnsupported at the drop handler (see sammanfatta.rs +
+// errors.rs unit tests), never through an extractor.
 
 #[test]
 fn odt_extractor_failure_modes_are_in_allowed_set() {

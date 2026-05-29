@@ -74,7 +74,6 @@ describe('DropZone "Välj fil" picker (spec 016)', () => {
       'txt',
       'md',
       'rtf',
-      'pages',
       'odt',
     ]);
     await waitFor(() =>
