@@ -29,6 +29,20 @@ pub fn should_trigger_pull(model_present: bool, consent: ConsentChoice) -> bool 
     !model_present && consent == ConsentChoice::Fortsatt
 }
 
+/// Spec 027 /tla GAP-2 — the bundled (Smart) pull must NOT run concurrently
+/// with a user-initiated tier download (one Ollama pull path; avoid
+/// contention). In practice the readiness gating already prevents the overlap
+/// (a tier download only starts once the app is Klar with the bundled model
+/// present), but this is the belt-and-braces guard for a sidecar crash+restart
+/// that lands `after_sidecar_ready` mid-download.
+pub fn should_trigger_bundled_pull(
+    model_present: bool,
+    consent: ConsentChoice,
+    tier_download_active: bool,
+) -> bool {
+    should_trigger_pull(model_present, consent) && !tier_download_active
+}
+
 /// Total pull-stream ceiling — F1 / spec.allium `model_pull_timeout_seconds: 300`.
 /// Wraps the whole `OllamaClient::pull` call; on elapse, the in-flight HTTP
 /// stream is dropped (cancellation cascades through reqwest's `bytes_stream`)
@@ -73,7 +87,11 @@ pub async fn after_sidecar_ready(app: AppHandle, state: AppState) {
             };
             let _ = app.emit("juradrop://status", state.snapshot());
 
-            if should_trigger_pull(present, state.consent.read().choice) {
+            let tier_active = app
+                .try_state::<Arc<crate::settings::tier_download::TierDownloadHandle>>()
+                .map(|h| h.is_downloading())
+                .unwrap_or(false);
+            if should_trigger_bundled_pull(present, state.consent.read().choice, tier_active) {
                 if !has_sufficient_disk_for_pull(&app) {
                     *state.error_override.write() = Some(UserVisibleStatus::FelDiskFull);
                     let _ = app.emit("juradrop://status", state.snapshot());
@@ -462,5 +480,34 @@ mod tests {
         // before explicit user opt-in.
         assert!(!should_trigger_pull(false, ConsentChoice::NotAsked));
         assert!(!should_trigger_pull(false, ConsentChoice::Avbryt));
+    }
+
+    #[test]
+    fn bundled_pull_yields_to_an_active_tier_download() {
+        // Spec 027 /tla GAP-2 — never run the bundled (Smart) pull
+        // concurrently with a user-initiated tier download.
+        // Would-pull conditions (model missing + consent) but a tier
+        // download is active → suppressed.
+        assert!(should_trigger_bundled_pull(
+            false,
+            ConsentChoice::Fortsatt,
+            false
+        ));
+        assert!(!should_trigger_bundled_pull(
+            false,
+            ConsentChoice::Fortsatt,
+            true
+        ));
+        // The consent/presence gate still dominates regardless of tier state.
+        assert!(!should_trigger_bundled_pull(
+            true,
+            ConsentChoice::Fortsatt,
+            false
+        ));
+        assert!(!should_trigger_bundled_pull(
+            false,
+            ConsentChoice::NotAsked,
+            false
+        ));
     }
 }

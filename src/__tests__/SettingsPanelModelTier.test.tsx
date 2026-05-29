@@ -118,6 +118,18 @@ describe('Spec 027 — download_button sub-states', () => {
     expect(container.querySelector('[data-tier="Stor"]')?.textContent).toContain(S.tier_download_err_not_ready);
   });
 
+  it('GAP-3: a not_ready refusal takes priority over a stale error message', () => {
+    // Retry while the AI isn't ready: slot still holds the old failure, but
+    // a fresh not_ready refusal must win the row's message.
+    setDownload(dl({ tier: 'Stor', phase: 'error', failure: 'network' }), { tier: 'Stor', reason: 'not_ready' });
+    const { container } = render(<ModelTierSection />);
+    const text = container.querySelector('[data-tier="Stor"]')?.textContent ?? '';
+    expect(text).toContain(S.tier_download_err_not_ready);
+    expect(text).not.toContain(S.tier_download_err_network);
+    // The Försök igen control is still present so the user can retry once ready.
+    expect(container.querySelector('[data-tier-retry="Stor"]')).not.toBeNull();
+  });
+
   it('pulled tier renders a selectable radio, never a download button', () => {
     const { container } = render(<ModelTierSection />);
     const smart = container.querySelector('[data-tier="Smart"]');

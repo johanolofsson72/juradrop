@@ -35,6 +35,12 @@ external entity SidecarReadiness {
 entity TierDownload {
     tier: ModelTier
     model_id: String                     -- snabb_model | stor_model
+    -- /tla DRIFT-A ("update spec to match code"): the implementation stores
+    -- ONLY `downloading` and `error` in its in-memory slot. `not_pulled` and
+    -- `pulled` are represented by the slot being ABSENT — disambiguated by
+    -- `/api/tags` (pulled = model on disk, not_pulled = not). This 4-value
+    -- field is the conceptual union; the two persistent phases plus
+    -- slot-absence are behaviorally equivalent to it.
     status: not_pulled | downloading | pulled | error
 
     -- Progress is meaningful ONLY while downloading. `total_bytes = 0`
@@ -91,6 +97,12 @@ rule StartDownloadRefusedNotReady {
         SidecarReadiness.is_ready = false or SidecarReadiness.bundled_pull_active = true
     ensures:
         d.status = not_pulled                 -- unchanged, no pull starts
+        -- /tla DRIFT-B ("update spec to match code"): the command returns
+        -- `Err("not_ready")` and the FRONTEND renders the Swedish message
+        -- (tier_download_err_not_ready) from that error, consistent with how
+        -- the rest of the panel surfaces refusals. The user-visible outcome
+        -- matches this rule; the message just originates frontend-side, not
+        -- from a Rust-emitted event.
         UserVisibleMessage(kind: ai_inte_redo)
 }
 

@@ -64,7 +64,13 @@ export const useTierDownloadStore = create<TierDownloadStoreState>((set, get) =>
       return;
     }
     if (e.phase === 'cancelled') {
+      // Clear the slot. Spec 027 /tla GAP-1: a cancel that races a
+      // just-completed pull leaves the model genuinely on disk, so re-read
+      // pull-state too — if it turns out the model IS installed, the row
+      // corrects to a selectable radio immediately instead of waiting for
+      // the next panel open.
       set({ current: null, refusal: null });
+      void useSettingsStore.getState().refresh();
       return;
     }
     // downloading | error — reflect it; clear any stale refusal.

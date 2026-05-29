@@ -6,11 +6,12 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 const startMock = vi.fn();
 const cancelMock = vi.fn();
 const refreshMock = vi.fn();
+const getStateMock = vi.fn<[], Promise<unknown>>(() => Promise.resolve(null));
 
 vi.mock('@/lib/tauri-bridge', () => ({
   startTierDownload: (tier: string) => startMock(tier),
   cancelTierDownload: (tier: string) => cancelMock(tier),
-  getTierDownloadState: () => Promise.resolve(null),
+  getTierDownloadState: () => getStateMock(),
   subscribeTierDownload: () => Promise.resolve(() => {}),
 }));
 
@@ -18,7 +19,10 @@ vi.mock('@/lib/settings-store', () => ({
   useSettingsStore: { getState: () => ({ refresh: refreshMock }) },
 }));
 
-import { useTierDownloadStore } from '@/lib/tier-download-store';
+import {
+  useTierDownloadStore,
+  ensureTierDownloadSubscription,
+} from '@/lib/tier-download-store';
 import type { TierDownloadEvent } from '@/lib/tauri-bridge';
 
 function ev(partial: Partial<TierDownloadEvent>): TierDownloadEvent {
@@ -37,6 +41,7 @@ beforeEach(() => {
   startMock.mockReset().mockResolvedValue(undefined);
   cancelMock.mockReset().mockResolvedValue(undefined);
   refreshMock.mockReset();
+  getStateMock.mockReset().mockResolvedValue(null);
   useTierDownloadStore.setState({ current: null, refusal: null });
 });
 
@@ -54,11 +59,13 @@ describe('applyEvent', () => {
     expect(refreshMock).toHaveBeenCalledTimes(1);
   });
 
-  it('on cancelled: clears current, does NOT refresh', () => {
+  it('on cancelled: clears current AND refreshes pull-state (GAP-1 cancel-at-completion)', () => {
     useTierDownloadStore.getState().applyEvent(ev({ phase: 'downloading' }));
     useTierDownloadStore.getState().applyEvent(ev({ phase: 'cancelled' }));
     expect(useTierDownloadStore.getState().current).toBeNull();
-    expect(refreshMock).not.toHaveBeenCalled();
+    // A cancel that raced a completed pull leaves the model installed; the
+    // refresh corrects the row immediately instead of waiting for reopen.
+    expect(refreshMock).toHaveBeenCalledTimes(1);
   });
 
   it('on error: keeps the errored tier as current with its failure', () => {
@@ -105,5 +112,20 @@ describe('start / retry / cancel', () => {
   it('cancel invokes the backend cancel command', async () => {
     await useTierDownloadStore.getState().cancel('Stor');
     expect(cancelMock).toHaveBeenCalledWith('Stor');
+  });
+});
+
+describe('ensureTierDownloadSubscription — hydration (FR-011 / GAP-2)', () => {
+  it('hydrates current from a non-null getTierDownloadState on mount', async () => {
+    // Survives panel close/reopen: on mount the store re-reads the
+    // backend-owned download state. A download in flight must reappear.
+    getStateMock.mockResolvedValueOnce(
+      ev({ tier: 'Stor', phase: 'downloading', percent: 73, completed: 6e9, total: 8.1e9 }),
+    );
+    ensureTierDownloadSubscription();
+    // Let the getTierDownloadState().then(...) microtask flush.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(useTierDownloadStore.getState().current?.tier).toBe('Stor');
+    expect(useTierDownloadStore.getState().current?.percent).toBe(73);
   });
 });

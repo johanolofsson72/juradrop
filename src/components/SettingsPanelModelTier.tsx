@@ -168,13 +168,16 @@ function TierRow({ tier, mode, isSelected, onSelect }: TierRowProps) {
                 {progressText(current)}
               </span>
             </div>
+          ) : startRefusal?.reason === 'not_ready' ? (
+            // Spec 027 /tla GAP-3: a fresh "not ready" refusal (e.g. from a
+            // retry while the AI is still starting) takes priority over a
+            // stale failure message left in the slot.
+            <span className="mt-1 text-xs text-destructive" role="alert">
+              {SETTINGS_PANEL_STRINGS.tier_download_err_not_ready}
+            </span>
           ) : isErrorThis && current.failure ? (
             <span className="mt-1 text-xs text-destructive" role="alert">
               {FAILURE_STRINGS[current.failure]}
-            </span>
-          ) : startRefusal?.reason === 'not_ready' ? (
-            <span className="mt-1 text-xs text-destructive" role="alert">
-              {SETTINGS_PANEL_STRINGS.tier_download_err_not_ready}
             </span>
           ) : (
             <span className="mt-1 text-xs text-foreground/50">

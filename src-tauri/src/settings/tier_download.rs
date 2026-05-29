@@ -525,7 +525,12 @@ mod tests {
         };
         let payload = TierDownloadPayload::from_state("downloading", &st);
         let json = serde_json::to_value(&payload).unwrap();
-        let mut keys: Vec<&str> = json.as_object().unwrap().keys().map(|s| s.as_str()).collect();
+        let mut keys: Vec<&str> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|s| s.as_str())
+            .collect();
         keys.sort_unstable();
         assert_eq!(
             keys,
