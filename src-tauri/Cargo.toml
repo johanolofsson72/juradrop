@@ -48,7 +48,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 # Spec 005 — pure-Rust PDF text extraction. MIT-licensed, no external
 # binaries, no network. Used for the .pdf input format extractor.
-pdf-extract = "0.7"
+pdf-extract = "0.10"
 # Spec 005 — BOM detection + Windows-1252 fallback for the .txt / .md
 # encoding cascade. Mozilla's encoding_rs, pure Rust, audited.
 encoding_rs = "0.8"
