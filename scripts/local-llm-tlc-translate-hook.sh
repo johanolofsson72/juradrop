@@ -29,7 +29,7 @@ TRACE=$(printf '%s' "$COMBINED" | head -c 12000)
 
 SYSTEM='You are translating a TLA+ TLC counterexample trace into plain English for a developer who needs to fix the bug behind the violation.
 
-The TLC trace shows model states leading to an invariant violation, deadlock, or property failure. Each state has variable assignments in TLA+ syntax (records like [field |-> value], primed variables like x'\''=...', set notation, tuples).
+The TLC trace shows model states leading to an invariant violation, deadlock, or property failure. Each state has variable assignments in TLA+ syntax (records like [field |-> value], primed variables like x'\''=..., set notation, tuples).
 
 Output format (no markdown headers, no preamble):
 
