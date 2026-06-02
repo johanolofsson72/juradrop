@@ -30,7 +30,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "io
 chrono = { version = "0.4", features = ["serde"] }
 parking_lot = "0.12"
 futures = "0.3"
-thiserror = "1"
+thiserror = "2"
 # F2/F3 disk-space pre-check — already in the dependency tree transitively
 # via tokio; declaring it explicitly so the unsafe statvfs call is honest.
 libc = "0.2"
