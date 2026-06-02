@@ -36,7 +36,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # Full history so tag annotations + version detection work.
           fetch-depth: 0
