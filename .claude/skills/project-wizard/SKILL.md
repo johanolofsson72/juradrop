@@ -68,32 +68,79 @@ else
 fi
 ```
 
-**Step 5 — Fetch and execute sync-prompt:**
+**Step 5 — Run the COMPLETE template sync (identical to `/project-update`):**
 
-Fetch the latest sync-prompt from the template repo:
+This single step puts **everything** in place — every skill (`allium`, `tla`, `code-review`, `explore-codebase`, `deploy-checklist`, `sync-template`, `update-template`), every rule (`allium.md`, `specs.md`, `continuous-execution.md`, `validation-followup.md`, `feature-pipeline.md`, `spec-register.md`, the stack rules), every doc, every hook script, the deterministic local-LLM wiring, AND the Graphify wiring + bootstrap. **After this step the project is fully configured. The wizard IS the full sync — there is no separate `/project-update` pass required afterward.** If you ever catch yourself about to tell the user "now run `/project-update` to get allium/graphify", you skipped part of this step — go back and finish it. That handoff is the exact bug this step exists to kill.
+
+The wizard does NOT paraphrase the sync into a summary and curl files one at a time — that approach reliably dropped `allium`, the pipeline rules, and the graphify wiring on the floor. Instead it resolves the template **locally** (cloning once if absent, which is far more reliable than ~50 individual HTTP fetches) and executes the canonical `sync-prompt.md` verbatim — the exact same instruction set `/project-update` runs. Single source of truth, zero drift.
+
+**Step 5.1 — Resolve `$TEMPLATE` (local clone preferred, clone-once fallback):**
 
 ```bash
-curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/sync-prompt.md
+for CAND in "$HOME/repos/Claude" "$HOME/Projects/Claude" "$HOME/Code/Claude" "$HOME/code/Claude" "$HOME/src/Claude" "$HOME/dev/Claude" "/Users/jool/repos/Claude"; do
+  if [ -f "$CAND/CLAUDE.md" ] && [ -f "$CAND/.claude/skills/sync-template/SKILL.md" ]; then
+    TEMPLATE="$CAND"; break
+  fi
+done
+
+if [ -z "${TEMPLATE:-}" ]; then
+  echo "[BOOTSTRAP] No local template clone found — cloning it once (more reliable than per-file curl)…"
+  git clone --depth 1 https://github.com/johanolofsson72/Claude.git "$HOME/repos/Claude" && TEMPLATE="$HOME/repos/Claude"
+fi
+
+if [ -z "${TEMPLATE:-}" ] || [ ! -f "$TEMPLATE/.claude/skills/sync-template/SKILL.md" ]; then
+  echo "[ERROR] Template unavailable and clone failed. Fix connectivity (or clone manually to \$HOME/repos/Claude) and re-run the wizard." >&2
+  exit 1
+fi
+echo "[OK] Template at: $TEMPLATE"
 ```
 
-Read the fetched content and **execute all instructions between the `---` markers**. This means:
+**Step 5.2 — Execute the canonical sync flow verbatim:**
 
-1. Read all template files from the fetched content's instructions (the sync-prompt references `/Users/jool/repos/Claude` as the template source — but since we fetched it remotely, use `curl` to fetch each referenced file from `https://raw.githubusercontent.com/johanolofsson72/Claude/main/` instead of reading local paths)
-2. Read this project's existing `.claude/` files
-3. Perform the language migration check
-4. Analyze and update/merge files per the sync-prompt's rules (copy missing, update outdated, merge project-specific)
-5. Verify spec testing pipeline
-6. Install required external skills (git clone commands)
-7. Ask about tech stack and remove irrelevant files
-8. Verify (valid JSON, CLAUDE.md size, reference files exist)
-9. Report what was synced
+Read `$TEMPLATE/scripts/sync-prompt.md` and **execute every step it defines (Step -1 through Step 10) against the current project, exactly as written** — substituting the locally-resolved `$TEMPLATE` for any example `/Users/jool/...` path. Do NOT abbreviate it, do NOT skip its sub-steps. That file is the authoritative definition of a complete configuration; running it here is what guarantees the wizard and `/project-update` can never diverge. The steps that MUST complete (fail-hard on non-zero):
 
-**IMPORTANT**: When the sync-prompt references reading files from `/Users/jool/repos/Claude/`, translate those paths to raw GitHub URLs:
-- `/Users/jool/repos/Claude/CLAUDE.md` → `curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/CLAUDE.md`
-- `/Users/jool/repos/Claude/.claude/rules/dotnet.md` → `curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/.claude/rules/dotnet.md`
-- etc.
+1. **Step 1–5 / 5b** — copy every missing skill, rule, doc, agent, and hook script. On a fresh project all of them are "missing", so this is where `allium/SKILL.md`, `tla/SKILL.md`, `rules/allium.md`, `rules/specs.md`, and the continuous-execution / validation-followup / feature-pipeline / spec-register rules actually land. None of these are optional.
+2. **Step 5c** — `python3 scripts/sync-local-llm-hooks.py "$TEMPLATE/.claude/settings.json"` (deterministic local-LLM wiring + script mirror).
+3. **Step 5d** — `python3 scripts/sync-graphify-wiring.py "$TEMPLATE/.claude/settings.json"` then `bash scripts/graphify-bootstrap.sh` (deterministic Graphify wiring, then install + AST graph build; the bootstrap eligibility-gates itself under 30 source files).
+4. **Step 6 / 6b** — install the external skills (`frontend-design` via anthropics/skills, superpowers, qa-test, playwright-skill, ui-ux-pro-max, …) and the TLC model checker.
+5. **Step 8 / 8b** — normalize hook paths (`python3 scripts/fix-hook-paths.py .claude/settings.json`) and record `.claude/.sync-version`.
 
-This ensures the skill works on any machine, not just machines with a local clone of the template repo.
+**Step 5.3 — Exit gate (BLOCKING — the wizard does not proceed until this prints `[OK]`):**
+
+The Allium/TLA pipeline and Graphify are base requirements, not nice-to-haves. Before leaving Phase -1, verify every load-bearing artifact actually landed — this gate is what makes "you have to run `/project-update` afterward" impossible:
+
+```bash
+fail=0
+for f in \
+  .claude/skills/allium/SKILL.md \
+  .claude/skills/tla/SKILL.md \
+  .claude/rules/allium.md \
+  .claude/rules/specs.md \
+  .claude/rules/continuous-execution.md \
+  .claude/rules/validation-followup.md \
+  .claude/rules/feature-pipeline.md \
+  .claude/rules/spec-register.md \
+  scripts/allium-hook.sh \
+  scripts/tla-hook.sh \
+  scripts/sync-graphify-wiring.py \
+  scripts/graphify-bootstrap.sh; do
+  [ -e "$f" ] || { echo "[MISSING] $f"; fail=1; }
+done
+python3 -m json.tool .claude/settings.json >/dev/null 2>&1 || { echo "[INVALID] settings.json is not valid JSON"; fail=1; }
+# Graphify is only enforced on eligible (>=30 source-file) projects; the bootstrap self-gates below threshold.
+if bash scripts/graphify-bootstrap.sh --eligibility-check >/dev/null 2>&1; then
+  { command -v graphify >/dev/null && test -f graphify-out/graph.json && grep -q 'graphify-fire-hook.sh' .claude/settings.json; } \
+    || { echo "[MISSING] graphify wiring/graph on an eligible project"; fail=1; }
+fi
+if [ "$fail" -eq 0 ]; then
+  echo "[OK] Full template sync verified — allium, tla, pipeline rules, and graphify all in place"
+else
+  echo "[FAIL] Bootstrap incomplete — re-run Step 5 until green. Do NOT tell the user to run /project-update; finish the sync here."
+  exit 1
+fi
+```
+
+If this prints `[FAIL]`, go back into `$TEMPLATE/scripts/sync-prompt.md`, re-run the step that produces the missing artifact, and re-run the gate until it is green. Only a green gate unlocks Phase 0.
 
 **Step 6 — Report bootstrap status:**
 
