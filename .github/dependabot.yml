@@ -1,0 +1,46 @@
+# Spec 032 — Dependabot dependency update checks.
+#
+# Weekly bump PRs for the three ecosystems in this repo. Minor/patch updates
+# are grouped to limit PR noise; major bumps stay individual (they may need
+# code changes and deserve their own review).
+
+version: 2
+updates:
+  # Rust crates (the core + the untrusted-document parsers).
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # npm (React frontend + Tauri JS API + dev tooling).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # The GitHub Actions used by ci.yml / audit.yml / release.yml.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      actions-all:
+        update-types:
+          - minor
+          - patch

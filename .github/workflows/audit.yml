@@ -1,0 +1,68 @@
+# Spec 032 — dependency vulnerability audit.
+#
+# Guards the supply chain — especially the untrusted-document parser crates
+# (pdf-extract, docx-rs, rtf-parser, zip, quick-xml) — by running cargo audit
+# and npm audit on every push to main, every PR, and weekly on a schedule
+# (so an advisory published against an UNCHANGED dependency is still caught).
+#
+# Audits read lockfiles only (no compile, no Ollama sidecar), so this runs on
+# cheap/fast ubuntu-latest and is fully independent of ci.yml. Read-only
+# permissions; no secrets; the only outbound traffic is cloning the repo and
+# the public RustSec advisory DB — neither exfiltrates anything (Principle I).
+
+name: audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Mondays 06:00 UTC — catch advisories published against pinned deps.
+    - cron: '0 6 * * 1'
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: cargo audit + npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      # Fail on high/critical advisories in the PRODUCTION dep tree only —
+      # dev-only build-tooling vulnerabilities never ship to users.
+      - name: npm audit (production, high+)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Install cargo-audit (prebuilt)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      # -f points at the non-root lockfile. Default policy = fail on actual
+      # VULNERABILITIES only. Unmaintained/unsound WARNINGS are printed every
+      # run for visibility but do NOT fail CI: today's 17 (16 unmaintained +
+      # 1 unsound) are all transitive through tauri/wry/tauri-utils — 10 are
+      # Linux-only GTK3 deps a macOS app never compiles — and none is fixable
+      # by us (they resolve when Tauri bumps its tree). See spec 032 for the
+      # accepted-advisories list + rationale. A real CVE still fails the run.
+      - name: cargo audit
+        run: cargo audit -f src-tauri/Cargo.lock
