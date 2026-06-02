@@ -89,3 +89,13 @@ jobs:
 
       - name: cargo test
         run: cd src-tauri && cargo test
+
+      # Spec 033 — frontend smoke suite. Drives the production React frontend
+      # in headless Chromium via the Vite dev server (auto-started by
+      # playwright.config.ts's webServer; CI=true forces a fresh server), with
+      # a mocked Tauri IPC bridge. No native app build, no network egress.
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Playwright smoke tests
+        run: npm run test:e2e

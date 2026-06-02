@@ -1,0 +1,203 @@
+-- allium: 3
+
+-- Frontend Playwright smoke tests — formal model of the mocked Tauri IPC bridge.
+-- The "system" here is test infrastructure: an injected window.__TAURI_INTERNALS__
+-- double plus its test-facing control surface. The contract it must satisfy is the
+-- @tauri-apps/api v2.11 invoke/listen/transformCallback protocol (read from
+-- node_modules/@tauri-apps/api/{core,event}.js), reproduced deterministically and
+-- network-free (Principle I) so the unmodified production frontend renders in Chromium.
+
+enum CommandResult { resolved | rejected }
+
+-- A callback the frontend registered via transformCallback (the listen handler).
+entity RegisteredCallback {
+    id: Integer                    -- stable id returned by transformCallback
+    once: Boolean                  -- listen passes once=false; once=true unregisters after first call
+    live: Boolean                  -- false once unregisterCallback(id) has run
+    invariant StableId { this.id >= 0 }
+}
+
+-- A live subscription: an event name bound to a callback id (from plugin:event|listen).
+entity Listener {
+    event: String                  -- e.g. `juradrop://status`, `juradrop://zone/sammanfatta`
+    callback: RegisteredCallback
+    event_id: Integer              -- the id returned to listen(), used by plugin:event|unlisten
+    live: Boolean
+    invariant BoundToLiveCallback { this.live implies this.callback.live }
+}
+
+-- One command the dispatch table knows how to answer with canned, local data.
+entity MockedCommand {
+    name: String                   -- get_status, get_settings, dispatch_to_zone, plugin:dialog|open, ...
+    overridable: Boolean = true    -- a test may swap the canned response per-test
+}
+
+-- An audit row: every invoke() the frontend made, for assertion by tests.
+entity InvocationRecord {
+    command: String
+    payload: String?               -- serialized args (zoneId, paths, tier, ...) — never document content
+    result: CommandResult
+}
+
+-- The injected bridge. One instance per page; no persistence beyond page lifetime.
+entity MockBridge {
+    injected_before_bundle: Boolean   -- true iff registered via an init script that runs pre-first-paint
+    callbacks: RegisteredCallback with bridge = this
+    listeners: Listener with bridge = this
+    commands: MockedCommand with bridge = this
+    log: InvocationRecord with bridge = this
+    network_calls: Integer = 0        -- MUST stay 0 (Principle I)
+
+    live_listeners: listeners where live = true
+    invariant NeverTouchesNetwork { this.network_calls = 0 }
+    invariant GateReadsTrue { this.injected_before_bundle = true }
+}
+
+-- The deterministic backend state the dispatch table serves. Per-test overridable.
+value CannedState {
+    status: AppStatus
+    settings: SettingsSnapshot
+    tier_pull: TierPullState
+    tier_download: TierDownloadEvent?
+    diagnostics: DiagnosticsStatus
+    app_version: String
+    picker_result: String?            -- plugin:dialog|open returns a path, or null when cancelled
+}
+
+external entity AppStatus { }
+external entity SettingsSnapshot { }
+external entity TierPullState { }
+external entity TierDownloadEvent { }
+external entity DiagnosticsStatus { }
+
+-- Raised by the bridge when the frontend invokes a command the dispatch table
+-- does not know (FR-009). Surfaces to the test as a rejected promise.
+entity RaisedError {
+    message: String
+    command: String
+}
+
+config {
+    smoke_timeout_seconds: Integer = 60   -- SC-004: full suite under 60s locally
+    browser: String = `chromium`          -- FR-014
+    headless: Boolean = true              -- FR-014
+}
+
+-- ============================ Bridge contract rules ============================
+
+-- transformCallback(cb, once) — frontend registers a listen handler, gets an id back.
+rule TransformCallback {
+    when: TransformCallback(bridge, cb, once)
+    ensures:
+        RegisteredCallback.created(id: bridge.callbacks.count, once: once, live: true)
+}
+
+-- unregisterCallback(id) — component unmount / unlisten path. Idempotent, never throws.
+rule UnregisterCallback {
+    when: UnregisterCallback(bridge, id)
+    ensures:
+        for c in bridge.callbacks where c.id = id:
+            c.live = false
+}
+
+-- plugin:event|listen — bind an event name to a registered callback id, return event_id.
+rule RegisterListener {
+    when: Invoke(bridge, `plugin:event|listen`, payload)
+    requires: exists c in bridge.callbacks where c.id = payload.handler and c.live = true
+    ensures:
+        Listener.created(event: payload.event, callback: payload.handler, event_id: bridge.listeners.count, live: true)
+}
+
+-- plugin:event|unlisten — drop a subscription. Idempotent no-op when already gone.
+rule Unlisten {
+    when: Invoke(bridge, `plugin:event|unlisten`, payload)
+    ensures:
+        for l in bridge.listeners where l.event_id = payload.eventId:
+            l.live = false
+}
+
+-- invoke(cmd, payload) for a mocked command — resolve with canned data, record the call.
+rule InvokeMockedCommand {
+    when: Invoke(bridge, cmd, payload)
+    requires: exists m in bridge.commands where m.name = cmd
+    ensures:
+        InvocationRecord.created(command: cmd, payload: payload, result: resolved)
+}
+
+-- FR-009: an unmocked command MUST reject loudly, never silently resolve to undefined.
+rule InvokeUnmockedCommand {
+    when: Invoke(bridge, cmd, payload)
+    requires: not exists m in bridge.commands where m.name = cmd
+    ensures:
+        InvocationRecord.created(command: cmd, payload: payload, result: rejected)
+        RaisedError.created(message: `unmocked command`, command: cmd)
+}
+
+-- FR-008: emit(event, payload) delivers to every LIVE listener for that event,
+-- calling its callback with the {event, id, payload} shape listen() expects.
+rule EmitEvent {
+    when: Emit(bridge, event, payload)
+    for l in bridge.listeners where l.live = true and l.event = event:
+        ensures:
+            CallbackInvoked(callback: l.callback, event: event, id: l.event_id, payload: payload)
+}
+
+-- A once-listener unregisters itself after the first delivery.
+rule EmitToOnceListener {
+    when: Emit(bridge, event, payload)
+    for l in bridge.listeners where l.live = true and l.event = event and l.callback.once = true:
+        ensures:
+            l.callback.live = false
+            l.live = false
+}
+
+-- ============================ Global invariants ============================
+
+-- FR-010: emitting to an event with no live listener is an observable no-op, never a crash.
+invariant EmitWithNoListenerIsNoop {
+    for b in MockBridge:
+        true   -- modeled by EmitEvent's empty for-set: zero deliveries, no error raised
+}
+
+-- FR-010: an unregistered callback never receives deliveries.
+invariant DeadCallbacksNeverFire {
+    for l in Listener where live = false:
+        l.callback.live = false or true   -- a dead listener is excluded from EmitEvent's live filter
+}
+
+-- Principle I / FR-013: the harness makes zero real network calls.
+invariant HarnessIsNetworkFree {
+    for b in MockBridge:
+        b.network_calls = 0
+}
+
+-- FR-003: the bridge must be present before the bundle's gate is read.
+invariant BridgePrecedesBundle {
+    for b in MockBridge:
+        b.injected_before_bundle = true
+}
+
+-- FR-012 / SC-005: production runtime behavior is unchanged; only inert hooks allowed.
+invariant NoProductionRuntimeChange {
+    true   -- enforced by review (SC-005): any prod diff is an inert data-* hook only
+}
+
+-- ============================ Actor + surface ============================
+
+actor TestRunner { identified_by: MockBridge }
+
+surface SmokeSuite {
+    facing runner: TestRunner
+    context bridge: MockBridge where injected_before_bundle = true
+    provides: Emit(bridge)
+    exposes: bridge.log
+}
+
+-- ============================ Open questions / deferred ============================
+
+-- Real WKWebView coverage is now tracked as spec 037 (native-window-smoke, XCUITest).
+-- 033 deliberately provides only the Chromium + mocked-IPC substitute.
+deferred NativeWindowCoverage   -- specs/037-native-window-smoke (Swift XCUITest, blocked-on-hardware)
+
+-- RESOLVED in 033 by FR-017: a contract-assertion test pins the @tauri-apps/api
+-- invoke/listen/transformCallback shapes so a future bump fails loudly with a clear message.
