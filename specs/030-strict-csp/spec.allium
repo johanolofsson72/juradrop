@@ -1,0 +1,140 @@
+-- allium: 3
+--
+-- Spec 030 — strict Content-Security-Policy.
+--
+-- Replaces `csp: null` in the Tauri webview config with an explicit policy
+-- that makes Constitution Principle I (no document content ever leaves the
+-- Mac) a STRUCTURAL property of the runtime instead of a code-review
+-- convention. This is a security-invariant spec: there is no state machine,
+-- only a single static policy value plus the invariants it must satisfy and
+-- the legitimate channels it must NOT break.
+
+-- The only origins the webview is ever permitted to reach. `self` is the
+-- app's own bundled assets; `ipc` is the Tauri command channel; the two
+-- localhost forms are the bundled Ollama (Principle III). Nothing else.
+config {
+    self_origin: String = `'self'`
+    ipc_origin: String = `ipc:`
+    ipc_host: String = `http://ipc.localhost`
+    ollama_v4: String = `http://127.0.0.1:11434`
+    ollama_alias: String = `http://localhost:11434`
+    inline_style: String = `'unsafe-inline'`   -- styles only (FR-012)
+    data_uri: String = `data:`                  -- inline img/font only, never script
+}
+
+-- A single CSP directive: its name and the exact set of origins it allows.
+value Directive {
+    name: String
+    allowed_origins: Set<String>
+}
+
+-- The webview's whole policy: one directive set, declared once. `report_to`
+-- is the violation-reporting endpoint — it MUST stay absent (a report
+-- destination is outbound traffic, forbidden by Principle I).
+entity ContentSecurityPolicy {
+    default_src: Directive
+    script_src: Directive
+    connect_src: Directive
+    style_src: Directive
+    img_src: Directive
+    font_src: Directive
+    object_src: Directive       -- locked to none
+    base_uri: Directive         -- locked to self
+    frame_ancestors: Directive  -- locked to none
+    form_action: Directive      -- locked to self
+    report_to: String?          -- MUST be null (FR-013)
+
+    -- DERIVED: every origin the policy lets the webview open a network
+    -- connection to. This is the set the LocalhostOnlyEgress invariant
+    -- constrains — it MUST contain no non-localhost host.
+    egress_origins: connect_src.allowed_origins
+}
+
+-- ===== The one operation: declaring the policy =====
+
+-- There is no runtime transition; the "rule" is the build-time guarantee
+-- that the shipped config carries the strict policy and not `null`.
+rule DeclarePolicy {
+    when: WebviewConfigBuilt(csp)
+    ensures:
+        csp.report_to = null
+        csp.script_src.allowed_origins = {self_origin}
+        csp.object_src.allowed_origins = {}                 -- 'none'
+        csp.base_uri.allowed_origins = {self_origin}
+        csp.frame_ancestors.allowed_origins = {}            -- 'none'
+        csp.form_action.allowed_origins = {self_origin}
+        csp.connect_src.allowed_origins = {self_origin, ipc_origin, ipc_host, ollama_v4, ollama_alias}
+        csp.default_src.allowed_origins = {self_origin}
+        csp.img_src.allowed_origins = {self_origin, data_uri}
+        csp.font_src.allowed_origins = {self_origin, data_uri}
+        csp.style_src.allowed_origins = {self_origin, inline_style}
+}
+
+-- ===== Security invariants (must ALWAYS hold) =====
+
+-- FR-002 / FR-003 / SC-001 / SC-005 — Principle I made structural: the only
+-- network egress the webview may perform is to the app itself, the IPC
+-- channel, and the localhost Ollama. Zero other origins.
+invariant LocalhostOnlyEgress {
+    for csp in ContentSecurityPolicy:
+        csp.egress_origins.all(o =>
+            o in {self_origin, ipc_origin, ipc_host, ollama_v4, ollama_alias})
+}
+
+-- FR-002 / FR-005 — the fetch default and every resource directive that is
+-- not script/connect resolves to local-only origins (self, plus the inline
+-- style allowance and data: URIs for images/fonts). No remote resource host.
+invariant ResourcesAreLocalOnly {
+    for csp in ContentSecurityPolicy:
+        csp.default_src.allowed_origins = {self_origin}
+        csp.img_src.allowed_origins.all(o => o in {self_origin, data_uri})
+        csp.font_src.allowed_origins.all(o => o in {self_origin, data_uri})
+}
+
+-- FR-004 / FR-012 — scripts come ONLY from the app's own bundle. No remote
+-- script origin, and no `'unsafe-inline'` / `'unsafe-eval'` escape hatch.
+invariant NoRemoteOrUnsafeScript {
+    for csp in ContentSecurityPolicy:
+        csp.script_src.allowed_origins = {self_origin}
+}
+
+-- FR-013 — no violation-reporting endpoint, because that is itself outbound.
+invariant NoReportEndpoint {
+    for csp in ContentSecurityPolicy:
+        csp.report_to = null
+}
+
+-- FR-005 / FR-012 — styles may be inline (local UI toolkit needs it) but
+-- never loaded from a remote origin; only self + the inline allowance.
+invariant NoRemoteStyleOrigin {
+    for csp in ContentSecurityPolicy:
+        csp.style_src.allowed_origins.all(o => o in {self_origin, inline_style})
+}
+
+-- FR-014 — defense in depth: no plugin embeds, no base-tag hijack, no
+-- clickjacking, no cross-origin form exfiltration.
+invariant DefenseInDepthLocked {
+    for csp in ContentSecurityPolicy:
+        csp.object_src.allowed_origins = {}
+        csp.base_uri.allowed_origins = {self_origin}
+        csp.frame_ancestors.allowed_origins = {}
+        csp.form_action.allowed_origins = {self_origin}
+}
+
+-- FR-001 — the policy is never unset. `csp: null` is the bug this spec fixes.
+invariant PolicyIsDeclared {
+    exists csp in ContentSecurityPolicy
+}
+
+-- NOTE: the legitimate channels the policy must NOT break (Ollama document
+-- round-trip FR-006, GitHub shell.open FR-007, auto-updater FR-008) are NOT
+-- governed by the webview CSP at all — they execute in the Rust core / OS
+-- shell, outside the renderer. They are asserted by regression test (the full
+-- suite stays green under the policy), not by an Allium rule, because there
+-- is no webview-side transition to model. FR-009/FR-015 (dev-mode HMR) is the
+-- ABSENCE of any persisted dev relaxation — the framework injects it at dev
+-- time — so it too is a test/inspection assertion, not a rule.
+--
+-- Single local desktop actor (Principle IV); the webview is the only surface
+-- and its exposure is fully captured by the invariants above. No actor/
+-- surface blocks needed.

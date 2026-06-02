@@ -11,6 +11,7 @@ use tauri::{DragDropEvent, Emitter, Listener, Manager, RunEvent, WindowEvent};
 pub mod diagnostics;
 pub mod help;
 pub mod prompts;
+pub mod security;
 pub mod settings;
 pub mod sidecar;
 pub mod updater;
