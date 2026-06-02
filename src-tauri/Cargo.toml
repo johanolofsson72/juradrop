@@ -81,4 +81,4 @@ wiremock = "0.6"
 # T035 — consent persistence integration test needs an isolated dir.
 tempfile = "3"
 # Spec 003 — source-immutability SHA-256 check in integration tests (R-009).
-sha2 = "0.10"
+sha2 = "0.11"
