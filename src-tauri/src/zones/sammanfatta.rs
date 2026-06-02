@@ -271,13 +271,20 @@ impl DropZone {
         // Spec 005 — the writer chosen per `output_format` mirrors the
         // input extension (with PDF → DOCX per FR-011).
         let bytes = match output_format {
-            OutputFormat::Docx => build_summary_doc(
+            OutputFormat::Docx => match build_summary_doc(
                 self.id,
                 &source,
                 &response_text,
                 extracted.was_truncated,
                 extracted.was_partial,
-            ),
+            ) {
+                Ok(b) => b,
+                Err(failure) => {
+                    // Spec 035 — a docx pack failure is an honest SaveError, not a panic.
+                    self.finalize_with_failure(&app, job_id, failure).await;
+                    return;
+                }
+            },
             OutputFormat::Txt => {
                 build_txt_sidecar(self.id, &source, &response_text, extracted.was_truncated)
             }

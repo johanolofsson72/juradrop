@@ -1,3 +1,13 @@
+// Spec 035 — panic-site ratchet. Deny unwrap/expect/panic in PRODUCTION code of
+// the whole zones tree (the document-processing surface where a panic becomes a
+// user-visible WKWebView crash). `cfg_attr(not(test))` exempts `#[cfg(test)]`
+// code so tests may use unwrap/expect freely. Benign sites carry `#[allow]` +
+// justification; new sites fail `cargo clippy -D warnings` in CI (spec 031).
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
+
 // Spec 003 — drop-zone domain.
 //
 // Owns the "Sammanfatta" first drop zone (drag .docx → produce a Swedish

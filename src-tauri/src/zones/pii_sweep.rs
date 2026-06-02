@@ -40,16 +40,22 @@ impl PiiFindings {
 
 // Personnummer: optional century (2 digits) + YYMMDD + optional separator
 // (- or +) + 4 digits. Word-boundaried. Shape only.
+// expect on a compile-time-constant literal regex — infallible, test-covered.
+#[allow(clippy::expect_used)]
 static RE_PERSONNUMMER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(?:\d{2})?\d{6}[-+]?\d{4}\b").expect("personnummer regex"));
 
 // E-post: standard pragmatic email shape.
+// expect on a compile-time-constant literal regex — infallible, test-covered.
+#[allow(clippy::expect_used)]
 static RE_EMAIL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b").expect("email regex"));
 
 // Telefonnummer: Swedish national (0 + 1–3 digit area + 5–8 digits, with
 // optional single space/dash separators) OR +46 international form. The
 // `(?x)` verbose flag keeps the alternation readable.
+// expect on a compile-time-constant literal regex — infallible, test-covered.
+#[allow(clippy::expect_used)]
 static RE_PHONE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?x)
@@ -63,6 +69,8 @@ static RE_PHONE: LazyLock<Regex> = LazyLock::new(|| {
 
 // Placeholder spans the model is SUPPOSED to emit — masked before counting
 // so `[Personnr 1]` never reads as a personnummer, etc.
+// expect on a compile-time-constant literal regex — infallible, test-covered.
+#[allow(clippy::expect_used)]
 static RE_PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\[(?:Person|Personnr|Adress|Telefon|E-post)[^\]]*\]").expect("placeholder regex")
 });
@@ -113,10 +121,12 @@ fn join_swedish(parts: &[String]) -> String {
     match parts.len() {
         0 => String::new(),
         1 => parts[0].clone(),
-        _ => {
-            let (last, head) = parts.split_last().unwrap();
-            format!("{} och {}", head.join(", "), last)
-        }
+        // len >= 2 here (0 and 1 handled above), so split_last is always Some —
+        // but match it explicitly to keep this panic-free (spec 035).
+        _ => match parts.split_last() {
+            Some((last, head)) => format!("{} och {}", head.join(", "), last),
+            None => String::new(),
+        },
     }
 }
 

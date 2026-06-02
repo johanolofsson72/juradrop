@@ -14,6 +14,7 @@ use std::path::Path;
 use chrono::Local;
 use docx_rs::{Docx, Paragraph, Run};
 
+use super::errors::ZoneFailure;
 use super::zone_id::ZoneId;
 
 const TRUNCATION_NOTICE: &str =
@@ -39,7 +40,7 @@ pub fn build_summary_doc(
     response: &str,
     truncated: bool,
     was_partial: bool,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, ZoneFailure> {
     let basename = source
         .file_name()
         .and_then(|s| s.to_str())
@@ -88,10 +89,13 @@ pub fn build_summary_doc(
     }
 
     let mut buf = Vec::new();
+    // Packing into an in-memory Vec is effectively infallible, but the output
+    // pipeline must never panic (Principle VIII) — a pack failure surfaces as
+    // the existing honest "Kunde inte spara…" SaveError instead of a crash.
     docx.build()
         .pack(Cursor::new(&mut buf))
-        .expect("docx-rs pack should not fail in-memory");
-    buf
+        .map_err(|_| ZoneFailure::SaveError)?;
+    Ok(buf)
 }
 
 #[cfg(test)]
@@ -112,7 +116,8 @@ mod tests {
             "En koncis sammanfattning.",
             false,
             false,
-        );
+        )
+        .unwrap();
         let extracted = extract_text_from_bytes(&bytes).expect("output must parse");
         assert!(extracted
             .raw
@@ -128,7 +133,8 @@ mod tests {
             "English text.",
             false,
             false,
-        );
+        )
+        .unwrap();
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted
             .raw
@@ -138,7 +144,8 @@ mod tests {
 
     #[test]
     fn punktlista_header_uses_punktlista_template() {
-        let bytes = build_summary_doc(ZoneId::Punktlista, &fake_source(), "- A\n- B", false, false);
+        let bytes = build_summary_doc(ZoneId::Punktlista, &fake_source(), "- A\n- B", false, false)
+            .unwrap();
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted
             .raw
@@ -154,7 +161,8 @@ mod tests {
             "Person A...",
             false,
             false,
-        );
+        )
+        .unwrap();
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted
             .raw
@@ -164,7 +172,8 @@ mod tests {
 
     #[test]
     fn forenkla_includes_fr014_disclaimer_paragraph() {
-        let bytes = build_summary_doc(ZoneId::Forenkla, &fake_source(), "Förenklad…", false, false);
+        let bytes = build_summary_doc(ZoneId::Forenkla, &fake_source(), "Förenklad…", false, false)
+            .unwrap();
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted
             .raw
@@ -174,7 +183,8 @@ mod tests {
 
     #[test]
     fn sammanfatta_has_no_disclaimer_paragraph() {
-        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Text.", false, false);
+        let bytes =
+            build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Text.", false, false).unwrap();
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(!extracted
             .raw
@@ -185,7 +195,8 @@ mod tests {
 
     #[test]
     fn meta_paragraph_includes_model_label() {
-        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Hej.", false, false);
+        let bytes =
+            build_summary_doc(ZoneId::Sammanfatta, &fake_source(), "Hej.", false, false).unwrap();
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted.raw.as_inner().contains("gemma3:4b"));
         assert!(extracted
@@ -202,7 +213,8 @@ mod tests {
             "Kort text.",
             true,
             false,
-        );
+        )
+        .unwrap();
         let extracted = extract_text_from_bytes(&with_notice).unwrap();
         assert!(extracted.raw.as_inner().contains("Dokumentet förkortades"));
 
@@ -212,7 +224,8 @@ mod tests {
             "Kort text.",
             false,
             false,
-        );
+        )
+        .unwrap();
         let extracted2 = extract_text_from_bytes(&without).unwrap();
         assert!(!extracted2.raw.as_inner().contains("Dokumentet förkortades"));
     }
@@ -220,7 +233,8 @@ mod tests {
     #[test]
     fn body_paragraphs_split_on_double_newline() {
         let body = "Första.\n\nAndra.\n\nTredje.";
-        let bytes = build_summary_doc(ZoneId::Sammanfatta, &fake_source(), body, false, false);
+        let bytes =
+            build_summary_doc(ZoneId::Sammanfatta, &fake_source(), body, false, false).unwrap();
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         let raw = extracted.raw.as_inner();
         assert!(raw.contains("Första."));
@@ -240,7 +254,8 @@ mod tests {
             "Body text.",
             false,
             true, // was_partial
-        );
+        )
+        .unwrap();
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(extracted
             .raw
@@ -256,7 +271,8 @@ mod tests {
             "Body text.",
             true, // truncated
             true, // was_partial
-        );
+        )
+        .unwrap();
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         let raw = extracted.raw.as_inner();
         assert!(raw.contains("Delar av PDF-filen kunde inte läsas"));
@@ -283,7 +299,8 @@ mod tests {
             "Body text.",
             false,
             false,
-        );
+        )
+        .unwrap();
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         assert!(!extracted.raw.as_inner().contains("Delar av PDF-filen"));
     }
@@ -296,7 +313,8 @@ mod tests {
             "Person A...",
             false,
             true,
-        );
+        )
+        .unwrap();
         let extracted = extract_text_from_bytes(&bytes).unwrap();
         let raw = extracted.raw.as_inner();
         assert!(raw.contains("Delar av PDF-filen kunde inte läsas"));

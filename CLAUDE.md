@@ -210,13 +210,12 @@ Read these files WHEN you need them — do not load everything upfront:
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 
-- Active spec: `specs/034-tier-download-pull-timeout/spec.md`
-- Allium spec: `specs/034-tier-download-pull-timeout/spec.allium`
-- Implementation plan: `specs/034-tier-download-pull-timeout/plan.md`
-- Research notes: `specs/034-tier-download-pull-timeout/research.md`
-- Data model: `specs/034-tier-download-pull-timeout/data-model.md`
-- Contracts: `specs/034-tier-download-pull-timeout/contracts/`
-- Quickstart: `specs/034-tier-download-pull-timeout/quickstart.md`
+- Active spec: `specs/035-unwrap-audit/spec.md`
+- Implementation plan: `specs/035-unwrap-audit/plan.md`
+- Tasks: `specs/035-unwrap-audit/tasks.md`
+- (spec-only track — no spec.allium / research / data-model / contracts)
+
+Previous spec (completed): `specs/034-tier-download-pull-timeout/` — read its spec.md/plan.md if you need the pull idle-timeout context.
 
 Previous specs (completed): `specs/001-tauri-bootstrap/`, `specs/002-ollama-sidecar-poc/`, `specs/003-first-zone-sammanfatta/`, `specs/004-all-six-zones/`, `specs/005-additional-input-formats/`, `specs/006-signing-and-ci/`, `specs/007-auto-updater/`, `specs/008-first-run-wizard/`, `specs/009-long-tail-formats/`, `specs/010-settings-panel/`, `specs/011-error-recovery/`, `specs/012-polish-and-public-beta/`
 <!-- SPECKIT END -->

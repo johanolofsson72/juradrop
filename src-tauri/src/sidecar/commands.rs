@@ -1,3 +1,9 @@
+// Spec 035 — panic-site ratchet (production code only; tests exempt via cfg_attr).
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
+
 // Tauri command surface exposed to the WebView.
 // Per spec 002 contracts/tauri-commands.md.
 

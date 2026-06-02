@@ -1,3 +1,9 @@
+// Spec 035 — panic-site ratchet (production code only; tests exempt via cfg_attr).
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
+
 // Spec 007 / T011–T016 + T031 — Tauri commands for the updater state machine.
 //
 // Five commands registered via `tauri::generate_handler!`. All return

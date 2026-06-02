@@ -1,3 +1,9 @@
+// Spec 035 — panic-site ratchet (production code only; tests exempt via cfg_attr).
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
+)]
+
 // Spec 025 — Tauri commands for the diagnostics opt-in toggle.
 //
 // `get_diagnostics_status` returns the current consent + the local log
