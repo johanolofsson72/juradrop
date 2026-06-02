@@ -100,7 +100,7 @@ echo "[OK] Template at: $TEMPLATE"
 Read `$TEMPLATE/scripts/sync-prompt.md` and **execute every step it defines (Step -1 through Step 10) against the current project, exactly as written** — substituting the locally-resolved `$TEMPLATE` for any example `/Users/jool/...` path. Do NOT abbreviate it, do NOT skip its sub-steps. That file is the authoritative definition of a complete configuration; running it here is what guarantees the wizard and `/project-update` can never diverge. The steps that MUST complete (fail-hard on non-zero):
 
 1. **Step 1–5 / 5b** — copy every missing skill, rule, doc, agent, and hook script. On a fresh project all of them are "missing", so this is where `allium/SKILL.md`, `tla/SKILL.md`, `rules/allium.md`, `rules/specs.md`, and the continuous-execution / validation-followup / feature-pipeline / spec-register rules actually land. None of these are optional.
-2. **Step 5c** — `python3 scripts/sync-local-llm-hooks.py "$TEMPLATE/.claude/settings.json"` (deterministic local-LLM wiring + script mirror).
+2. **Step 5c** — `python3 scripts/sync-local-llm-hooks.py "$TEMPLATE/.claude/settings.json"` (deterministic local-LLM wiring + script mirror) AND `python3 scripts/sync-core-hooks.py "$TEMPLATE/.claude/settings.json"` (deterministic core-hook wiring — pipeline/spec-register/execution/tech-stack, script-presence gated). Both are mandatory; the second is what guarantees the pipeline + register enforcement hooks land without a follow-up `/project-update`.
 3. **Step 5d** — `python3 scripts/sync-graphify-wiring.py "$TEMPLATE/.claude/settings.json"` then `bash scripts/graphify-bootstrap.sh` (deterministic Graphify wiring, then install + AST graph build; the bootstrap eligibility-gates itself under 30 source files).
 4. **Step 6 / 6b** — install the external skills (`frontend-design` via anthropics/skills, superpowers, qa-test, playwright-skill, ui-ux-pro-max, …) and the TLC model checker.
 5. **Step 8 / 8b** — normalize hook paths (`python3 scripts/fix-hook-paths.py .claude/settings.json`) and record `.claude/.sync-version`.
@@ -123,10 +123,15 @@ for f in \
   scripts/allium-hook.sh \
   scripts/tla-hook.sh \
   scripts/sync-graphify-wiring.py \
+  scripts/sync-core-hooks.py \
   scripts/graphify-bootstrap.sh; do
   [ -e "$f" ] || { echo "[MISSING] $f"; fail=1; }
 done
 python3 -m json.tool .claude/settings.json >/dev/null 2>&1 || { echo "[INVALID] settings.json is not valid JSON"; fail=1; }
+# Core-hook wiring gate: any core hook whose script is on disk MUST be wired (catches the prose-merge gap)
+for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-md-coverage-reminder-hook continuous-execution-hook; do
+  if [ -f "scripts/$s.sh" ] && ! grep -q "$s.sh" .claude/settings.json; then echo "[UNWIRED] core hook $s present on disk but not wired — run sync-core-hooks.py"; fail=1; fi
+done
 # Graphify is only enforced on eligible (>=30 source-file) projects; the bootstrap self-gates below threshold.
 if bash scripts/graphify-bootstrap.sh --eligibility-check >/dev/null 2>&1; then
   { command -v graphify >/dev/null && test -f graphify-out/graph.json && grep -q 'graphify-fire-hook.sh' .claude/settings.json; } \

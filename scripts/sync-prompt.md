@@ -192,8 +192,12 @@ For each file in the template:
 - Preserve: project description, tech stack, commands, project-specific principles
 
 **settings.json merge:**
-- UNION of hooks — add template hooks without removing project's own
-- UNION of permissions.deny — combine both lists
+- **Hooks are wired DETERMINISTICALLY, not by prose merge.** Three helper scripts own every template hook family — do NOT hand-merge hooks (prose merge is exactly what left projects missing the pipeline/spec-register hooks and forced a second `/project-update`):
+  - `sync-local-llm-hooks.py` — the 20 local-LLM hooks (Step 5c)
+  - `sync-graphify-wiring.py` — the graphify nudge + telemetry hooks (Step 5d)
+  - `sync-core-hooks.py` — the core script hooks: pipeline reminders, spec-register guard/orientation, pipeline state guard, spec-md-coverage, continuous-execution, stop-validation, and the tech-stack hooks (tla, allium, sqlite, ui-design, test-coverage). Gated by script-presence so a project only gets hooks whose scripts it has (Step 5c, below).
+  Together these three own 100% of the template's script-backed hooks. Inline hooks (sensitive-file blocker, PreCompact, etc.) are identical across projects and copied with the settings adopt; project-specific hooks the template does not ship are preserved verbatim by all three helpers.
+- UNION of permissions.deny — combine both lists (the helpers never touch `permissions`)
 - Preserve project-specific hooks and permissions
 - NOTE: the template uses hook types that may not exist in the project:
   - `type: "prompt"` — LLM evaluation (for spec validation)
@@ -259,7 +263,7 @@ cargo install allium-cli
 
 The template auto-detects a local Ollama daemon and offloads work that genuinely reduces Anthropic token consumption (artifact drafts, routing hints, GitHub-context digests). When Ollama is not running on the developer's machine, every hook becomes a silent no-op — the stack is safe to ship to projects regardless of whether each developer runs Ollama locally.
 
-**Policy:** the template ships ~38 local-LLM hook scripts on disk but only 13 are wired by default — the ones that demonstrably save tokens (artifact producers + routing hints + GitHub-context digests). The remaining ~25 scripts are quality gates that ADD context for bug-catching; they cost tokens, they do not save them. Wire them per-project only when the bug-catching value justifies the per-fire context cost.
+**Policy:** the template ships ~38 local-LLM hook scripts on disk but only **20** are wired by default (post-2026-05-13 trim, was 23) — the seven token-saver core hooks (artifact producers + routing hints + GitHub-context digests) plus thirteen quality-gate-adjacent specialists that earn their keep when they fire (they cost tokens but catch real bugs on the file types they match). The remaining ~18 scripts stay on disk but unwired: the timeout-killers (`plan-draft`, `tasks-draft`, `allium-drift-rank` — 100% timeout on 9–12 KB prompts under the 32B model) and the pure quality gates with no token substitution (`test-*`, `auth-check`, `linq-perf`, `secret-scan`, `humanize`, `todo-catalog`, `spec-criteria/scope`, `plan-feasibility`, `task-traceability`, `branch-name`, `pr-splitter`). Re-wire per-project only when the value justifies the per-fire cost. The deterministic set lives in the template `settings.json`; `sync-local-llm-hooks.py` mirrors exactly that — this list is descriptive, the script is authoritative.
 
 **Files to sync** (use `Glob` against the template root for the hook scripts so this list does not need hand-editing as new hooks land):
 
@@ -268,6 +272,7 @@ The template auto-detects a local Ollama daemon and offloads work that genuinely
 3. **`scripts/local-llm-stats.sh`** — per-hook ROI reporter. `--all` aggregates across `~/repos/*` and `~/Projects/*`
 4. **`scripts/sync-local-llm-hooks.py`** — deterministic settings.json hook-merge helper invoked below
 5. **`scripts/verify-local-llm-hooks.sh`** — cross-check that the project's wired set matches the template after the merge
+5b. **`scripts/sync-core-hooks.py`** — deterministic core-hook (pipeline/spec-register/execution/tech-stack) wiring helper, invoked in the core-hook step below
 6. **Glob: every `scripts/local-llm-*-hook.sh`** — copy each matching file from the template. Files in the project but no longer in the template should be removed (template owns the script set)
 6. **`.claude/docs/local-llm.md`** — env var reference, setup, telemetry, failure modes
 7. **`.gitignore`** — see "Gitignore additions" below
@@ -292,7 +297,27 @@ bash scripts/verify-local-llm-hooks.sh "$TEMPLATE/.claude/settings.json"
 
 Three checks run: (1) the wired set matches the template's exactly, (2) every wired hook has its script file on disk, (3) the count matches the template. Exit non-zero on any failure. **If this fails, the sync is broken — fix it before reporting success in Step 10.** Capture the stdout for the Step 10 report.
 
-**Currently wired by default (13 token-saver hooks):**
+**Wire the CORE hooks deterministically** (pipeline / spec-register / execution / tech-stack — the family that prose-merge kept dropping):
+
+```bash
+python3 scripts/sync-core-hooks.py "$TEMPLATE/.claude/settings.json"
+```
+
+This strips every template core hook from the project's `.claude/settings.json` and reinstalls the template's current set — but only the hooks whose every referenced script already exists in the project. Script-presence is the tech-stack gate: a project that pruned `tla-hook.sh` (not a UI/spec project) never gets the tla hook back; a project that kept it does. Permissions and project-specific hooks are left untouched. Idempotent (byte-stable on re-run). Copy `scripts/sync-core-hooks.py` from the template first (it is in the script-sync set below), `chmod +x` it, then run. Capture stdout for the Step 10 report — the `skipped` lines tell you which tech-stack hooks a project deliberately lacks.
+
+**Verify core hooks landed** (run in project root):
+
+```bash
+# Every core hook script the project HAS on disk must be wired — no script present-but-unwired
+for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-md-coverage-reminder-hook continuous-execution-hook; do
+  test -f "scripts/$s.sh" && ! grep -q "$s.sh" .claude/settings.json && echo "[GAP] $s present on disk but NOT wired"
+done
+echo "core-hook wiring check done (no [GAP] lines above = complete)"
+```
+
+**Currently wired by default (20 hooks — 7 token-saver core + 13 quality-gate-adjacent):**
+
+Token-saver core (the policy's must-keep set):
 
 | Event | Hook | Why it saves tokens |
 |-------|------|---------------------|
@@ -300,15 +325,29 @@ Three checks run: (1) the wired set matches the template's exactly, (2) every wi
 | SessionStart | `orientation` | Replaces the SessionStart `git log` / `status` / `diff` discovery roundtrip |
 | PostToolUse Bash (`git add`) | `commit-draft` | Pre-drafts commit message to a file; Claude refines instead of regenerating |
 | PostToolUse Bash (`git push -u`) | `pr-draft` | Pre-drafts PR title + Summary + Test plan |
+| PostToolUse Edit/Write `CHANGELOG.md` | `changelog` | Pre-drafts keep-a-changelog entries from `git log` |
+| PostToolUse Edit/Write `*.allium` | `allium-openq` | Extracts `open question` / `AMBIGUITY:` markers so Claude doesn't re-scan |
+| PostToolUse Bash (TLC) | `tlc-translate` | Translates TLC counterexample traces to plain English |
+
+Quality-gate-adjacent, kept wired (fire only when their file/command type is touched):
+
+| Event | Hook | Role |
+|-------|------|------|
 | PostToolUse Bash (`gh run view`) | `gh-run-view` | Digests CI run output (often 5000+ lines) into per-job failure summary |
 | PostToolUse Bash (`gh pr view`) | `gh-pr-view` | Digests PR description + decisions + open threads |
 | PostToolUse Bash (`gh issue view`) | `gh-issue-view` | Digests issue body + comment thread |
-| PostToolUse Edit/Write `CHANGELOG.md` | `changelog` | Pre-drafts keep-a-changelog entries from `git log` |
-| PostToolUse Edit/Write `specs/*/spec.md` | `tasks-draft` | Pre-drafts initial `tasks.md` so `/tasks` refines instead of generates |
-| PostToolUse Edit/Write `specs/*/spec.md` | `plan-draft` | Pre-drafts initial `plan.md` so `/plan` refines instead of generates |
+| PostToolUse Bash (long stdout) | `bash-tldr` | 3-line WHAT/KEY/VERDICT summary of large command output |
+| PostToolUse Bash (errors) | `stacktrace` | Extracts ERROR / LOCATION / CAUSE from tracebacks |
 | PostToolUse Edit/Write fresh `README.md` | `readme-skeleton` | Drafts standard sections from repo signals |
 | PostToolUse Edit/Write fresh `.gitignore` | `gitignore-skeleton` | Drafts language-appropriate ignores from detected stacks |
 | PostToolUse Edit/Write `.env*` | `dotenv-example` | Drafts `.env.example` from env-var references grepped out of code |
+| PostToolUse Edit/Write `*.cs` | `n1-query` | Flags N+1 query patterns |
+| PostToolUse Edit/Write `*.cs` | `async-audit` | Flags sync-over-async, missing `await`, `async void` |
+| PostToolUse Edit/Write migrations | `migration-safety` | Flags production-unsafe migration patterns |
+| PostToolUse Edit/Write `*.tsx`/`*.ts` | `react-deps` | Flags missing `useEffect`/`useCallback` deps |
+| PostToolUse Edit/Write `Dockerfile` | `dockerfile-review` | Flags missing HEALTHCHECK, root user, `:latest`, secrets in ENV |
+
+`tasks-draft`, `plan-draft`, and `allium-drift-rank` are deliberately **unwired** (timeout-killers — 100% fail on 9–12 KB prompts under the 32B model). Re-evaluate when a faster default model (`qwen2.5-coder:14b`) is in place. See the `Local-LLM hook policy` project memory for the full rationale.
 
 **Per-developer setup** (each developer who wants the offload to actually fire):
 
@@ -351,11 +390,11 @@ The first pattern hides the draft artifacts that hooks write (`.local-llm-commit
 **Verification** (run in the project root after sync):
 
 ```bash
-# Should be 13 (the wired token-saver set)
+# Should be 20 (the wired set: 7 token-saver core + 13 quality-gate-adjacent)
 grep -c 'local-llm-.*-hook.sh' .claude/settings.json
 
-# Should produce no output (no stale quality gates wired)
-grep -E 'bash-tldr|stacktrace|allium-drift|test-(name|assertion|realism|gap)|async-audit|auth-check|linq-perf|n1-query|react-deps|secret-scan|todo-catalog|dockerfile-review|migration-safety|spec-(criteria|scope)|plan-feasibility|task-traceability|allium-openq|branch-name|pr-splitter|tlc-translate|humanize' .claude/settings.json
+# Should produce no output (the deliberately-unwired timeout-killers + pure quality gates)
+grep -E 'plan-draft|tasks-draft|allium-drift-rank|test-(name|assertion|realism|gap)|auth-check|linq-perf|secret-scan|todo-catalog|spec-(criteria|scope)|plan-feasibility|task-traceability|branch-name|pr-splitter|humanize' .claude/settings.json
 ```
 
 If either check fails: re-run `python3 scripts/sync-local-llm-hooks.py "$TEMPLATE/.claude/settings.json"` from the project root.

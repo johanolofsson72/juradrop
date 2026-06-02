@@ -119,6 +119,7 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `scripts/local-llm-stats.sh` (per-hook ROI reporter)
 - `scripts/sync-local-llm-hooks.py` (deterministic settings.json wiring + scripts/ mirror — invoked in step 3.1a)
 - `scripts/verify-local-llm-hooks.sh` (cross-check used by step 3.1a)
+- `scripts/sync-core-hooks.py` (deterministic settings.json wiring for the core script hooks — pipeline/spec-register/execution/tech-stack; script-presence gated — invoked in step 3.1a-core)
 - `scripts/sync-graphify-wiring.py` (deterministic settings.json wiring + scripts/ mirror for the Graphify integration — invoked in step 3.1b)
 - `scripts/graphify-bootstrap.sh` (cross-platform Graphify self-installer — handles macOS brew, Linux apt/dnf/pacman/zypper, Windows Git Bash via scoop/winget/choco; idempotent; eligibility-gates by source-file count — invoked in step 3.1c)
 - `scripts/graphify-fire-hook.sh` (PostToolUse Bash hook — logs every `graphify query|path|explain|update` invocation to `.claude/graphify-fire.log` with response bytes + graph node/edge counts)
@@ -158,6 +159,18 @@ Finally it verifies that every wired hook has its script on disk and exits non-z
 The script is idempotent and prints what it changed; capture that output for the report in step 6.
 
 Do NOT try to merge local-LLM hook entries by hand and do NOT hand-glob `scripts/local-llm-*-hook.sh`. Both prose approaches proved unreliable (the LLM hedged on "REPLACE" wiring and short-circuited the script-copy glob, leaving 17 ghost references in one project). The script removes the ambiguity from both ends.
+
+**Step 3.1a-core — core hooks (deterministic, run the helper script):**
+
+The pipeline reminders, spec-register guard/orientation, pipeline state guard, spec-md-coverage, continuous-execution/stop-validation backstops, and the tech-stack hooks (tla, allium, sqlite, ui-design, test-coverage) are the core script-backed hooks. They used to be merged by prose ("UNION of hooks"), which is exactly what left projects missing the pipeline/register enforcement and forced a second `/project-update`. They are now deterministic. Once `scripts/sync-core-hooks.py` has been copied from the template (step 1), invoke it from the project root:
+
+```bash
+python3 scripts/sync-core-hooks.py "$TEMPLATE/.claude/settings.json"
+```
+
+It strips every template core hook from the project and reinstalls the template's current set — but only the hooks whose every referenced script already exists in the project. Script-presence is the tech-stack gate: a project that pruned `tla-hook.sh` never gets the tla hook back; one that kept it does. `permissions` and project-specific hooks are never touched. Idempotent (byte-stable on re-run). It exits non-zero with a list if any wired core hook is missing its script — if so, do NOT continue; investigate and rerun. Capture stdout for the report; the `skipped` lines record which tech-stack hooks the project deliberately lacks.
+
+Do NOT hand-merge core hooks. Prose "UNION of hooks" is the exact failure this step replaces.
 
 **Step 3.1b — Graphify wiring (deterministic, run the helper script):**
 
