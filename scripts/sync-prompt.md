@@ -82,6 +82,9 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `.claude/rules/wordpress.md` — WordPress rules
 - `.claude/rules/allium.md` — Allium spec language rules (paths: `**/*.allium`)
 - `.claude/rules/continuous-execution.md` — forbids phase-splitting stalls ("should I continue with phase 2?"); execute multi-phase plans in one uninterrupted run
+- `.claude/rules/validation-followup.md` — after any Allium/TLA+ run, surface every finding individually for an explicit fix/defer/dismiss decision (no "looks good overall" summaries that bury findings)
+- `.claude/rules/feature-pipeline.md` — mandates the speckit + Allium + TLA+ pipeline for non-trivial work; defines the triage tracks and the PreToolUse state-guard hard block
+- `.claude/rules/spec-register.md` — per-project `specs/INDEX.md` register, one-stop-per-spec execution, SessionStart orientation + PreToolUse bootstrap guard
 - `.claude/rules/project-workflow.md` — gates PR suggestions behind a one-time `AskUserQuestion` (solo vs team + PRs yes/no/sometimes); answer is saved to project memory and silently suppresses PR nagging on solo projects
 - `.claude/rules/sqlite.md` — SQLite-on-NFS pragmas (rollback journal, no `mmap`, `synchronous=FULL`, 30 s `busy_timeout`), single-writer enforcement (`replicas: 1` + `stop-first` + 30 s grace), NFS mount options (`noac`, `actimeo=0`), retry strategy (paths: `**/appsettings*.json`, `**/docker-compose*.yml`, `**/Program.cs`, `**/*Db*.cs`, `**/*Sqlite*.cs`)
 - `.claude/rules/spot-resilience.md` — required components for services on Azure spot workers: eviction watcher (IMDS scheduled events), graceful drain, idempotent writes, outbox pattern, healthcheck split (paths: `**/Program.cs`, `**/docker-compose*.yml`, controllers/endpoints/services/workers)
@@ -113,6 +116,8 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `.claude/skills/deploy-checklist/SKILL.md`
 - `.claude/skills/tla/SKILL.md` — TLA+ formal verification (auto-triggered after browser tests)
 - `.claude/skills/allium/SKILL.md` — Allium spec language skill (/allium:elicit, /allium:distill)
+- `.claude/skills/sync-template/SKILL.md` — the sync skill itself, so the downstream project can re-run `/project-update` later
+- `.claude/skills/update-template/SKILL.md` — keeps the template's own best-practices current (carried along for parity with the sync-template skill list)
 
 **Scripts:**
 
@@ -355,35 +360,44 @@ grep -E 'bash-tldr|stacktrace|allium-drift|test-(name|assertion|realism|gap)|asy
 
 If either check fails: re-run `python3 scripts/sync-local-llm-hooks.py "$TEMPLATE/.claude/settings.json"` from the project root.
 
-### Step 5d: Bootstrap Graphify (codebase knowledge graph) — cross-platform
+### Step 5d: Wire and bootstrap Graphify (codebase knowledge graph) — base requirement, deterministic, cross-platform
 
 Graphify (`safishamsi/graphify`, MIT) builds a queryable AST graph of the codebase via tree-sitter — no LLM API key required for extraction. Claude Code queries the graph instead of grepping raw files for structural questions ("where is X defined", "who calls Y", "what connects auth to the database"). The token-savings hook (`scripts/graphify-fire-hook.sh`) logs every `graphify query|path|explain|update` invocation to `.claude/graphify-fire.log` so we can measure ROI per project.
 
-This step is **opt-in by source-file count**, not opt-in by developer decision. The bootstrap script counts eligible source files and skips projects with fewer than 30 — for prototypes the install overhead exceeds the savings.
+**Graphify is a base requirement, not optional.** For any project that passes the 30-source-file eligibility threshold, this step MUST complete successfully. Projects below the threshold (vanilla HTML demos, single-script repos) skip gracefully because the bootstrap eligibility-gates itself — but on every other repo, Graphify wiring being absent is a sync failure, not a deferred choice.
 
-**Files to sync** (these three plus the install logic below):
+The historical prose-merge approach for the PostToolUse telemetry entry dropped silently in roughly one project in ten (the juradrop / ighweld-2026 pattern: scripts copied, PreToolUse nudge in place, but the PostToolUse entry missing and the fire log never accumulating). This step is now deterministic: a helper script owns both ends of the wiring + script set, parallel to the local-LLM sync in Step 5c.
 
-1. **`scripts/graphify-fire-hook.sh`** — PostToolUse Bash hook. Matches `graphify (query|path|explain|update)` invocations and appends a TSV line to `.claude/graphify-fire.log` with timestamp, subcommand, exit, arg bytes, response bytes, graph node count, graph edge count. Disable per-developer with `GRAPHIFY_TELEMETRY_DISABLE=1`.
-2. **`scripts/graphify-stats.sh`** — ROI reporter. Reads the fire log and prints per-subcommand fire counts, ok%, avg argument and response sizes. `--all` aggregates across `~/repos/*` and `~/Projects/*`.
-3. **`scripts/graphify-bootstrap.sh`** — Cross-platform self-installer. Idempotent. Detects platform package manager (`brew` → `apt-get` → `dnf` → `pacman` → `zypper` → `choco`/`scoop` on Windows → fallback to `python3 -m pip --user`), installs pipx if missing, installs graphifyy, runs `graphify install --project`, `graphify update .` (AST-only, no API key), `graphify hook install`, and adds `graphify-out/` to `.gitignore`. Pass `--eligibility-check` to dry-run the source-file count without installing. Pass `--force` to override the 30-file threshold.
+**Files to sync from the template:**
 
-After copying these scripts, `chmod +x scripts/graphify-*.sh`.
+1. **`scripts/sync-graphify-wiring.py`** — deterministic settings.json wiring + scripts/ mirror for the Graphify integration. Invoked in Step 5d.1 below.
+2. **`scripts/graphify-bootstrap.sh`** — cross-platform self-installer. Detects `brew`/`apt-get`/`dnf`/`pacman`/`zypper` (Linux/macOS) or `scoop`/`winget`/`choco` (Windows Git Bash); falls back to `python3 -m pip install --user pipx`. Idempotent. Pass `--eligibility-check` for a dry-run source-file count, `--force` to override the 30-file threshold.
+3. **`scripts/graphify-fire-hook.sh`** — PostToolUse Bash hook. Matches `graphify (query|path|explain|update)` invocations and appends a TSV line to `.claude/graphify-fire.log` with timestamp, subcommand, exit, arg bytes, response bytes, graph node count, graph edge count. Disable per-developer with `GRAPHIFY_TELEMETRY_DISABLE=1`.
+4. **`scripts/graphify-stats.sh`** — ROI reporter. Reads the fire log and prints per-subcommand fire counts, ok%, avg arg/response sizes. `--all` aggregates across `~/repos/*` and `~/Projects/*`.
+5. **`.claude/docs/graphify.md`** — reference doc (install instructions, when to use, tuning vars, telemetry).
 
-**Wire the telemetry hook in `.claude/settings.json`:**
+After copying scripts, `chmod +x scripts/graphify-*.sh scripts/sync-graphify-wiring.py`.
 
-The hook is non-local-LLM, so `sync-local-llm-hooks.py` does NOT touch it — preserve it verbatim. Add (or verify the presence of) this PostToolUse entry in the `Bash` matcher block:
+**Step 5d.1 — Wiring (deterministic, run the helper script):**
 
-```json
-{
-  "type": "command",
-  "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/graphify-fire-hook.sh\"",
-  "statusMessage": "Logging graphify invocation telemetry..."
-}
+```bash
+python3 scripts/sync-graphify-wiring.py "$TEMPLATE/.claude/settings.json"
 ```
 
-The path **must** use `$CLAUDE_PROJECT_DIR` — relative `bash scripts/...` breaks the moment Claude Code is launched from a subdirectory, and that has burned 14 repos before. Run `python3 scripts/fix-hook-paths.py .claude/settings.json` in Step 8 to catch any drift.
+The script does TWO things atomically:
 
-**Run the bootstrap (cross-platform):**
+1. **Wiring** — removes every existing graphify-related hook entry from the project's `hooks` block (both the PreToolUse Bash nudge that suggests `graphify query` over grep/rg/find, and the PostToolUse Bash telemetry entry) and replaces them with the template's exact set.
+2. **Scripts on disk** — copies every `scripts/graphify-*.sh` from the template into the project (`graphify-bootstrap.sh`, `graphify-fire-hook.sh`, `graphify-stats.sh`), preserves the executable bit, and deletes any in the project the template no longer ships.
+
+Both wiring entries are universally safe to inject — the PreToolUse nudge guards on `[ -f graphify-out/graph.json ]` and silently no-ops when the graph is missing, and the PostToolUse hook bails out cleanly when the command isn't a `graphify (query|path|explain|update)` invocation. So wiring is decoupled from whether Step 5d.2 has run yet.
+
+Finally it verifies that every wired graphify hook has its script on disk and exits non-zero if anything is off. If Step 5d.1 exits non-zero, do NOT continue — investigate and rerun.
+
+Do NOT try to merge graphify hook entries by hand. The script removes the ambiguity from both ends.
+
+**Step 5d.2 — Bootstrap (cross-platform, actually builds the graph):**
+
+After wiring is in place, run the bootstrap:
 
 ```bash
 bash scripts/graphify-bootstrap.sh
@@ -634,6 +648,11 @@ After syncing:
 - Normalize hook script paths so they survive a cwd change (`python3 scripts/fix-hook-paths.py .claude/settings.json`). Hook commands must reference scripts as `bash "$CLAUDE_PROJECT_DIR/scripts/foo.sh"`, never `bash scripts/foo.sh` — the relative form silently breaks when `claude` is started from a subdirectory. The patcher is idempotent and exits non-zero on JSON parse failure.
 - Verify that `settings.json` is valid JSON (`python3 -m json.tool .claude/settings.json`)
 - Verify that the reference files section in CLAUDE.md points to files that actually exist
+- **Verify Graphify wiring for eligible projects.** Run the exit-condition snippet from Step 5d.2:
+  ```bash
+  command -v graphify > /dev/null && test -f graphify-out/graph.json && test -x scripts/graphify-fire-hook.sh && grep -q 'graphify-fire-hook.sh' .claude/settings.json && echo "[OK] graphify wired" || echo "[FAIL/SKIP] graphify not wired"
+  ```
+  If the project passed the 30-source-file eligibility threshold in Step 5d.2 and this prints `[FAIL/SKIP]`, the sync is incomplete — inspect which check failed (graphify CLI not on PATH → re-run bootstrap, missing graph.json → re-run `graphify update .`, missing script → re-run `sync-graphify-wiring.py`, missing settings.json entry → re-run `sync-graphify-wiring.py`) and rerun the relevant step. For sub-threshold projects (vanilla HTML demos), `[FAIL/SKIP]` is expected and not an error.
 
 ### Step 8b: Record sync version (MANDATORY)
 
