@@ -8,6 +8,9 @@ graphify-out/
 .claude/graphify-*.log
 .claude/graphify-*.log.errors
 
+# Validation runtime state marker (written by the validation-followup hook)
+.claude/validation/
+
 # Speckit
 .specify/specs/*/draft-*
 
