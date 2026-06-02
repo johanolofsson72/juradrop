@@ -10,6 +10,17 @@ use super::log_safe::Redacted;
 
 const BASE_URL: &str = "http://127.0.0.1:11434";
 
+/// Maximum tolerated SILENCE (no bytes received) on the `/api/pull` stream
+/// before the pull is abandoned as a network failure (spec 034 — spec 027
+/// `/tla` GAP-1). This is a per-read / inter-chunk bound that RESETS on every
+/// received chunk — NOT a cap on total download duration. 90 s sits far above
+/// any realistic inter-chunk gap (progress lines arrive sub-second while bytes
+/// flow; even a `verifying sha256 digest` pause is seconds) and far below "the
+/// user gave up". Same order of magnitude as the bundled path's 300 s TOTAL cap
+/// (`MODEL_PULL_TIMEOUT_SECONDS`, sidecar/commands.rs), but it governs SILENCE,
+/// so it cannot fire on a slow-but-progressing large-model pull.
+const PULL_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     #[error("http error: {0}")]
@@ -134,14 +145,38 @@ impl OllamaClient {
     /// Stream `POST /api/pull` and invoke `on_event` for each meaningful
     /// status line (progress percent, completion, or failure).
     ///
-    /// Uses a fresh `reqwest::Client` without the 30 s default timeout, since
-    /// registry pulls can take minutes. A 5 s connect timeout still applies so
-    /// a missing sidecar fails fast. The per-chunk read inherits Tokio's
-    /// blocking semantics — a stalled connection will surface via the
-    /// `bytes_stream()` adapter rather than a hard timer.
+    /// Thin delegate to [`OllamaClient::pull_with_idle_timeout`] with the
+    /// production [`PULL_STREAM_IDLE_TIMEOUT`]. Both callers — the spec-008
+    /// bundled first-run pull and the spec-027 on-demand tier pull — use this
+    /// entry point and therefore both inherit the idle guard.
     pub async fn pull(
         &self,
         model: &str,
+        on_event: impl FnMut(PullEvent) + Send,
+    ) -> Result<(), ClientError> {
+        self.pull_with_idle_timeout(model, PULL_STREAM_IDLE_TIMEOUT, on_event)
+            .await
+    }
+
+    /// `pull` with an injectable idle (read) timeout — the inter-chunk SILENCE
+    /// bound.
+    ///
+    /// Spec 034 (spec 027 `/tla` GAP-1): the registry stream had no read/idle
+    /// timeout, so a silently half-open connection blocked `stream.next()`
+    /// forever and left a tier download stuck in `downloading` (only Avbryt
+    /// escaped). Each `stream.next().await` is now wrapped in
+    /// `tokio::time::timeout(idle, …)`; the idle clock RESETS on every received
+    /// chunk, so this bounds SILENCE — not total download duration — and a
+    /// slow-but-progressing multi-GB pull is never strangled. On elapse we
+    /// return [`ClientError::Timeout`], which the tier caller's
+    /// `categorise_failure` maps to `DownloadFailure::Network`, handing off to
+    /// the existing error → retry path. A 5 s connect timeout still covers the
+    /// connect phase. `idle` is a parameter only so tests can inject a short
+    /// window; production always passes the 90 s `PULL_STREAM_IDLE_TIMEOUT`.
+    pub(crate) async fn pull_with_idle_timeout(
+        &self,
+        model: &str,
+        idle: Duration,
         mut on_event: impl FnMut(PullEvent) + Send,
     ) -> Result<(), ClientError> {
         let url = format!("{}/api/pull", self.base_url);
@@ -159,7 +194,15 @@ impl OllamaClient {
         }
         let mut stream = resp.bytes_stream();
         let mut buf: Vec<u8> = Vec::with_capacity(8 * 1024);
-        while let Some(chunk) = stream.next().await {
+        loop {
+            // Idle guard (FR-001/FR-002): each chunk read waits at most `idle`.
+            // A silent half-open connection trips this instead of hanging
+            // forever; a healthy stream resets the window on every chunk.
+            let next = match tokio::time::timeout(idle, stream.next()).await {
+                Ok(item) => item,
+                Err(_elapsed) => return Err(ClientError::Timeout),
+            };
+            let Some(chunk) = next else { break };
             let bytes = chunk.map_err(ClientError::from)?;
             buf.extend_from_slice(&bytes);
             while let Some(nl) = buf.iter().position(|b| *b == b'\n') {
@@ -422,5 +465,126 @@ mod tests {
         let _ = _list_tags_signature;
         let _ = _generate_signature;
         let _ = _pull_is_callable;
+    }
+
+    // ===== Spec 034 — idle/read timeout on the pull stream (spec 027 /tla GAP-1).
+    // A silently half-open registry connection used to hang `pull` forever; the
+    // inter-chunk idle guard now settles a stalled pull into Err(Timeout) ->
+    // DownloadFailure::Network with no user action, while timely chunks reset the
+    // idle clock (the bound is SILENCE, not total duration).
+
+    /// One-shot HTTP server: accept a connection, reply with a chunked 200,
+    /// flush each NDJSON line in `chunks` spaced `gap` apart, then GO SILENT —
+    /// hold the socket open forever without sending the terminating 0-chunk.
+    /// Runs on a plain `std::thread` (no tokio `net` feature needed) so it stalls
+    /// independently of the async runtime under test. Returns the base URL.
+    fn spawn_stall_server(chunks: Vec<String>, gap: std::time::Duration) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            // Drain the request head (small POST; one read is enough to proceed).
+            let mut req = [0u8; 2048];
+            let _ = sock.read(&mut req);
+            sock.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nTransfer-Encoding: chunked\r\n\r\n",
+            )
+            .unwrap();
+            sock.flush().unwrap();
+            for line in chunks {
+                let payload = format!("{line}\n");
+                // One HTTP/1.1 chunk frame: <hex len>CRLF<payload>CRLF.
+                let frame = format!("{:x}\r\n{}\r\n", payload.len(), payload);
+                if sock.write_all(frame.as_bytes()).is_err() {
+                    return;
+                }
+                let _ = sock.flush();
+                std::thread::sleep(gap);
+            }
+            // Stall: never send `0\r\n\r\n`, never close. Hold the socket open.
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(3600));
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    // T010 / contract C-1 / SC-001 — a stream that goes silent settles to
+    // Err(Timeout) on its own, within a small bound of the idle window.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn idle_stall_returns_timeout() {
+        let url = spawn_stall_server(
+            vec![r#"{"status":"downloading","total":1000,"completed":100}"#.to_string()],
+            std::time::Duration::from_millis(10),
+        );
+        let client = OllamaClient::with_base_url(url);
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen_cb = seen.clone();
+        let start = std::time::Instant::now();
+        let res = client
+            .pull_with_idle_timeout("stor", std::time::Duration::from_millis(200), move |_e| {
+                seen_cb.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            })
+            .await;
+        let elapsed = start.elapsed();
+        assert!(
+            matches!(res, Err(ClientError::Timeout)),
+            "expected Err(Timeout), got {res:?}"
+        );
+        // Self-settled well within a small multiple of the 200 ms idle window.
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "took {elapsed:?}"
+        );
+        // The live pre-stall progress line was delivered before the silence.
+        assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    // T011 / contract C-2 / SC-002 — timely chunks RESET the idle clock: three
+    // chunks at gap=60 ms with idle=150 ms run a cumulative ~180 ms (> idle),
+    // proving the bound is per-chunk silence, NOT total duration. All three are
+    // delivered; the error only arrives after the final silence.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn timely_chunks_reset_idle_clock() {
+        let url = spawn_stall_server(
+            vec![
+                r#"{"status":"downloading","total":900,"completed":100}"#.to_string(),
+                r#"{"status":"downloading","total":900,"completed":400}"#.to_string(),
+                r#"{"status":"downloading","total":900,"completed":700}"#.to_string(),
+            ],
+            std::time::Duration::from_millis(60),
+        );
+        let client = OllamaClient::with_base_url(url);
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen_cb = seen.clone();
+        let res = client
+            .pull_with_idle_timeout("stor", std::time::Duration::from_millis(150), move |_e| {
+                seen_cb.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            })
+            .await;
+        // Did NOT time out mid-stream — all three progress chunks arrived first.
+        assert_eq!(
+            seen.load(std::sync::atomic::Ordering::SeqCst),
+            3,
+            "idle clock failed to reset on a timely chunk"
+        );
+        // Then the post-chunk silence (> idle) settles it.
+        assert!(
+            matches!(res, Err(ClientError::Timeout)),
+            "expected Err(Timeout) after final silence, got {res:?}"
+        );
+    }
+
+    // T012 / contract C-3 / SC-003 — an idle Timeout maps to the EXISTING
+    // network failure bucket, so the row shows the existing Swedish message +
+    // Försök igen (no new state, no new copy).
+    #[test]
+    fn idle_timeout_categorises_as_network() {
+        use crate::settings::tier_download::{categorise_failure, DownloadFailure};
+        assert_eq!(
+            categorise_failure(&ClientError::Timeout),
+            DownloadFailure::Network
+        );
     }
 }

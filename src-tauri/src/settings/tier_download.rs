@@ -224,6 +224,17 @@ pub fn try_start(
     if already_pulled {
         return StartOutcome::RefusedAlreadyPulled;
     }
+    // FR-010 — benign `already_pulled` TOCTOU (spec 034). `already_pulled` is
+    // computed by the caller from an async `/api/tags` check OUTSIDE this lock,
+    // so it is a snapshot that could in principle go stale. That is harmless:
+    // the slot is BOTH claimed and re-checked under the same write/read lock
+    // below, so the at-most-one-download invariant (`AtMostOneDownloading`,
+    // FR-009) is enforced HERE, not by the `already_pulled` snapshot. Two
+    // near-simultaneous `try_start`s cannot both reach `Some(Downloading)`: the
+    // first takes the write lock and sets the slot; the second sees it under the
+    // read lock and returns `RefusedBusy`. spec 027 `/tla` confirmed this holds
+    // — the re-check only LOOKS like a race. Do not "fix" it by moving the
+    // `/api/tags` check under the lock (it is async; the lock is sync).
     {
         let guard = handle.slot.read();
         if let Some(active) = guard.as_ref() {

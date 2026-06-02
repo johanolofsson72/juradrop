@@ -69,6 +69,20 @@ entity TierDownload {
     invariant ErrorHasReason {
         status = error implies failure != null
     }
+
+    -- AMENDED by spec 034 (tier-download-pull-timeout) — the previously-missing
+    -- liveness assumption that closes /tla GAP-1. `downloading` is NOT a terminal
+    -- sink: the shared pull stream carries a bounded per-read idle timeout
+    -- (pull_idle_timeout_seconds = 90, see spec 034), so a silently-stalled pull
+    -- transitions `downloading -> error` (failure = network) with NO user action.
+    -- Together with completion (-> pulled) and cancel (-> not_pulled), every
+    -- `downloading` state eventually leaves. Before spec 034 this assumption was
+    -- unstated and the code had no idle timer, so a half-open connection could
+    -- hang in `downloading` forever (the GAP).
+    invariant DownloadingHasIdleBound {
+        for d in TierDownload where d.status = downloading:
+            eventually (d.status in {pulled, error, not_pulled})
+    }
     invariant OnlyPulledIsSelectable {
         selectable = (status = pulled)
     }

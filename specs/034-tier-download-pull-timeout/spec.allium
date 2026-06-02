@@ -1,0 +1,221 @@
+-- allium: 3
+--
+-- Spec 034 — tier-download pull idle timeout (stalled-pull self-recovery).
+--
+-- spec 027's /tla GAP-1: the model-pull stream had NO read/idle timeout, so a
+-- silently half-open / stalled connection left a download stuck in `downloading`
+-- forever — the only escape was the user clicking Avbryt. This spec adds a
+-- bounded per-read (idle) timeout to the shared pull stream so silence settles
+-- the download into the EXISTING `error` (network) state with NO user action,
+-- where the EXISTING `error -> Försök igen -> RetryDownload` path takes over.
+--
+-- It introduces NO new entity, NO new failure category, NO new UI state, NO new
+-- Swedish copy, and NO new outbound endpoint. It is a liveness hardening of the
+-- spec-027 / spec-026 state machine. It AMENDS spec 027's spec.allium (the
+-- `downloading` state's missing liveness assumption is recorded there too).
+
+-- Reuse, unchanged, from spec 027.
+enum ModelTier { snabb | smart | stor }
+enum DownloadFailure { network | disk_full | not_ready | not_found }
+
+config {
+    ai_host: String = `127.0.0.1`          -- localhost only (Principle I + III)
+    ai_port: Integer = 11434
+    pull_path: String = `/api/pull`
+
+    -- NEW (FR-001/FR-002/FR-007, Clarifications Q1). Maximum tolerated SILENCE
+    -- (no bytes received) on the pull stream before the pull is abandoned as a
+    -- network failure. This is a PER-READ / inter-chunk bound that RESETS on
+    -- every received chunk — it is NOT a cap on total download duration. 90 s is
+    -- far above any realistic inter-chunk gap (progress lines arrive sub-second
+    -- while bytes flow; even a sha256-verify pause is seconds) and far below
+    -- "the user has given up". A test may inject a shorter value; production
+    -- uses this constant (FR-007).
+    pull_idle_timeout_seconds: Integer = 90
+
+    -- spec 008's SEPARATE total-duration cap on the bundled first-run pull.
+    -- UNCHANGED here; recorded so the two timers are not confused. The idle
+    -- guard is added ALONGSIDE it on the shared pull method (FR-008): the
+    -- bundled path keeps this total cap AND gains the idle guard (strictly safer).
+    bundled_pull_total_timeout_seconds: Integer = 300
+}
+
+-- The shared HTTP pull invocation that BOTH callers go through:
+-- spec 027's on-demand tier pull and spec 008's bundled first-run pull. The
+-- idle guard lives HERE (Clarifications Q2), so a stalled stream resolves the
+-- same way regardless of which caller started it.
+value PullStream {
+    model_id: String                       -- snabb_model | smart_model | stor_model
+    -- Conceptual: time since the last received chunk. Each received chunk
+    -- resets it to 0 (the per-read reset, FR-002). It is NOT total elapsed time.
+    idle_elapsed: Duration
+
+    -- The stream's own lifecycle. `silent_too_long` is the new way a pull can
+    -- fail; it always maps to the `network` failure category (FR-003).
+    outcome: streaming | completed | failed | silent_too_long
+
+    transitions outcome {
+        streaming -> completed             -- success line seen
+        streaming -> failed                -- explicit error envelope / transport error
+        streaming -> silent_too_long       -- idle_elapsed exceeded the bound (NEW)
+        terminal: completed, failed, silent_too_long
+    }
+
+    -- The idle bound is the LIVENESS guarantee of the stream: a `streaming`
+    -- PullStream cannot stay `streaming` forever — within the bound it either
+    -- received a chunk (resetting idle) or it transitions to silent_too_long.
+    invariant IdleBoundIsSilenceNotTotal {
+        idle_elapsed <= pull_idle_timeout_seconds or outcome = silent_too_long
+    }
+}
+
+-- Reuse, from spec 027 — only the parts this spec touches. A download lifecycle
+-- of ONE tier; its `status` is driven by the PullStream outcome below.
+external entity TierDownload {
+    tier: ModelTier
+    model_id: String
+    status: not_pulled | downloading | pulled | error
+    failure: DownloadFailure when status = error
+    -- The cancel token observed by the cancel-vs-outcome arbitration (FR-009).
+    cancel_requested: Boolean
+
+    -- spec 027's transitions, UNCHANGED — no new state is added. This spec only
+    -- adds a NEW WAY to take the existing `downloading -> error` edge.
+    transitions status {
+        not_pulled -> downloading          -- StartDownload (Ladda ned)
+        downloading -> pulled              -- DownloadCompleted
+        downloading -> error               -- DownloadFailed  (incl. idle timeout, NEW cause)
+        downloading -> not_pulled          -- CancelDownload (Avbryt)
+        error -> downloading               -- RetryDownload (Försök igen)
+        terminal: pulled
+    }
+}
+
+-- ===== The new behaviour: idle timeout -> network failure =====
+
+-- FR-001/FR-002 — the stream resets its idle clock on every received chunk and
+-- gives up only on SILENCE longer than the bound. Healthy slow downloads keep
+-- arriving and never trip it (SC-002).
+rule ChunkReceived {
+    when: PullChunk(s)
+    requires: s.outcome = streaming
+    ensures: s.idle_elapsed = 0            -- per-read reset; total duration unbounded
+}
+
+-- FR-001/FR-004 — when the stream has been silent past the bound, it fails as a
+-- network-category error. No user action is involved in reaching this (liveness).
+rule IdleTimeoutFires {
+    when: s: PullStream.idle_elapsed becomes pull_idle_timeout_seconds
+    requires: s.outcome = streaming
+    ensures:
+        s.outcome = silent_too_long
+        PullStreamError(stream: s, reason: network)   -- maps into the EXISTING bucket
+}
+
+-- FR-003/FR-004 — the idle-timeout error flows through spec 027's UNCHANGED
+-- DownloadFailed edge: downloading -> error with failure = network. There is NO
+-- distinct idle-timeout state and NO distinct copy; the row shows the existing
+-- network message + the existing Försök igen button. NO user action triggered it.
+rule DownloadFailedByIdleTimeout {
+    when: PullStreamError(s, network)
+    -- Bind the in-flight download for this stream's model that has NOT been
+    -- cancelled (cancel winning the race gates this edge, FR-009).
+    for d in TierDownload where d.model_id = s.model_id and d.status = downloading and d.cancel_requested = false:
+        ensures:
+            d.status = error
+            d.failure = network
+            -- Reuses spec 027 DownloadFailed's user-visible outcome verbatim.
+            UserVisibleMessage(kind: pull_failed, reason: network)
+}
+
+-- FR-005 — the resulting error is indistinguishable, to the retry path, from any
+-- other network failure: spec 027's RetryDownload applies unchanged. (Recorded
+-- here as the reused edge; the rule body lives in spec 027.)
+rule RetryAfterIdleTimeout {
+    when: ForsokIgenClicked(d)
+    requires: d.status = error and d.failure = network
+    ensures: d.status = downloading         -- same edge as every other retry
+}
+
+-- ===== Cancel vs timeout: exactly one terminal outcome (FR-009) =====
+
+-- The pull future resolves exactly once. If Avbryt is observed, cancel wins and
+-- the download goes to not_pulled; the idle-timeout error is then suppressed.
+-- This is the spec-027 select(cancel, pull) arbitration — the idle timeout is
+-- just another way `pull` can resolve, so it cannot double-fire with cancel.
+rule CancelWinsRace {
+    when: AvbrytClicked(d)
+    requires: d.status = downloading
+    ensures:
+        d.status = not_pulled
+        d.cancel_requested = true           -- blocks DownloadFailedByIdleTimeout
+        PullCancelled(model: d.model_id)
+}
+
+invariant SingleTerminalOutcome {
+    -- A download in flight ends in exactly ONE of: pulled, error, not_pulled.
+    -- Cancel and idle-timeout cannot both land — cancel_requested gates the
+    -- timeout edge, and the stream outcome is terminal once set.
+    for d in TierDownload where d.status = downloading:
+        not (d.cancel_requested = true and d.status = error)
+}
+
+-- ===== Liveness: `downloading` is not a sink (the GAP-1 fix) =====
+
+-- THE headline invariant of this spec. With the idle bound on the stream, a
+-- download cannot remain `downloading` indefinitely: the stream either keeps
+-- receiving chunks (eventually completed/failed) or goes silent past the bound
+-- (silent_too_long -> error). Combined with completion, explicit failure, and
+-- cancel, every `downloading` state eventually leaves to a terminal/quiescent
+-- one. `downloading` is NOT a terminal sink.
+invariant DownloadingEventuallyLeaves {
+    for d in TierDownload where d.status = downloading:
+        eventually (d.status in {pulled, error, not_pulled})
+}
+
+-- The bound that makes the above hold: no in-flight stream is allowed to be
+-- silent beyond pull_idle_timeout_seconds without transitioning out of streaming.
+invariant NoUnboundedSilence {
+    for s in PullStream where s.outcome = streaming:
+        s.idle_elapsed <= pull_idle_timeout_seconds
+}
+
+-- ===== Preserved spec-027 invariants this spec must not break =====
+
+-- FR-009 (spec 027) — at most one tier downloads at a time. UNCHANGED; the idle
+-- timeout only ever REMOVES a download from `downloading`, never adds one, so it
+-- cannot violate this.
+invariant AtMostOneDownloading {
+    TierDownload.all(d => d.status = downloading).count <= 1
+}
+
+-- FR-010 — the already_pulled / start-download lock re-check is benign (NOT a
+-- race). The at-most-one slot is claimed UNDER the lock and re-checked under the
+-- same lock, so two near-simultaneous StartDownloads cannot both enter
+-- `downloading`. /tla (spec 027) confirmed this holds AtMostOneDownloading; this
+-- spec only documents it so a future reader does not mistake the TOCTOU-looking
+-- re-check for a defect. No behavioural change.
+invariant StartIsLockSerialized {
+    TierDownload.all(d => d.status = downloading).count <= 1
+}
+
+-- Principle I + III — the idle guard strengthens an EXISTING localhost-only call;
+-- it introduces no new destination. The pull still targets localhost Ollama only.
+invariant LocalhostOnly {
+    ai_host = `127.0.0.1`
+}
+
+-- FR-006 — the idle timeout adds no outbound endpoint; the only network target
+-- remains the localhost pull endpoint.
+invariant NoNewOutbound {
+    for s in PullStream where s.outcome = streaming:
+        s.model_id != null                  -- every stream is a localhost model pull, nothing else
+}
+
+-- NOTE: no surface/actor block — single local desktop actor (Principle IV); the
+-- settings panel is the only surface, fully captured by spec 027. This spec is a
+-- backend liveness hardening with no new user-facing affordance.
+--
+-- AMENDS spec 027 (specs/027-on-demand-tier-download/spec.allium): adds the
+-- previously-missing liveness assumption on the `downloading` state — see the
+-- new `DownloadingHasIdleBound` note appended there.
