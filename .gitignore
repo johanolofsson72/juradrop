@@ -46,3 +46,8 @@ test-results/
 
 # Ollama sidecar binary (spec 002 — fetched via scripts/fetch-ollama.sh)
 src-tauri/binaries/ollama-*
+*.db
+temp/
+appsettings.Development.json
+.claude/projects/
+.claude/settings.local.json
