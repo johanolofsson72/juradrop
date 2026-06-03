@@ -11,7 +11,9 @@ async fn punktlista_pipeline_writes_sidecar() {
          • Underhållsplanen behöver revideras.\n\
          • Två leverantörsavtal bör omförhandlas.\n\
          • Klagomål om ventilation i trapphus B.",
-        &["•", "Underhållsplanen"],
+        // Spec 036 follow-up — bullets are now real Word numbering, so the "•"
+        // glyph is a paragraph property, not run text; assert the content.
+        &["Kassaflödet", "Underhållsplanen"],
     )
     .await;
 }
