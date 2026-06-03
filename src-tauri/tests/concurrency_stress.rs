@@ -97,25 +97,27 @@ async fn run_one(zone: ZoneId, fixture_name: &'static str) -> RunResult {
     let suffix = zone.sidecar_suffix();
     let needle = format!(".{suffix}.");
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    let mut sidecar = None;
+    // Poll until a sidecar both EXISTS and fully PARSES. Accepting it only once
+    // it parses tolerates a transient read-during-write race under heavy parallel
+    // load — the file can be found while a non-atomic flush is still in flight,
+    // which is the spec-017 flake that otherwise panicked at "sidecar parses".
+    let mut text = None;
     while std::time::Instant::now() < deadline {
         if let Some(found) = std::fs::read_dir(dir.path())
             .unwrap()
             .flatten()
             .find(|e| e.file_name().to_string_lossy().contains(&needle))
         {
-            sidecar = Some(found.path());
-            break;
+            if let Ok(bytes) = std::fs::read(found.path()) {
+                if let Ok(extracted) = extract_text_from_bytes(&bytes) {
+                    text = Some(extracted.raw.as_inner().to_string());
+                    break;
+                }
+            }
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let sidecar = sidecar.unwrap_or_else(|| panic!("{zone:?}: no sidecar appeared"));
-    let bytes = std::fs::read(&sidecar).expect("read sidecar");
-    let text = extract_text_from_bytes(&bytes)
-        .expect("sidecar parses")
-        .raw
-        .as_inner()
-        .to_string();
+    let text = text.unwrap_or_else(|| panic!("{zone:?}: no parseable sidecar appeared in 20s"));
 
     // Compare source SHA while the file still exists (before `dir` drops).
     let source_unchanged = sha_before == sha256_of(&source);

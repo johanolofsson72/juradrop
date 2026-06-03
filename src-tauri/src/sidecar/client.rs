@@ -541,32 +541,37 @@ mod tests {
         assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
-    // T011 / contract C-2 / SC-002 — timely chunks RESET the idle clock: three
-    // chunks at gap=60 ms with idle=150 ms run a cumulative ~180 ms (> idle),
-    // proving the bound is per-chunk silence, NOT total duration. All three are
-    // delivered; the error only arrives after the final silence.
+    // T011 / contract C-2 / SC-002 — timely chunks RESET the idle clock: nine
+    // chunks at gap=100 ms with idle=700 ms. The LAST chunk lands at ~800 ms,
+    // i.e. AFTER idle has elapsed in total — so a (hypothetical) total-duration
+    // cap of 700 ms would have fired before the 9th chunk and seen ≤ 8. Per-chunk
+    // reset means all nine arrive; the error only comes after the final silence.
+    // Margins are wide (idle is 7× the gap) so a slow/contended CI runner can't
+    // flake it — a single 100 ms server-sleep would have to inflate past 700 ms.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn timely_chunks_reset_idle_clock() {
-        let url = spawn_stall_server(
-            vec![
-                r#"{"status":"downloading","total":900,"completed":100}"#.to_string(),
-                r#"{"status":"downloading","total":900,"completed":400}"#.to_string(),
-                r#"{"status":"downloading","total":900,"completed":700}"#.to_string(),
-            ],
-            std::time::Duration::from_millis(60),
-        );
+        let chunks: Vec<String> = (1..=9)
+            .map(|i| {
+                format!(
+                    r#"{{"status":"downloading","total":1000,"completed":{}}}"#,
+                    i * 100
+                )
+            })
+            .collect();
+        let url = spawn_stall_server(chunks, std::time::Duration::from_millis(100));
         let client = OllamaClient::with_base_url(url);
         let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let seen_cb = seen.clone();
         let res = client
-            .pull_with_idle_timeout("stor", std::time::Duration::from_millis(150), move |_e| {
+            .pull_with_idle_timeout("stor", std::time::Duration::from_millis(700), move |_e| {
                 seen_cb.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             })
             .await;
-        // Did NOT time out mid-stream — all three progress chunks arrived first.
+        // Did NOT time out mid-stream — every timely chunk reset the idle clock,
+        // even though the stream ran longer (~800 ms) than the idle window.
         assert_eq!(
             seen.load(std::sync::atomic::Ordering::SeqCst),
-            3,
+            9,
             "idle clock failed to reset on a timely chunk"
         );
         // Then the post-chunk silence (> idle) settles it.
