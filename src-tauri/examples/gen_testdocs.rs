@@ -26,18 +26,51 @@ fn main() {
     }
 
     // ---- 01 per-zon (the happy paths) ----
-    docx(&per_zon.join("01-sammanfatta-langt-domslut.docx"), &sammanfatta_doc());
-    docx(&per_zon.join("02-till-engelska-avtal.docx"), &till_engelska_doc());
-    docx(&per_zon.join("03-till-svenska-english-contract.docx"), &till_svenska_doc());
-    docx(&per_zon.join("04-punktlista-styrelseprotokoll.docx"), &punktlista_doc());
-    docx(&per_zon.join("05-anonymisera-stamningsansokan.docx"), &anonymisera_doc());
-    docx(&per_zon.join("06-forenkla-myndighetstext.docx"), &forenkla_doc());
-    docx(&per_zon.join("07-kontakter-arendelista.docx"), &kontakter_doc());
+    docx(
+        &per_zon.join("01-sammanfatta-langt-domslut.docx"),
+        &sammanfatta_doc(),
+    );
+    docx(
+        &per_zon.join("02-till-engelska-avtal.docx"),
+        &till_engelska_doc(),
+    );
+    docx(
+        &per_zon.join("03-till-svenska-english-contract.docx"),
+        &till_svenska_doc(),
+    );
+    docx(
+        &per_zon.join("04-punktlista-styrelseprotokoll.docx"),
+        &punktlista_doc(),
+    );
+    docx(
+        &per_zon.join("05-anonymisera-stamningsansokan.docx"),
+        &anonymisera_doc(),
+    );
+    docx(
+        &per_zon.join("06-forenkla-myndighetstext.docx"),
+        &forenkla_doc(),
+    );
+    docx(
+        &per_zon.join("07-kontakter-arendelista.docx"),
+        &kontakter_doc(),
+    );
     fs::write(per_zon.join("08-generera-instruktion.txt"), generera_txt()).unwrap();
-    docx(&per_zon.join("09-kallforteckning-rattsutredning.docx"), &kallor_doc());
-    docx(&per_zon.join("10-identifiera-rattsfragor-pm.docx"), &identifiera_doc());
-    docx(&per_zon.join("11-strukturera-irac-studentsvar.docx"), &strukturera_doc());
-    docx(&per_zon.join("12-forklara-begrepp-doktrin.docx"), &forklara_doc());
+    docx(
+        &per_zon.join("09-kallforteckning-rattsutredning.docx"),
+        &kallor_doc(),
+    );
+    docx(
+        &per_zon.join("10-identifiera-rattsfragor-pm.docx"),
+        &identifiera_doc(),
+    );
+    docx(
+        &per_zon.join("11-strukturera-irac-studentsvar.docx"),
+        &strukturera_doc(),
+    );
+    docx(
+        &per_zon.join("12-forklara-begrepp-doktrin.docx"),
+        &forklara_doc(),
+    );
 
     // ---- 02 format coverage (same text, every format) ----
     // .docx + .txt + .md written here; .pdf/.rtf/.odt copied from the repo's
@@ -67,7 +100,11 @@ fn main() {
     )
     .unwrap();
     // Skadad .docx — ogiltiga bytes med .docx-ändelse → parse-fel.
-    fs::write(edge.join("skadad.docx"), b"Det har ar INTE en giltig docx-fil.").unwrap();
+    fs::write(
+        edge.join("skadad.docx"),
+        b"Det har ar INTE en giltig docx-fil.",
+    )
+    .unwrap();
     // > 50 MB → "filen är för stor"-felet (skrivs som 51 MB 'a').
     {
         let mut f = fs::File::create(edge.join("for-stor.txt")).unwrap();
@@ -97,7 +134,9 @@ fn docx(path: &Path, paragraphs: &[&str]) {
         doc = doc.add_paragraph(Paragraph::new().add_run(Run::new().add_text(*p)));
     }
     let mut bytes: Vec<u8> = Vec::new();
-    doc.build().pack(Cursor::new(&mut bytes)).expect("pack docx");
+    doc.build()
+        .pack(Cursor::new(&mut bytes))
+        .expect("pack docx");
     fs::write(path, &bytes).unwrap_or_else(|e| panic!("write {path:?}: {e}"));
 }
 
