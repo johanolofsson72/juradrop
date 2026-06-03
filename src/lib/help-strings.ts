@@ -1,4 +1,4 @@
-// Spec 013 FR-021 / FR-016a — TS mirror of the 9 zones' Swedish help strings.
+// Spec 013 FR-021 / FR-016a — TS mirror of the 12 zones' Swedish help strings.
 //
 // Single source of truth: src-tauri/tests/fixtures/zone-help-strings.json.
 // The Rust mirror is src-tauri/src/help/zone_help.rs. The drift test
@@ -51,6 +51,19 @@ export const ZONE_HELP_STRINGS = {
   kallor: {
     short: 'Samlar källorna i en förteckning.',
     long: 'Plockar ut hänvisningar till lagar, rättsfall och litteratur ur texten och ställer upp dem som en samlad källförteckning. Dubbelkolla att inget föll bort och att formen stämmer med din kurs.',
+  },
+  // Spec 036 — study-method zones.
+  identifiera: {
+    short: 'Listar de juridiska frågorna som texten väcker.',
+    long: 'Släpp ett rättsfall, ett PM eller en tentafråga så får du en lista över rättsfrågorna att lösa — utan svar och utan påhittade lagrum. Bra för att komma igång med en uppgift.',
+  },
+  strukturera: {
+    short: 'Strukturerar om ett svar enligt IRAC-modellen.',
+    long: 'Släpp ditt eget svar så delas det in i Rättsfråga, Gällande rätt, Subsumtion och Slutsats. Ordnar om din egen text — lägger inte till nytt juridiskt innehåll eller påhittade lagrum.',
+  },
+  forklara: {
+    short: 'Förklarar de juridiska begreppen i klartext.',
+    long: 'Släpp en text full av juridiska facktermer så får du varje begrepp förklarat på vanlig svenska. Bra för att läsa ett domslut eller en doktrintext utan att fastna på orden.',
   },
 } as const satisfies Record<ZoneId, ZoneHelp>;
 

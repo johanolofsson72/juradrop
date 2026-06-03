@@ -10,9 +10,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::prompts::{
-    ANONYMISERA_SYSTEM_PROMPT, FORENKLA_SYSTEM_PROMPT, GENERERA_SYSTEM_PROMPT,
-    KALLOR_SYSTEM_PROMPT, KONTAKTER_SYSTEM_PROMPT, PUNKTLISTA_SYSTEM_PROMPT,
-    SAMMANFATTA_SYSTEM_PROMPT, TILLENGELSKA_SYSTEM_PROMPT, TILLSVENSKA_SYSTEM_PROMPT,
+    ANONYMISERA_SYSTEM_PROMPT, FORENKLA_SYSTEM_PROMPT, FORKLARA_SYSTEM_PROMPT,
+    GENERERA_SYSTEM_PROMPT, IDENTIFIERA_SYSTEM_PROMPT, KALLOR_SYSTEM_PROMPT,
+    KONTAKTER_SYSTEM_PROMPT, PUNKTLISTA_SYSTEM_PROMPT, SAMMANFATTA_SYSTEM_PROMPT,
+    STRUKTURERA_SYSTEM_PROMPT, TILLENGELSKA_SYSTEM_PROMPT, TILLSVENSKA_SYSTEM_PROMPT,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -40,10 +41,19 @@ pub enum ZoneId {
     Generera,
     #[serde(rename = "kallor")]
     Kallor,
+    // Spec 036 — three study-method zones expanding from 3×3 to 3×4 grid.
+    // ASCII-only Rust identifiers (Forklara not Förklara). All transform/
+    // extract the dropped document; all DATA-framed; none generative.
+    #[serde(rename = "identifiera")]
+    Identifiera,
+    #[serde(rename = "strukturera")]
+    Strukturera,
+    #[serde(rename = "forklara")]
+    Forklara,
 }
 
 impl ZoneId {
-    pub const ALL: [ZoneId; 9] = [
+    pub const ALL: [ZoneId; 12] = [
         ZoneId::Sammanfatta,
         ZoneId::TillEngelska,
         ZoneId::TillSvenska,
@@ -53,6 +63,9 @@ impl ZoneId {
         ZoneId::Kontakter,
         ZoneId::Generera,
         ZoneId::Kallor,
+        ZoneId::Identifiera,
+        ZoneId::Strukturera,
+        ZoneId::Forklara,
     ];
 
     /// FR-003 — URL slug + filesystem-visible suffix base + module name.
@@ -67,6 +80,9 @@ impl ZoneId {
             ZoneId::Kontakter => "kontakter",
             ZoneId::Generera => "generera",
             ZoneId::Kallor => "kallor",
+            ZoneId::Identifiera => "identifiera",
+            ZoneId::Strukturera => "strukturera",
+            ZoneId::Forklara => "forklara",
         }
     }
 
@@ -82,6 +98,9 @@ impl ZoneId {
             ZoneId::Kontakter => "Plocka ut kontaktuppgifter",
             ZoneId::Generera => "Generera juridisk text",
             ZoneId::Kallor => "Källförteckning",
+            ZoneId::Identifiera => "Identifiera rättsfrågorna",
+            ZoneId::Strukturera => "Strukturera (IRAC)",
+            ZoneId::Forklara => "Förklara begreppen",
         }
     }
 
@@ -101,6 +120,11 @@ impl ZoneId {
             ZoneId::Kontakter => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för kontaktuppgifter",
             ZoneId::Generera => "Släpp .txt eller .md med instruktioner för juridisk text",
             ZoneId::Kallor => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för källförteckning",
+            ZoneId::Identifiera => {
+                "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för att hitta rättsfrågorna"
+            }
+            ZoneId::Strukturera => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för IRAC-struktur",
+            ZoneId::Forklara => "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för begreppsförklaringar",
         }
     }
 
@@ -116,6 +140,9 @@ impl ZoneId {
             ZoneId::Kontakter => "Plockar ut kontaktuppgifter…",
             ZoneId::Generera => "Genererar juridisk text…",
             ZoneId::Kallor => "Bygger källförteckning…",
+            ZoneId::Identifiera => "Letar rättsfrågor…",
+            ZoneId::Strukturera => "Strukturerar…",
+            ZoneId::Forklara => "Förklarar begrepp…",
         }
     }
 
@@ -133,6 +160,9 @@ impl ZoneId {
             ZoneId::Kontakter => "kontakter",
             ZoneId::Generera => "generera",
             ZoneId::Kallor => "kallor",
+            ZoneId::Identifiera => "rattsfragor",
+            ZoneId::Strukturera => "irac",
+            ZoneId::Forklara => "begrepp",
         }
     }
 
@@ -150,6 +180,9 @@ impl ZoneId {
             ZoneId::Kontakter => "Kontaktuppgifter från '{name}'",
             ZoneId::Generera => "Genererad juridisk text från '{name}'",
             ZoneId::Kallor => "Källförteckning för '{name}'",
+            ZoneId::Identifiera => "Rättsfrågor i '{name}'",
+            ZoneId::Strukturera => "IRAC-struktur av '{name}'",
+            ZoneId::Forklara => "Begreppsförklaringar för '{name}'",
         }
     }
 
@@ -165,6 +198,9 @@ impl ZoneId {
             ZoneId::Kontakter => KONTAKTER_SYSTEM_PROMPT,
             ZoneId::Generera => GENERERA_SYSTEM_PROMPT,
             ZoneId::Kallor => KALLOR_SYSTEM_PROMPT,
+            ZoneId::Identifiera => IDENTIFIERA_SYSTEM_PROMPT,
+            ZoneId::Strukturera => STRUKTURERA_SYSTEM_PROMPT,
+            ZoneId::Forklara => FORKLARA_SYSTEM_PROMPT,
         }
     }
 
@@ -183,6 +219,18 @@ impl ZoneId {
             ZoneId::Generera => Some(
                 "AI-genererad text — kontrollera juridisk korrekthet mot källa innan användning.",
             ),
+            // Spec 036 — the three study-method zones involve fallible model
+            // judgment in a high-stakes study context, so each carries a
+            // "granska …" disclaimer (Principle VIII).
+            ZoneId::Identifiera => Some(
+                "Listan kan missa en rättsfråga eller ta med en som inte finns — granska den själv.",
+            ),
+            ZoneId::Strukturera => {
+                Some("Ett resonemang kan hamna under fel rubrik — granska indelningen själv.")
+            }
+            ZoneId::Forklara => {
+                Some("Förklaringarna är förenklade — stäm av viktiga begrepp mot en lärobok.")
+            }
             _ => None,
         }
     }
@@ -248,15 +296,24 @@ mod tests {
     }
 
     #[test]
-    fn only_anonymisera_forenkla_and_generera_have_disclaimer() {
-        // Spec 013 expansion: Generera also gets a disclaimer because
-        // AI-generated legal text demands human review against a source.
+    fn only_review_sensitive_zones_have_disclaimer() {
+        // Anonymisera/Forenkla (spec 004) + Generera (spec 013) +
+        // Identifiera/Strukturera/Forklara (spec 036 — fallible study-method
+        // judgment). Every other zone has no disclaimer.
         for z in ZoneId::ALL {
-            let expected = matches!(z, ZoneId::Anonymisera | ZoneId::Forenkla | ZoneId::Generera);
+            let expected = matches!(
+                z,
+                ZoneId::Anonymisera
+                    | ZoneId::Forenkla
+                    | ZoneId::Generera
+                    | ZoneId::Identifiera
+                    | ZoneId::Strukturera
+                    | ZoneId::Forklara
+            );
             assert_eq!(
                 z.has_disclaimer(),
                 expected,
-                "{z:?} disclaimer presence drifted from FR-013/014 (+ spec 013 generera)"
+                "{z:?} disclaimer presence drifted from FR-013/014 (+ spec 013 generera, spec 036 study-method)"
             );
         }
     }
@@ -286,12 +343,16 @@ mod tests {
     }
 
     #[test]
-    fn spec_013_has_exactly_nine_zones() {
-        // Spec 013 / FR-001 — pin the zone count + the canonical order
-        // so a future refactor can't silently drop or reorder.
-        assert_eq!(ZoneId::ALL.len(), 9);
+    fn spec_036_has_exactly_twelve_zones() {
+        // Spec 013 / FR-001 (9) → spec 036 / FR-001 (12) — pin the zone count
+        // + the canonical order so a future refactor can't silently drop or
+        // reorder.
+        assert_eq!(ZoneId::ALL.len(), 12);
         assert_eq!(ZoneId::ALL[6], ZoneId::Kontakter);
         assert_eq!(ZoneId::ALL[7], ZoneId::Generera);
         assert_eq!(ZoneId::ALL[8], ZoneId::Kallor);
+        assert_eq!(ZoneId::ALL[9], ZoneId::Identifiera);
+        assert_eq!(ZoneId::ALL[10], ZoneId::Strukturera);
+        assert_eq!(ZoneId::ALL[11], ZoneId::Forklara);
     }
 }

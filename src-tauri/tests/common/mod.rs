@@ -45,6 +45,21 @@ pub async fn run_zone_pipeline(
     mock_response: &str,
     markers: &[&str],
 ) {
+    run_zone_pipeline_checked(zone, fixture_name, mock_response, markers, &[]).await;
+}
+
+/// As `run_zone_pipeline`, plus (f) the sidecar MUST NOT contain any of the
+/// `forbidden` substrings. Spec 036 SC-002 uses this to assert a study-method
+/// zone's citation-free mock output stays citation-free (no fabricated
+/// `§`/`SFS`/`NJA`/`kap.` tokens) — exercising the Principle-VIII guard as a
+/// property of the produced sidecar, not just a prose claim.
+pub async fn run_zone_pipeline_checked(
+    zone: ZoneId,
+    fixture_name: &str,
+    mock_response: &str,
+    markers: &[&str],
+    forbidden: &[&str],
+) {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -141,6 +156,20 @@ pub async fn run_zone_pipeline(
         assert!(
             text.contains(disclaimer),
             "{zone:?}: disclaimer paragraph missing from sidecar"
+        );
+    }
+
+    // (f) forbidden substrings absent (spec 036 SC-002 — citation-free).
+    // The disclaimer text itself is excluded so a zone whose disclaimer happens
+    // to mention a forbidden token can't false-positive (none currently do).
+    let body_only = zone
+        .disclaimer_paragraph()
+        .map(|d| text.replace(d, ""))
+        .unwrap_or_else(|| text.to_string());
+    for f in forbidden {
+        assert!(
+            !body_only.contains(f),
+            "{zone:?}: sidecar unexpectedly contains forbidden token {f:?}\nfull text: {text}"
         );
     }
 

@@ -37,6 +37,10 @@ const initialZones: Record<ZoneId, ZoneSnapshot> = {
   kontakter: seedSnapshot(),
   generera: seedSnapshot(),
   kallor: seedSnapshot(),
+  // Spec 036 — three study-method zones (3×4 grid).
+  identifiera: seedSnapshot(),
+  strukturera: seedSnapshot(),
+  forklara: seedSnapshot(),
 };
 
 interface StatusStore {

@@ -210,6 +210,13 @@ function dragoverVerb(zoneId: ZoneId): string {
       return 'generera juridisk text';
     case 'kallor':
       return 'göra källförteckning';
+    // Spec 036 — three study-method zones.
+    case 'identifiera':
+      return 'hitta rättsfrågorna';
+    case 'strukturera':
+      return 'strukturera enligt IRAC';
+    case 'forklara':
+      return 'förklara begreppen';
   }
 }
 

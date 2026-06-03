@@ -1,5 +1,5 @@
 {
-  "_comment": "Spec 004 / T035 + spec 005 FR-017 + spec 009 FR-011 + spec 013 — single source of truth for the nine ZoneIdentity rows. The Rust side (src-tauri/src/zones/zone_id.rs) and the TS side (src/components/DropZone.identity.ts) both assert against this fixture in their drift-detection tests. Update all three together when changing any per-zone string. Spec 013 added kontakter / generera / kallor (3×3 grid). Generera takes only .txt or .md instructions (different hint copy).",
+  "_comment": "Spec 004 / T035 + spec 005 FR-017 + spec 009 FR-011 + spec 013 + spec 036 — single source of truth for the twelve ZoneIdentity rows. The Rust side (src-tauri/src/zones/zone_id.rs) and the TS side (src/components/DropZone.identity.ts) both assert against this fixture in their drift-detection tests. Update all three together when changing any per-zone string. Spec 013 added kontakter / generera / kallor (3×3); spec 036 added identifiera / strukturera / forklara (3×4). Generera takes only .txt or .md instructions (different hint copy).",
   "sammanfatta": {
     "slug": "sammanfatta",
     "title": "Sammanfatta",
@@ -71,5 +71,29 @@
     "sidecar_suffix": "kallor",
     "processing_hint": "Bygger källförteckning…",
     "has_disclaimer": false
+  },
+  "identifiera": {
+    "slug": "identifiera",
+    "title": "Identifiera rättsfrågorna",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för att hitta rättsfrågorna",
+    "sidecar_suffix": "rattsfragor",
+    "processing_hint": "Letar rättsfrågor…",
+    "has_disclaimer": true
+  },
+  "strukturera": {
+    "slug": "strukturera",
+    "title": "Strukturera (IRAC)",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för IRAC-struktur",
+    "sidecar_suffix": "irac",
+    "processing_hint": "Strukturerar…",
+    "has_disclaimer": true
+  },
+  "forklara": {
+    "slug": "forklara",
+    "title": "Förklara begreppen",
+    "hint_copy": "Släpp .docx/.pdf/.txt/.md/.rtf/.odt för begreppsförklaringar",
+    "sidecar_suffix": "begrepp",
+    "processing_hint": "Förklarar begrepp…",
+    "has_disclaimer": true
   }
 }

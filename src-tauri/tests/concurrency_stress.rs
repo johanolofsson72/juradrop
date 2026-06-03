@@ -37,6 +37,10 @@ fn zone_cases() -> Vec<(ZoneId, &'static str)> {
         (ZoneId::Kontakter, "kontakter-input.docx"),
         (ZoneId::Generera, "generera-input.txt"),
         (ZoneId::Kallor, "kallor-input.docx"),
+        // Spec 036 — study-method zones.
+        (ZoneId::Identifiera, "identifiera-input.docx"),
+        (ZoneId::Strukturera, "strukturera-input.docx"),
+        (ZoneId::Forklara, "forklara-input.docx"),
     ]
 }
 
@@ -125,7 +129,7 @@ async fn run_one(zone: ZoneId, fixture_name: &'static str) -> RunResult {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn nine_zones_concurrent_no_contamination_three_rounds() {
+async fn twelve_zones_concurrent_no_contamination_three_rounds() {
     let cases = zone_cases();
     let all_slugs: Vec<String> = cases.iter().map(|(z, _)| z.slug().to_string()).collect();
 
@@ -136,7 +140,7 @@ async fn nine_zones_concurrent_no_contamination_three_rounds() {
             .collect();
         let results = futures::future::join_all(futures).await;
 
-        assert_eq!(results.len(), 9, "round {round}: expected 9 results");
+        assert_eq!(results.len(), 12, "round {round}: expected 12 results");
 
         for r in &results {
             let own = format!("[[ZONE:{}]]", r.zone.slug());
@@ -172,6 +176,6 @@ async fn nine_zones_concurrent_no_contamination_three_rounds() {
                 );
             }
         }
-        println!("round {round}: 9 zones concurrent, 0 contamination");
+        println!("round {round}: 12 zones concurrent, 0 contamination");
     }
 }

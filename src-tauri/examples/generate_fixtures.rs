@@ -92,6 +92,16 @@ fn main() {
     // FR-007 — Kontakter REUSES the anonymisera content (has every contact type).
     write_docx(&docs_dir.join("kontakter-input.docx"), &anon);
     write_docx(&docs_dir.join("kallor-input.docx"), &kallor_text());
+    // Spec 036 — study-method zone inputs.
+    write_docx(
+        &docs_dir.join("identifiera-input.docx"),
+        &identifiera_text(),
+    );
+    write_docx(
+        &docs_dir.join("strukturera-input.docx"),
+        &strukturera_text(),
+    );
+    write_docx(&docs_dir.join("forklara-input.docx"), &forklara_text());
     // Generera takes a .txt instruction/outline.
     fs::write(docs_dir.join("generera-input.txt"), generera_text()).expect("write generera txt");
 
@@ -346,6 +356,38 @@ fn kallor_text() -> Vec<&'static str> {
         "Källor som ligger till grund för utredningen:",
         "1. Lag (2016:1145) om offentlig upphandling. 2. Prop. 2015/16:195 Nytt regelverk om upphandling. 3. NJA 2013 s. 762. 4. NJA 2016 s. 358. 5. RÅ 2009 ref. 69. 6. EU-direktiv 2014/24/EU om offentlig upphandling. 7. Sundstrand, Andrea, Offentlig upphandling — en introduktion, 3 uppl., Studentlitteratur 2019. 8. Asplund m.fl., Överprövning av upphandling, Jure 2012. 9. HFD 2018 ref. 28. 10. Kammarrätten i Stockholm, mål nr 1425-20.",
         "Sammantaget talar rättskällorna för att skadestånd förutsätter att överträdelsen av upphandlingsreglerna varit klar och att ett orsakssamband mellan felet och skadan kan styrkas.",
+    ]
+}
+
+// Spec 036 — study-method zone inputs.
+
+fn identifiera_text() -> Vec<&'static str> {
+    // A PM raising more than one legal issue (köprätt + skadestånd) so the
+    // zone has real rättsfrågor to spot.
+    vec![
+        "PM: tvist om begagnad bil och en hund som bitit en granne.",
+        "Anna köpte en begagnad bil av Bertil för 80 000 kr. Vid köpet sa Bertil att bilen \"gick utan problem\". Två veckor senare havererade växellådan. Anna vill häva köpet eller få prisavdrag. Bertil menar att bilen såldes i befintligt skick och att han inte kände till felet.",
+        "Samtidigt har Annas hund sprungit lös och bitit grannen Cecilia, som nu kräver skadestånd för sjukvårdskostnader och sveda och värk. Anna hävdar att Cecilia retade hunden.",
+        "Uppgiften gäller både köpet av bilen och ansvaret för hunden.",
+    ]
+}
+
+fn strukturera_text() -> Vec<&'static str> {
+    // An unstructured student draft answer, to be reshaped into IRAC.
+    vec![
+        "Mitt svar (utkast):",
+        "Jag tror att det handlar om fel i vara enligt köplagen. Bertil sa att bilen gick utan problem men växellådan gick sönder. Befintligt skick spelar roll, men en säljare kan ändå bli ansvarig om han lämnat en utfästelse. Bertil sa ju att den gick utan problem, det kan vara en utfästelse.",
+        "Att bilen gick sönder efter två veckor talar för att felet fanns redan vid köpet. Anna borde kunna få prisavdrag, kanske häva om felet är väsentligt. Hon måste reklamera i tid.",
+        "Slutsatsen blir nog att Anna har rätt till prisavdrag, men det beror på om utfästelsen och väsentligheten är uppfyllda.",
+    ]
+}
+
+fn forklara_text() -> Vec<&'static str> {
+    // A jargon-dense doctrine excerpt with terms to explain in plain Swedish.
+    vec![
+        "Utdrag ur doktrin om skadestånds- och avtalsrätt.",
+        "För skadeståndsansvar i utomobligatoriska förhållanden krävs i regel culpa. Bedömningen sker genom en culpabedömning, där domstolen prövar om handlandet avvikit från en aktsamhetsnorm. Ett centralt rekvisit är adekvat kausalitet mellan handlingen och skadan.",
+        "Vid subsumtionen ställs de konstaterade omständigheterna mot rekvisiten i den tillämpliga normen. Är en bestämmelse dispositiv kan parterna avtala bort den; en indispositiv (tvingande) regel kan de inte avtala bort. Jämkning innebär att ett ansvar eller ett avtalsvillkor sätts ned efter en skälighetsbedömning.",
     ]
 }
 

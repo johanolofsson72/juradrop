@@ -1,0 +1,163 @@
+-- allium: 3
+--
+-- Spec 036 — study-method drop zones (9 -> 12).
+--
+-- Adds three transform/extract zones to the existing nine: identifiera
+-- (issue-spotting), strukturera (IRAC), forklara (explain terms). Each operates
+-- ONLY on the dropped document via the existing local-only drop pipeline; none
+-- is generative; all are framed as untrusted DATA (spec 022); each forbids the
+-- model from inventing/citing statutes or case law (Principle VIII). No new
+-- state machine — the per-zone idle->processing->success/error machine
+-- (spec 003/013) is unchanged and referenced, not re-modelled here.
+
+-- The full zone set, now twelve. The three new variants are appended after the
+-- spec-013 nine, in grid order.
+enum ZoneId {
+    sammanfatta | tillengelska | tillsvenska | punktlista | anonymisera | forenkla
+    | kontakter | generera | kallor
+    | identifiera | strukturera | forklara   -- spec 036
+}
+
+-- How a zone's dropped document is presented to the model. Generera's input IS
+-- the instruction; every other zone (including all three new ones) treats the
+-- document as untrusted DATA wrapped in delimiters + the anti-injection guard.
+enum PromptFraming { data | instruction }
+
+-- A zone either reshapes/extracts the dropped document (mirror its format on
+-- output) or generates a fresh document (always .docx). All three new zones are
+-- transform.
+enum ZoneKind { transform | generative }
+
+config {
+    ai_host: String = `127.0.0.1`        -- localhost only (Principle I + III)
+    ai_port: Integer = 11434
+    zone_count: Integer = 12             -- was 9 (spec 013)
+    -- The standard Swedish IRAC headings strukturera reshapes the text into.
+    irac_headings: String = `Rättsfråga | Gällande rätt | Subsumtion | Slutsats`
+}
+
+-- A drop zone's identity + behavioural classification. The three new zones are
+-- instances of this existing concept (spec 004/013) — no new entity type. The
+-- identity fields are the cross-language drift surface (Rust <-> TS).
+entity Zone {
+    id: ZoneId
+    slug: String                         -- lowercase ASCII; == serde rename == sidecar suffix base
+    title: String                        -- Swedish UI title
+    hint_copy: String                    -- Swedish drop-zone hint
+    processing_hint: String              -- Swedish present-tense verb shown while processing
+    help_short: String                   -- <= 80 chars, Swedish
+    help_long: String                    -- <= 300 chars, Swedish
+    has_disclaimer: Boolean              -- a "granska ..." paragraph in the output
+    kind: ZoneKind
+    framing: PromptFraming
+    -- The system prompt forbids fabricated lagrum/SFS + rättsfall/NJA references.
+    -- TRUE for all study-method zones (the Principle-VIII guard, FR-003).
+    forbids_fabricated_citations: Boolean
+
+    -- DERIVED: a transform zone mirrors the input format; a generative zone
+    -- always writes .docx.
+    mirrors_input_format: kind = transform
+
+    invariant DataFramedUnlessGenerera {
+        framing = instruction implies id = generera
+    }
+    invariant GenerativeOnlyGenerera {
+        kind = generative implies id = generera
+    }
+}
+
+-- The three zones this spec adds, as the concrete instances asserted to exist.
+-- (slug/title/disclaimer/kind/framing fixed by FR-001/004/005/006/009 + clarify.)
+rule AddIdentifiera {
+    when: ZoneRegistered(z)
+    requires: z.id = identifiera
+    ensures:
+        z.slug = `identifiera`
+        z.kind = transform
+        z.framing = data
+        z.has_disclaimer = true
+        z.forbids_fabricated_citations = true
+}
+
+rule AddStrukturera {
+    when: ZoneRegistered(z)
+    requires: z.id = strukturera
+    ensures:
+        z.slug = `strukturera`
+        z.kind = transform
+        z.framing = data
+        z.has_disclaimer = true
+        z.forbids_fabricated_citations = true
+}
+
+rule AddForklara {
+    when: ZoneRegistered(z)
+    requires: z.id = forklara
+    ensures:
+        z.slug = `forklara`
+        z.kind = transform
+        z.framing = data
+        z.has_disclaimer = true
+        z.forbids_fabricated_citations = true
+}
+
+-- ===== Global invariants =====
+
+-- FR-001 / SC-001 — exactly twelve zones.
+invariant TwelveZones {
+    Zone.all(z => true).count = zone_count
+}
+
+-- FR-010 / SC-004 — every zone's identity is drift-free: the Rust source of
+-- truth and the TS frontend (and the JSON drift fixtures) agree on
+-- slug/title/hints/help for all twelve. (Enforced by the cross-language drift
+-- tests; modelled here as the property they assert.)
+invariant ZoneIdentityDriftFree {
+    for z in Zone:
+        z.slug != null and z.title != null and z.help_short != null and z.help_long != null
+}
+
+-- FR-007 — each new (transform) zone mirrors the input format in its output;
+-- none of the three is generative.
+invariant NewZonesAreTransform {
+    for z in Zone where z.id in {identifiera, strukturera, forklara}:
+        z.kind = transform and z.mirrors_input_format = true
+}
+
+-- FR-008 — each new zone is DATA-framed (untrusted document), never an
+-- instruction-zone exception. Generera remains the sole instruction zone.
+invariant NewZonesAreDataFramed {
+    for z in Zone where z.id in {identifiera, strukturera, forklara}:
+        z.framing = data
+}
+
+-- FR-003 / SC-002 — each new zone's system prompt forbids fabricated citations
+-- (the Principle-VIII guard that replaces a rejected citation zone).
+invariant NewZonesForbidFabricatedCitations {
+    for z in Zone where z.id in {identifiera, strukturera, forklara}:
+        z.forbids_fabricated_citations = true
+}
+
+-- FR-009 — each new zone carries a "granska ..." disclaimer (Clarifications Q2).
+invariant NewZonesHaveDisclaimer {
+    for z in Zone where z.id in {identifiera, strukturera, forklara}:
+        z.has_disclaimer = true
+}
+
+-- FR-002 / FR-006 (Principle I + III) — the pipeline targets localhost Ollama
+-- only; the three new zones add no outbound destination.
+invariant LocalhostOnly {
+    ai_host = `127.0.0.1`
+}
+
+-- NOTE: the per-zone drop state machine (idle -> dragover -> processing ->
+-- success/error) is spec 003/013's and is UNCHANGED — not re-modelled here
+-- (light track, /tla out of scope per the triviality gate). The three new zones
+-- reuse it verbatim.
+--
+-- A fourth "find the statutes/case law" (lagrum/citation) zone is DELIBERATELY
+-- rejected (FR-013): a retrieval-less local model hallucinates SFS/NJA
+-- references, which is actively harmful for a law student (Principle VIII). The
+-- three zones above instead carry `forbids_fabricated_citations`.
+deferred Zone.citation_lagrum_zone
+open question "Should a citation/lagrum zone ever exist? Only with real retrieval (RAG) over an authoritative SFS/NJA corpus — out of scope and rejected for the local-only, retrieval-less architecture (Principle VIII)."

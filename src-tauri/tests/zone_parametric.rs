@@ -95,17 +95,25 @@ fn every_zone_header_template_has_the_name_token() {
     }
 }
 
-/// Anonymisera, Förenkla, and (spec 013) Generera produce a
-/// disclaimer paragraph (FR-013 + FR-014 + spec 013 Generera).
-/// The other six return None.
+/// Anonymisera, Förenkla, Generera (spec 013), and the three study-method
+/// zones Identifiera/Strukturera/Forklara (spec 036) produce a disclaimer
+/// paragraph. The other six return None.
 #[test]
-fn only_anonymisera_forenkla_and_generera_have_disclaimers() {
+fn only_review_sensitive_zones_have_disclaimers() {
     for z in ZoneId::ALL {
-        let expected_some = matches!(z, ZoneId::Anonymisera | ZoneId::Forenkla | ZoneId::Generera);
+        let expected_some = matches!(
+            z,
+            ZoneId::Anonymisera
+                | ZoneId::Forenkla
+                | ZoneId::Generera
+                | ZoneId::Identifiera
+                | ZoneId::Strukturera
+                | ZoneId::Forklara
+        );
         assert_eq!(
             z.has_disclaimer(),
             expected_some,
-            "{z:?} disclaimer presence drifted from FR-013/014 (+ spec 013 generera)"
+            "{z:?} disclaimer presence drifted from FR-013/014 (+ spec 013 generera, spec 036 study-method)"
         );
     }
 }
@@ -170,13 +178,13 @@ fn every_zone_identity_matches_the_cross_language_fixture() {
         );
     }
 
-    // Also assert key count — adding a tenth ZoneId variant without a
-    // fixture entry (or vice versa) fails here. Spec 013 expanded to 9.
+    // Also assert key count — adding a ZoneId variant without a fixture
+    // entry (or vice versa) fails here. Spec 013 → 9; spec 036 → 12.
     let obj = fixture.as_object().expect("fixture root must be object");
-    // 9 variants + 1 _comment = 10 keys.
+    // 12 variants + 1 _comment = 13 keys.
     assert_eq!(
         obj.len(),
-        10,
-        "fixture must list exactly 9 ZoneIdentity rows + 1 _comment"
+        13,
+        "fixture must list exactly 12 ZoneIdentity rows + 1 _comment"
     );
 }

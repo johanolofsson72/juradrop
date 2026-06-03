@@ -50,20 +50,25 @@ const EXPECTED_ZONE_IDS: ZoneId[] = [
   'kontakter',
   'generera',
   'kallor',
+  // Spec 036 — three study-method zones (3×4 grid).
+  'identifiera',
+  'strukturera',
+  'forklara',
 ];
 
 describe('DropZone identity table', () => {
-  it('exposes exactly the nine ZoneId variants — no extras (spec 013)', () => {
+  it('exposes exactly the twelve ZoneId variants — no extras (spec 036)', () => {
     const keys = Object.keys(ZONE_IDENTITIES).sort();
     const expected = [...EXPECTED_ZONE_IDS].sort();
     expect(keys).toEqual(expected);
   });
 
-  it('ZONE_ORDER lists every zone exactly once in 3×3 reading order', () => {
+  it('ZONE_ORDER lists every zone exactly once in 3×4 reading order', () => {
     expect(ZONE_ORDER).toHaveLength(EXPECTED_ZONE_IDS.length);
     // Row 1 = sammanfatta, tillengelska, tillsvenska
     // Row 2 = punktlista, anonymisera, forenkla
     // Row 3 = kontakter, generera, kallor
+    // Row 4 = identifiera, strukturera, forklara
     expect(ZONE_ORDER[0]).toBe('sammanfatta');
     expect(ZONE_ORDER[1]).toBe('tillengelska');
     expect(ZONE_ORDER[2]).toBe('tillsvenska');
@@ -73,6 +78,9 @@ describe('DropZone identity table', () => {
     expect(ZONE_ORDER[6]).toBe('kontakter');
     expect(ZONE_ORDER[7]).toBe('generera');
     expect(ZONE_ORDER[8]).toBe('kallor');
+    expect(ZONE_ORDER[9]).toBe('identifiera');
+    expect(ZONE_ORDER[10]).toBe('strukturera');
+    expect(ZONE_ORDER[11]).toBe('forklara');
   });
 
   it('every entry has every required field', () => {
@@ -87,10 +95,18 @@ describe('DropZone identity table', () => {
     });
   });
 
-  it('Anonymisera, Förenkla, and Generera (spec 013) carry the disclaimer flag', () => {
+  it('review-sensitive zones carry the disclaimer flag (spec 013 + spec 036)', () => {
+    const withDisclaimer = new Set<ZoneId>([
+      'anonymisera',
+      'forenkla',
+      'generera',
+      // Spec 036 — study-method zones (fallible judgment).
+      'identifiera',
+      'strukturera',
+      'forklara',
+    ]);
     EXPECTED_ZONE_IDS.forEach((id) => {
-      const expected = id === 'anonymisera' || id === 'forenkla' || id === 'generera';
-      expect(ZONE_IDENTITIES[id].hasDisclaimer).toBe(expected);
+      expect(ZONE_IDENTITIES[id].hasDisclaimer).toBe(withDisclaimer.has(id));
     });
   });
 
@@ -143,18 +159,21 @@ describe('Cross-language identity drift (T035)', () => {
     });
   });
 
-  it('fixture has exactly 9 ZoneIdentity rows + 1 _comment field (spec 013)', () => {
+  it('fixture has exactly 12 ZoneIdentity rows + 1 _comment field (spec 036)', () => {
     const fixture = loadFixture();
     const keys = Object.keys(fixture).sort();
     expect(keys).toEqual([
       '_comment',
       'anonymisera',
       'forenkla',
+      'forklara',
       'generera',
+      'identifiera',
       'kallor',
       'kontakter',
       'punktlista',
       'sammanfatta',
+      'strukturera',
       'tillengelska',
       'tillsvenska',
     ]);

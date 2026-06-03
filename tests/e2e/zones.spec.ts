@@ -1,7 +1,7 @@
 import { test, expect } from './support/fixtures';
 import { withCanned } from './support/canned-state';
 
-// US2 — the core rendered surface: nine labelled zones + chrome, plus the
+// US2 — the core rendered surface: twelve labelled zones + chrome, plus the
 // first-run wizard welcome screen. Labels are the shipped Swedish titles
 // from src/components/DropZone.identity.ts (asserted here as the source of
 // truth a regression would break — SC-006).
@@ -17,13 +17,17 @@ const ZONES: Array<{ slug: string; title: string }> = [
   { slug: 'kontakter', title: 'Plocka ut kontaktuppgifter' },
   { slug: 'generera', title: 'Generera juridisk text' },
   { slug: 'kallor', title: 'Källförteckning' },
+  // Spec 036 — study-method zones.
+  { slug: 'identifiera', title: 'Identifiera rättsfrågorna' },
+  { slug: 'strukturera', title: 'Strukturera (IRAC)' },
+  { slug: 'forklara', title: 'Förklara begreppen' },
 ];
 
 test.describe('US2 — core rendered surface', () => {
-  test('renders exactly nine drop zones with their data-zone-id (AS1)', async ({ page }) => {
+  test('renders exactly twelve drop zones with their data-zone-id (AS1)', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('section[aria-label="Drop-zoner"]')).toBeVisible();
-    await expect(page.locator('[data-zone-id]')).toHaveCount(9);
+    await expect(page.locator('[data-zone-id]')).toHaveCount(12);
     for (const { slug } of ZONES) {
       await expect(page.locator(`[data-zone-id="${slug}"]`)).toBeVisible();
     }

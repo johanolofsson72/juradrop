@@ -115,7 +115,11 @@ export type ZoneId =
   // Spec 013 — three new zones expanding from 2×3 to 3×3 grid.
   | 'kontakter'
   | 'generera'
-  | 'kallor';
+  | 'kallor'
+  // Spec 036 — three study-method zones expanding from 3×3 to 3×4 grid.
+  | 'identifiera'
+  | 'strukturera'
+  | 'forklara';
 
 export interface FileDroppedPayload {
   paths: string[];

@@ -15,11 +15,14 @@ pub mod framing;
 
 pub mod anonymisera;
 pub mod forenkla;
+pub mod forklara;
 pub mod generera;
+pub mod identifiera;
 pub mod kallor;
 pub mod kontakter;
 pub mod punktlista;
 pub mod sammanfatta;
+pub mod strukturera;
 pub mod tillengelska;
 pub mod tillsvenska;
 
@@ -27,10 +30,13 @@ pub use framing::frame_prompt;
 
 pub use anonymisera::ANONYMISERA_SYSTEM_PROMPT;
 pub use forenkla::FORENKLA_SYSTEM_PROMPT;
+pub use forklara::FORKLARA_SYSTEM_PROMPT;
 pub use generera::GENERERA_SYSTEM_PROMPT;
+pub use identifiera::IDENTIFIERA_SYSTEM_PROMPT;
 pub use kallor::KALLOR_SYSTEM_PROMPT;
 pub use kontakter::KONTAKTER_SYSTEM_PROMPT;
 pub use punktlista::PUNKTLISTA_SYSTEM_PROMPT;
 pub use sammanfatta::SAMMANFATTA_SYSTEM_PROMPT;
+pub use strukturera::STRUKTURERA_SYSTEM_PROMPT;
 pub use tillengelska::TILLENGELSKA_SYSTEM_PROMPT;
 pub use tillsvenska::TILLSVENSKA_SYSTEM_PROMPT;

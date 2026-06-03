@@ -48,7 +48,7 @@ fn rust_const_matches_json_fixture_for_every_zone() {
 }
 
 #[test]
-fn fixture_has_exactly_the_nine_zone_slugs_plus_comment() {
+fn fixture_has_exactly_the_twelve_zone_slugs_plus_comment() {
     let fixture = load_fixture();
     let mut keys: Vec<&str> = fixture
         .keys()

@@ -90,10 +90,35 @@ export const ZONE_IDENTITIES = {
     processingHint: 'Bygger källförteckning…',
     hasDisclaimer: false,
   },
+  // Spec 036 — three study-method zones (3×4 grid)
+  identifiera: {
+    slug: 'identifiera',
+    title: 'Identifiera rättsfrågorna',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.odt för att hitta rättsfrågorna',
+    sidecarSuffix: 'rattsfragor',
+    processingHint: 'Letar rättsfrågor…',
+    hasDisclaimer: true,
+  },
+  strukturera: {
+    slug: 'strukturera',
+    title: 'Strukturera (IRAC)',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.odt för IRAC-struktur',
+    sidecarSuffix: 'irac',
+    processingHint: 'Strukturerar…',
+    hasDisclaimer: true,
+  },
+  forklara: {
+    slug: 'forklara',
+    title: 'Förklara begreppen',
+    hintCopy: 'Släpp .docx/.pdf/.txt/.md/.rtf/.odt för begreppsförklaringar',
+    sidecarSuffix: 'begrepp',
+    processingHint: 'Förklarar begrepp…',
+    hasDisclaimer: true,
+  },
 } as const satisfies Record<ZoneId, ZoneIdentity>;
 
-/// Reading order across the 3×3 grid (row 1, row 2, row 3).
-/// Spec 013 expanded the order from 6 to 9 zones.
+/// Reading order across the 3×4 grid (rows 1–4).
+/// Spec 013 expanded 6→9; spec 036 expanded 9→12 (three study-method zones).
 export const ZONE_ORDER: readonly ZoneId[] = [
   'sammanfatta',
   'tillengelska',
@@ -104,4 +129,7 @@ export const ZONE_ORDER: readonly ZoneId[] = [
   'kontakter',
   'generera',
   'kallor',
+  'identifiera',
+  'strukturera',
+  'forklara',
 ];

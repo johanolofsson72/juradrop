@@ -1,7 +1,7 @@
 // Spec 013 FR-021 / FR-016a — cross-language drift test (TS side).
 //
 // Asserts ZONE_HELP_STRINGS matches the JSON fixture byte-for-byte, for
-// all 9 zones, short + long. The Rust counterpart
+// all 12 zones, short + long. The Rust counterpart
 // (src-tauri/tests/help_strings_drift.rs) asserts Rust ↔ JSON, so the
 // three stay locked from both directions.
 
@@ -34,7 +34,7 @@ describe('zone help strings cross-language drift', () => {
     }
   });
 
-  it('covers all 9 zones in ZONE_ORDER', () => {
+  it('covers all 12 zones in ZONE_ORDER', () => {
     expect(Object.keys(ZONE_HELP_STRINGS).sort()).toEqual([...ZONE_ORDER].sort());
   });
 

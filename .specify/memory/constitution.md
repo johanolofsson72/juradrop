@@ -1,5 +1,17 @@
 <!--
   Sync Impact Report
+  Version change: 1.1.0 → 1.2.0 (2026-06-03, spec 036 — MINOR, material expansion)
+    - Drop-zone set expanded from nine to twelve: added Identifiera rättsfrågorna,
+      Strukturera (IRAC), and Förklara begreppen (three study-method zones). The
+      intro now enumerates all twelve zones; the 3×3 grid became 3×4 (window
+      height grew 760→1000 so the fourth row shows without scrolling).
+    - No principle weakened. Principle I unchanged: the new zones run through the
+      same local-only pipeline; each forbids the model from inventing/citing
+      statutes or case law (Principle VIII) — a citation/lagrum zone was
+      deliberately rejected (retrieval-less local-model hallucination is harmful).
+    - Templates / CLAUDE.md reviewed: no changes required (generic).
+
+  Sync Impact Report
   Version change: 1.0.0 → 1.1.0 (2026-05-28, spec 013 — MINOR, material expansion)
     - Drop-zone set expanded from six to nine: added Plocka ut kontaktuppgifter,
       Generera juridisk text, and Källförteckning. The intro now enumerates all
@@ -37,7 +49,7 @@
 
 JuraDrop is a macOS desktop application that lets Swedish law students drop confidential legal documents onto themed drop zones in a native window, and have Ollama running locally translate, summarize, anonymize, or rewrite them — **without any document content ever leaving the user's machine**. This constitution governs every architectural decision in the repository.
 
-As of v1.1.0 the app ships **nine** drop zones in a 3×3 grid: Sammanfatta, Till engelska, Till svenska, Punktlista, Anonymisera, Förenkla, Plocka ut kontaktuppgifter, Generera juridisk text, and Källförteckning.
+As of v1.2.0 the app ships **twelve** drop zones in a 3×4 grid: Sammanfatta, Till engelska, Till svenska, Punktlista, Anonymisera, Förenkla, Plocka ut kontaktuppgifter, Generera juridisk text, Källförteckning, Identifiera rättsfrågorna, Strukturera (IRAC), and Förklara begreppen.
 
 ## Core Principles
 
@@ -179,4 +191,4 @@ Versioning follows semantic versioning:
 
 All implementation plans MUST include a Constitution Check section verifying compliance with these principles. Plans that violate Principle I MUST be rejected, not negotiated.
 
-**Version**: 1.1.0 | **Ratified**: 2026-05-25 | **Last Amended**: 2026-05-28
+**Version**: 1.2.0 | **Ratified**: 2026-05-25 | **Last Amended**: 2026-06-03

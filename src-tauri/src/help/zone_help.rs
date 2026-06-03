@@ -21,8 +21,8 @@ pub struct ZoneHelp {
     pub long: &'static str,
 }
 
-/// All nine zones' help strings, in canonical `ZoneId::ALL` order.
-pub const ZONE_HELP_STRINGS: [(ZoneId, ZoneHelp); 9] = [
+/// All twelve zones' help strings, in canonical `ZoneId::ALL` order.
+pub const ZONE_HELP_STRINGS: [(ZoneId, ZoneHelp); 12] = [
     (
         ZoneId::Sammanfatta,
         ZoneHelp {
@@ -84,6 +84,28 @@ pub const ZONE_HELP_STRINGS: [(ZoneId, ZoneHelp); 9] = [
         ZoneHelp {
             short: "Samlar källorna i en förteckning.",
             long: "Plockar ut hänvisningar till lagar, rättsfall och litteratur ur texten och ställer upp dem som en samlad källförteckning. Dubbelkolla att inget föll bort och att formen stämmer med din kurs.",
+        },
+    ),
+    // Spec 036 — study-method zones.
+    (
+        ZoneId::Identifiera,
+        ZoneHelp {
+            short: "Listar de juridiska frågorna som texten väcker.",
+            long: "Släpp ett rättsfall, ett PM eller en tentafråga så får du en lista över rättsfrågorna att lösa — utan svar och utan påhittade lagrum. Bra för att komma igång med en uppgift.",
+        },
+    ),
+    (
+        ZoneId::Strukturera,
+        ZoneHelp {
+            short: "Strukturerar om ett svar enligt IRAC-modellen.",
+            long: "Släpp ditt eget svar så delas det in i Rättsfråga, Gällande rätt, Subsumtion och Slutsats. Ordnar om din egen text — lägger inte till nytt juridiskt innehåll eller påhittade lagrum.",
+        },
+    ),
+    (
+        ZoneId::Forklara,
+        ZoneHelp {
+            short: "Förklarar de juridiska begreppen i klartext.",
+            long: "Släpp en text full av juridiska facktermer så får du varje begrepp förklarat på vanlig svenska. Bra för att läsa ett domslut eller en doktrintext utan att fastna på orden.",
         },
     ),
 ];

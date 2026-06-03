@@ -4,7 +4,7 @@
 // breaking the existing chrome layout.
 //
 // FUNCTIONAL COVERAGE INVENTORY (this file):
-//  1. The 9-zone grid renders 9 drop zones (SC-001).
+//  1. The 12-zone grid renders 12 drop zones (SC-001).
 //  2. data-settings-gear is present + enabled + clickable (SC-010).
 //  3. data-help-icon is present (FR-019) and enabled in the klar state.
 //  4. Each zone card carries a per-zone help (?) button (FR-018).
@@ -36,7 +36,7 @@ function setKlar() {
 afterEach(() => cleanup());
 
 describe('help system layout (FR-017 / SC-010 / SC-001)', () => {
-  it('renders all 9 drop zones', () => {
+  it('renders all 12 drop zones', () => {
     setKlar();
     render(<App />);
     expect(document.querySelectorAll('[data-zone-id]')).toHaveLength(ZONE_ORDER.length);
