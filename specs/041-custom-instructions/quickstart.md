@@ -33,7 +33,7 @@ Run after implementation, on a Mac with the bundled model available. The automat
 4. **Expect**: zero hits anywhere (settings store, diagnostics log, caches). The sidecar may discuss damages but must not contain the sentinel.
 5. Relaunch the app — **expect** the instruction field empty.
 
-## 6. Field UX
+## 5. Field UX
 
 - Type 500+ chars (paste a long text) → input stops at 500, counter shows `500/500`.
 - Tab from app chrome → field reachable; Escape/clear behavior per design.
