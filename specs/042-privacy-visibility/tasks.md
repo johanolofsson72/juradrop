@@ -30,7 +30,7 @@
 **Independent test**: wizard copy drift + content pins.
 
 - [ ] T007 [US2] Amend `src/lib/wizard-strings.ts` + `src-tauri/tests/fixtures/wizard-strings.json` together (R4): `welcome_paragraph` → "lokalt på din dator" variant, `welcome_privacy_line` → "Dina dokument, instruktioner och resultat lämnar aldrig din dator." (humanizer-reviewed final wording from T002); grep for any Rust-side mirror of the fixture and update it too; `welcome_download_note` untouched
-- [ ] T008 [P] [US2] Update `src/__tests__/WizardCopy.errors.test.tsx` (and any fixture-pinning Rust test) for the amended strings; add content pins: privacy_line mentions dokument+resultat+"din dator"; download_note still states the one-time download + offline-after meaning (P-3/P-4)
+- [ ] T008 [P] [US2] Update `src/__tests__/WizardCopy.errors.test.tsx` (and any fixture-pinning Rust test) for the amended strings; add content pins: privacy_line mentions dokument+resultat+"din dator"; download_note still states the one-time download + offline-after meaning (P-3/P-4); **no `din Mac` remains anywhere in `WIZARD_STRINGS`** (analyze C1 — full-set vocabulary sweep, not just the two amended keys)
 
 ## Phase 5: User Story 3 — Help and README carry the honest fine print (P3)
 
