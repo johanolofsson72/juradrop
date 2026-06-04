@@ -20,6 +20,10 @@ The spec-013-era drag-drop position bug survived from spec 003 to spec 012 undet
 - Q: Signed release app or debug build? → A: Debug build — it carries the spec-013 debug-only mock-endpoint seam, making the harness hermetic (no real model, no model download); ad-hoc signing is sufficient for a locally-run app. The release path stays covered by the existing release process.
 - Q: Zone count? → A: Twelve (the row predated spec 036; updated in the rewrite).
 
+### Session 2026-06-05 (/clarify)
+
+- Q: How is the Xcode test scaffolding maintained? → A: A minimal, hand-committed Xcode project under `ui-tests/` (XCUITest bundles require an Xcode project; SPM cannot host UI test bundles against an external app; `xcodegen` would add a dev dependency for a near-static file). Auto-picked recommended.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - The real window renders the real app (Priority: P1)
