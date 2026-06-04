@@ -28,6 +28,9 @@ external entity LocalUser {
 }
 
 -- One contiguous slice of the extracted document text.
+-- /tla DRIFT-1 (2026-06-04, user: update spec): the status machine below is
+-- realized in code as LOOP POSITION in DropZone::dispatch (a sequential for
+-- loop), not a stored field — SequentialChunks holds by construction.
 entity Chunk {
     plan: ChunkPlan
     index: Integer
@@ -166,8 +169,12 @@ rule ChunkPassSucceeded {
     requires: chunk.status = processing
     ensures:
         chunk.status = done
+        -- /tla DRIFT-2 (2026-06-04, user: update spec): progress text is shown
+        -- at part START ("Bearbetar del i av n" = working on part i NOW), i.e.
+        -- the hint for part i+1 is emitted when pass i+1 is issued, not when
+        -- pass i completes. progress_current tracks completed passes.
         run.progress_current = chunk.index + 1
-        ProgressShown(swedish: true)   -- e.g. "Bearbetar del 3 av 8"
+        ProgressShown(swedish: true)   -- emitted at the START of each part
 }
 
 rule ChunkPassFailed {
@@ -288,7 +295,11 @@ invariant NoPartialSidecar {
 }
 
 invariant HonestTruncationDisclaimer {
-    -- disclaimer present iff content was genuinely not processed
+    -- disclaimer present iff content was genuinely not processed at EITHER
+    -- layer: the 12-chunk cap OR the 288k extraction memory bound.
+    -- /tla DRIFT-3 (2026-06-04, user: update spec): broadened to match the
+    -- analyze-F1 decision implemented as `was_truncated || was_capped`;
+    -- was_capped here denotes that combined signal.
     for sidecar in SidecarFiles:
         sidecar.has_truncation_disclaimer = sidecar.run.plan.was_capped
 }

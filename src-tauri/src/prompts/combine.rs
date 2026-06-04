@@ -52,6 +52,54 @@ mod tests {
         assert!(STRUKTURERA_CONDENSE_PROMPT.contains("hitta inte på lagrum"));
     }
 
+    /// Spec 038 /tla GAP-1 — the num_ctx budget guard. `GENERATE_NUM_CTX`
+    /// must fit the sum of: the LONGEST instruction (any zone system prompt
+    /// or combine prompt), the injection framing, a full `CHUNK_CHAR_TARGET`
+    /// payload, and the response headroom. Calibration: ~4 chars/token for
+    /// Swedish (the spec-003 "24k chars ≈ 6k tokens" proxy). If a future
+    /// prompt grows or CHUNK_CHAR_TARGET is bumped without raising
+    /// GENERATE_NUM_CTX, this fails BEFORE the model silently clips input
+    /// again — the exact bug class spec 038 exists to kill.
+    #[test]
+    fn worst_case_prompt_fits_generate_num_ctx_budget() {
+        use crate::sidecar::client::GENERATE_NUM_CTX;
+        use crate::zones::chunking::CHUNK_CHAR_TARGET;
+
+        const CHARS_PER_TOKEN: usize = 4; // conservative for Swedish
+        const RESPONSE_HEADROOM_TOKENS: usize = 1_500;
+
+        // Longest instruction across all zones + the combine/condense set.
+        let longest_instruction = ZoneId::ALL
+            .iter()
+            .map(|z| z.system_prompt().chars().count())
+            .chain(
+                [
+                    SAMMANFATTA_COMBINE_PROMPT,
+                    PUNKTLISTA_COMBINE_PROMPT,
+                    STRUKTURERA_CONDENSE_PROMPT,
+                ]
+                .iter()
+                .map(|p| p.chars().count()),
+            )
+            .max()
+            .expect("twelve zones exist");
+
+        // Worst-case framed prompt: instruction + guard/markers overhead +
+        // a full CHUNK_CHAR_TARGET document payload.
+        let framing_overhead = frame_prompt(ZoneId::Sammanfatta, "", "").chars().count();
+        let worst_case_chars = longest_instruction + framing_overhead + CHUNK_CHAR_TARGET;
+
+        let input_tokens = worst_case_chars.div_ceil(CHARS_PER_TOKEN);
+        let needed = input_tokens + RESPONSE_HEADROOM_TOKENS;
+        assert!(
+            needed <= GENERATE_NUM_CTX as usize,
+            "num_ctx budget blown: worst-case prompt needs ~{needed} tokens \
+             but GENERATE_NUM_CTX = {GENERATE_NUM_CTX}. Either shorten the \
+             grown prompt, lower CHUNK_CHAR_TARGET, or raise GENERATE_NUM_CTX \
+             (and re-verify memory on 8 GB Macs)."
+        );
+    }
+
     /// FR-007 — combine passes route through frame_prompt and therefore get
     /// the DOKUMENT framing + anti-injection guard (partials are document-
     /// derived content).
