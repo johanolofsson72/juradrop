@@ -8,6 +8,15 @@
 
 **Input**: User description: "Spec 040 — kontakter-per-person (light track). Field UX feedback from beta tester Meja (2026-06-04): the Kontakter zone groups its output per CATEGORY (## Namn / ## Adresser / …) as the prompt demands; should group per PERSON (## David Dahl → his address/phone/email) so details are linked to their owner. Design for 4b-model mispairing: unattributable details land in an 'Övriga uppgifter' section rather than being force-paired."
 
+## Clarifications
+
+### Session 2026-06-04
+
+- Q: Does per-person grouping also widen the extraction scope (roles such as "ombud", organisations, titles)? → A: No — extraction scope stays identical to today's five categories (names, adresser, personnummer, telefonnummer, e-post); only the grouping changes.
+- Q: If a part result contains no person headings at all (model disobedience, e.g. bold names instead of headings), every line folds into "Övriga uppgifter" — accept? → A: Accept — content is preserved and attribution is honestly absent rather than guessed; parsing arbitrary disobedient formats is rejected.
+- Q: Should the deterministic section-ordering/dedup normalization also run on single-part (short-document) outputs? → A: No — the single-part path remains a byte-identical pass-through of the model output (preserves the spec-038 single-chunk invariant); deterministic guarantees are scoped to the multi-part combine step.
+- Q: If the same detail is attributed to two different persons across parts, should it be deduplicated across sections? → A: No — dedup is per-section only; collapsing a cross-person duplicate would force choosing one owner, which is the fabricated attribution this spec forbids. Both attributions are shown as the model's honest claims.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Contact details grouped under their owner (Priority: P1)
@@ -80,7 +89,7 @@ The zone's help text currently tells the user the result lists "namn, adresser, 
 - The model emits the same person heading with different surrounding whitespace across parts: headings are matched after trimming, so they merge into one section.
 - The model emits a person literally named or a heading exactly equal to "Övriga uppgifter": it is treated as the catch-all section and pinned last (exact-heading collision is accepted; a person actually named "Övriga uppgifter" does not exist in practice).
 - Name variants across parts ("David Dahl" in part 1, "D. Dahl" in part 3): matched by exact heading text only; variants produce separate sections. This is an accepted model-quality limitation — fuzzy name unification risks merging two genuinely different people, which is worse (documented limitation, not a defect).
-- Detail lines that arrive before any heading in a part result (model disobedience): folded into "## Övriga uppgifter" — by definition they have no attributed owner. (Replaces the previous behavior of a heading-less leading section.)
+- Detail lines that arrive before any heading in a part result (model disobedience): folded into "## Övriga uppgifter" — by definition they have no attributed owner. (Replaces the previous behavior of a heading-less leading section.) This extends to a whole part with NO headings at all: every line of that part folds into "## Övriga uppgifter" — content preserved, attribution honestly absent.
 - A combine step where one part is empty or contains only blank lines: contributes nothing; combining proceeds with the remaining parts.
 
 ## Requirements *(mandatory)*
@@ -88,17 +97,17 @@ The zone's help text currently tells the user the result lists "namn, adresser, 
 ### Functional Requirements
 
 - **FR-001**: The Kontakter zone MUST instruct the model to group extracted contact details per person: one second-level heading per person (the person's name as the heading), with that person's details as bullet lines under the heading.
-- **FR-002**: Each detail bullet MUST carry a Swedish category label prefix — Adress, Personnummer, Telefon, E-post — so a detail's kind is explicit (e.g. "- Telefon: 070-123 45 67").
+- **FR-002**: Each detail bullet MUST carry a Swedish category label prefix — Adress, Personnummer, Telefon, E-post — so a detail's kind is explicit (e.g. "- Telefon: 070-123 45 67"). The extraction scope is unchanged from today: names plus these four detail categories, nothing more (no roles, titles, or organisations).
 - **FR-003**: The zone MUST instruct the model to place details it cannot confidently attribute to a person under a final "## Övriga uppgifter" section, and MUST explicitly forbid guessing an owner for an uncertain detail (no force-pairing).
 - **FR-004**: The zone MUST instruct the model to omit "## Övriga uppgifter" entirely when every detail is attributed, and to omit detail bullets it has no content for (no "(inga)" placeholders) — preserving the zone's existing empty-sections-omitted convention.
 - **FR-005**: The existing no-greeting guardrail (output starts directly with the list, no greeting or meta-commentary) MUST be preserved in the rewritten instruction.
-- **FR-006**: The multi-part combine step for Kontakter MUST merge sections by exact trimmed heading text: person sections in first-seen order, detail lines deduplicated per section by exact trimmed match, preserving first-seen line order.
+- **FR-006**: The multi-part combine step for Kontakter MUST merge sections by exact trimmed heading text: person sections in first-seen order, detail lines deduplicated per section by exact trimmed match, preserving first-seen line order. Dedup is per-section ONLY — an identical detail line appearing under two different person headings is preserved under both (collapsing it would force choosing one owner, i.e. fabricated attribution).
 - **FR-007**: The combine step MUST pin the "## Övriga uppgifter" section (exact trimmed heading match) to the END of the combined output, after all person sections, regardless of which part produced it or where it was first seen.
 - **FR-008**: The combine step MUST fold detail lines that appear before any heading in a part result into the "## Övriga uppgifter" section (they are unattributed by definition), replacing the previous heading-less leading section.
 - **FR-009**: The combine step MUST preserve a person section whose heading was seen but which has no detail lines (a found name is extracted information and must not be silently dropped).
 - **FR-010**: The previous canonical category-heading ordering (Namn, Adresser, Personnummer, Telefonnummer, E-post) MUST be removed from the combine step — those headings no longer have special status and, if a model still emits one, it merges like any other heading in first-seen order.
 - **FR-011**: Both mirrored copies of the Kontakter long help text MUST be updated to describe per-person grouping in natural Swedish, MUST remain word-for-word identical to each other, and MUST pass the existing drift guard. The Swedish copy passes the humanizer review gate before shipping.
-- **FR-012**: The single-part path (short documents) MUST remain a pass-through of the model's output, unchanged by this spec — only the instruction text changes what the model produces.
+- **FR-012**: The single-part path (short documents) MUST remain a byte-identical pass-through of the model's output, unchanged by this spec — only the instruction text changes what the model produces. The deterministic ordering/dedup guarantees (FR-006–FR-010) apply to the multi-part combine step only.
 - **FR-013**: This spec MUST NOT add any PII scrubbing or redaction to the Kontakter zone — extracting contact details verbatim is the zone's purpose; the deterministic PII replacement introduced for Anonymisera (spec 039) stays anonymisera-only.
 - **FR-014**: The change MUST introduce no new outbound network calls, no new dependencies, and no UI changes beyond the help text (Principle I; same single localhost inference path).
 
