@@ -210,13 +210,13 @@ Read these files WHEN you need them — do not load everything upfront:
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 
-- Active spec: `specs/042-privacy-visibility/spec.md`
-- Allium spec: `specs/042-privacy-visibility/spec.allium`
-- Implementation plan: `specs/042-privacy-visibility/plan.md`
-- Research notes: `specs/042-privacy-visibility/research.md`
-- Data model: `specs/042-privacy-visibility/data-model.md`
-- Contracts: `specs/042-privacy-visibility/contracts/privacy-copy.md`
-- Quickstart: `specs/042-privacy-visibility/quickstart.md`
+- Active spec: `specs/037-native-window-smoke/spec.md`
+- Allium spec: `specs/037-native-window-smoke/spec.allium`
+- Implementation plan: `specs/037-native-window-smoke/plan.md`
+- Research notes: `specs/037-native-window-smoke/research.md`
+- Data model: `specs/037-native-window-smoke/data-model.md`
+- Contracts: `specs/037-native-window-smoke/contracts/harness.md`
+- Quickstart: `specs/037-native-window-smoke/quickstart.md`
 
 Previous specs (completed): `specs/036-study-method-zones/`, `specs/038-chunked-summarization/`, `specs/039-anonymisera-hardening/`, `specs/040-kontakter-per-person/`, `specs/041-custom-instructions/`.
 
