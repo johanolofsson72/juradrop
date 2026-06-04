@@ -131,10 +131,11 @@ deferred Replacement.format_normalization
 -- "19850312-1234" vs "850312-1234" form gets two indices). Shape-based v1;
 -- normalize-before-index is a quality improvement if field feedback demands.
 
--- (Resolved 2026-06-04, user decision FIX NOW: the formerly-deferred
--- swedish_char_emails gap is in scope — the shared email pattern is widened
--- to match å/ä/ö in the local part, fixing scrub AND sweep at the single
--- source. See FR-009.)
+-- (Resolved 2026-06-04, user decision FIX NOW. Implementation correction:
+-- Rust regex \w is Unicode-aware by default, so å-emails were ALREADY fully
+-- matched — the gap premise came from other engines' \w semantics. FR-009
+-- delivered as: explicit å/ä/ö in the char class + a pinning test asserting
+-- the full match, locking the guarantee against engine/flag drift.)
 invariant EmailPatternCoversSwedishChars {
     for result in ScrubResults:
         result.email_pattern_matches_swedish_local_parts = true

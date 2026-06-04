@@ -54,6 +54,9 @@ pub mod rtf_extract;
 // Spec 014 — Anonymisera output-side PII-residue sweep.
 pub mod pii_sweep;
 
+// Spec 039 — Anonymisera input-side deterministic structured-PII replacement.
+pub mod pii_scrub;
+
 // Spec 038 — structure-aware chunking for long documents.
 pub mod chunking;
 

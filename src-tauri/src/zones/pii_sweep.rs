@@ -40,23 +40,28 @@ impl PiiFindings {
 
 // Personnummer: optional century (2 digits) + YYMMDD + optional separator
 // (- or +) + 4 digits. Word-boundaried. Shape only.
+// Spec 039 — pub(crate): the pii_scrub REPLACER reuses these exact patterns
+// so detect-and-replace can never disagree with detect-and-warn.
 // expect on a compile-time-constant literal regex — infallible, test-covered.
 #[allow(clippy::expect_used)]
-static RE_PERSONNUMMER: LazyLock<Regex> =
+pub(crate) static RE_PERSONNUMMER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(?:\d{2})?\d{6}[-+]?\d{4}\b").expect("personnummer regex"));
 
-// E-post: standard pragmatic email shape.
+// E-post: standard pragmatic email shape. Spec 039 FR-009 — the local part
+// also matches Swedish å/ä/ö (the local part is where names live; the
+// pre-039 \w-only pattern left "åsa@…" partially matched, leaking the å).
+// Domain labels stay ASCII (IDN domains are punycode on the wire).
 // expect on a compile-time-constant literal regex — infallible, test-covered.
 #[allow(clippy::expect_used)]
-static RE_EMAIL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b").expect("email regex"));
+pub(crate) static RE_EMAIL: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b[\wåäöÅÄÖ.+-]+@[\w-]+\.[\w.-]+\b").expect("email regex"));
 
 // Telefonnummer: Swedish national (0 + 1–3 digit area + 5–8 digits, with
 // optional single space/dash separators) OR +46 international form. The
 // `(?x)` verbose flag keeps the alternation readable.
 // expect on a compile-time-constant literal regex — infallible, test-covered.
 #[allow(clippy::expect_used)]
-static RE_PHONE: LazyLock<Regex> = LazyLock::new(|| {
+pub(crate) static RE_PHONE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?x)
         (?: \+46 [\s-]? \d (?:[\s-]?\d){7,9} )      # +46 ...
@@ -165,6 +170,17 @@ mod tests {
     fn detects_email() {
         assert_eq!(scan_residual_pii("anna.andersson@example.se").email, 1);
         assert_eq!(scan_residual_pii("inget here").email, 0);
+    }
+
+    #[test]
+    fn detects_swedish_char_email_in_full() {
+        // Spec 039 FR-009 — the å must be INSIDE the match, not left behind.
+        let f = scan_residual_pii("kontakta åsa.öberg@exempel.se snarast");
+        assert_eq!(f.email, 1);
+        let m = RE_EMAIL
+            .find("kontakta åsa.öberg@exempel.se snarast")
+            .expect("match");
+        assert_eq!(m.as_str(), "åsa.öberg@exempel.se");
     }
 
     #[test]

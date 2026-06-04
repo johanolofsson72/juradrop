@@ -24,6 +24,7 @@ use super::input_format::InputFormat;
 use super::job::DropJob;
 use super::md_write::build_sidecar as build_md_sidecar;
 use super::output_format::OutputFormat;
+use super::pii_scrub;
 use super::pii_sweep;
 use super::sidecar_path::{resolve_target_format, write_atomically};
 use super::snapshot::{JobOutcome, ZoneSnapshot, ZoneState};
@@ -217,11 +218,32 @@ impl DropZone {
             }
         };
 
+        // Spec 039 — Anonymisera-only: replace structured PII (personnummer,
+        // telefonnummer, e-post) DETERMINISTICALLY before the model ever
+        // sees the text. Runs on the WHOLE extracted text BEFORE chunking so
+        // placeholder indices are globally consistent across chunks. What
+        // the model never sees it cannot leak; the spec-014 sweep stays as
+        // the net for fabricated PII. Every other zone gets byte-identical
+        // input (a summary saying "[Telefon 1]" would be wrong). Wrapped in
+        // Redacted immediately — the value→index registry never leaves the
+        // scrub function's stack (FR-007).
+        let scrubbed = if self.id == ZoneId::Anonymisera {
+            Some(Redacted::new(
+                pii_scrub::scrub_structured_pii(extracted.raw.as_inner()).text,
+            ))
+        } else {
+            None
+        };
+        let model_input: &str = match &scrubbed {
+            Some(s) => s.as_inner(),
+            None => extracted.raw.as_inner(),
+        };
+
         // Step 2 (spec 038): build the chunk plan. Documents that fit one
         // model pass take exactly the pre-038 path (one framed generate);
         // longer documents run one pass per chunk with per-part Swedish
         // progress, then combine per the zone's strategy.
-        let plan = chunking::split_into_chunks(extracted.raw.as_inner());
+        let plan = chunking::split_into_chunks(model_input);
         let strategy = self.id.combine_strategy();
 
         // Generera is exempt: its input is user instructions, never a
