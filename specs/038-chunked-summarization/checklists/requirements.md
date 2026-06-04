@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain (3 markers — resolved in /clarify, see Notes)
+- [x] No [NEEDS CLARIFICATION] markers remain (3 markers resolved in /clarify session 2026-06-04, + 1 scope question; see spec ## Clarifications)
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)

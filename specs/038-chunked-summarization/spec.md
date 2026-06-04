@@ -8,6 +8,15 @@
 
 **Input**: User description: "Field bug from beta tester Meja (2026-06-04): dropping a 30- or 100-page document on a transform zone only processes the beginning of the text. The app hard-cuts extracted text at 24,000 characters (~20 pages) before it reaches the model, and the model call sets no explicit context window, so long input can be silently clipped a second time inside the model. Long documents must be split into chunks, each chunk processed per the zone's task, and the results combined per zone semantics — so the whole document is processed, not just the beginning."
 
+## Clarifications
+
+### Session 2026-06-04
+
+- Q: Anonymisera cross-chunk placeholder consistency — same person may get different placeholders in different chunks? → A: Accept per-chunk independence; multi-chunk Anonymisera output carries an honest Swedish disclaimer that placeholder labels can differ between document sections and need review (structured PII moves to deterministic replacement in spec 039).
+- Q: Chunked-processing ceiling — size and unit? → A: Ceiling is 12 chunks (~288,000 characters ≈ ~240 pages), expressed in chunks because chunk count is what bounds worst-case wall clock; documents beyond it are processed up to the ceiling with the honest disclaimer.
+- Q: Strukturera (IRAC) long-document strategy? → A: Condense-then-structure — per-chunk condensation (reduce) first, then the IRAC structuring runs once on the condensate, preserving whole-document reasoning; the zone's existing disclaimer covers the quality caveat.
+- Q: Cancel affordance for multi-minute chunked runs? → A: Out of scope for 038 — the 12-chunk ceiling plus the existing per-chunk timeout bounds worst case; cancellation is a candidate future register row if field feedback demands it.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Summarize a long document end to end (Priority: P1)
@@ -37,7 +46,7 @@ A student drops a 40-page English-language ruling on Till svenska. The full text
 **Acceptance Scenarios**:
 
 1. **Given** a long document with distinguishable sections from start to finish, **When** dropped on an ordered-transform zone, **Then** the output contains transformed counterparts of all sections in the original order with no gaps at chunk boundaries.
-2. **Given** a long document, **When** dropped on Anonymisera, **Then** every part of the document is anonymized (not only the first chunk) and the output discloses any cross-section placeholder-consistency limitation. [NEEDS CLARIFICATION: placeholder consistency across chunks — the same person appearing in chunk 1 and chunk 3 may receive different placeholders ("Person A" vs "Person B") because chunks are processed independently. Accept with an honest disclaimer, or require a cross-chunk identity-consistency mechanism?]
+2. **Given** a long document, **When** dropped on Anonymisera, **Then** every part of the document is anonymized (not only the first chunk), and **because chunks are anonymized independently** the multi-chunk output carries an honest Swedish disclaimer that placeholder labels (e.g. "Person A") can differ between document sections and the result must be reviewed. Single-chunk Anonymisera output is unchanged.
 
 ---
 
@@ -77,10 +86,10 @@ Processing a 100-page document means several model passes and can take minutes. 
 - Document length exactly at / one character over the single-pass limit — must not produce a degenerate tiny second chunk that the model handles poorly.
 - Chunk boundaries must respect text structure: never split mid-word; prefer paragraph breaks, fall back to sentence breaks (Swedish abbreviations like "t.ex.", "bl.a.", "kap." must not be treated as sentence ends), fall back to whitespace.
 - A single paragraph longer than a whole chunk (e.g. machine-generated text with no line breaks) must still be split safely.
-- Documents above the chunked-processing ceiling: behavior must remain honest — process up to the ceiling and disclose, with the existing-style disclaimer. [NEEDS CLARIFICATION: what is a sane ceiling for total processed length — bounded by worst-case wall-clock on the slowest tier (llama3.2:1b on a base M-series Mac), e.g. ~30 minutes — and should the ceiling be expressed in characters or chunks?]
+- Documents above the chunked-processing ceiling (12 chunks ≈ ~240 pages): processed up to the ceiling with the existing-style honest disclaimer naming what was skipped. The ceiling is expressed in chunks because chunk count bounds worst-case wall clock (~30 minutes on the slowest practical tier).
 - The combine pass input (concatenated per-chunk results) can itself exceed the single-pass limit — the combine step must handle its own input recursively or bound per-chunk output so this cannot occur.
 - A model that loops/repeats on one chunk (small-model failure mode) must not stall the whole run indefinitely — existing per-call timeouts apply per chunk.
-- The whole-document-reasoning zone Strukturera (IRAC) cannot be naively chunk-concatenated: the rättsfråga may be stated on page 3 and the conclusion on page 95, and an IRAC produced per chunk is structurally wrong. [NEEDS CLARIFICATION: long-document strategy for Strukturera — condense-then-structure (map-reduce summarize first, then IRAC the condensate), or keep single-pass with honest truncation disclaimer for this one zone?]
+- The whole-document-reasoning zone Strukturera (IRAC) cannot be naively chunk-concatenated: the rättsfråga may be stated on page 3 and the conclusion on page 95, and an IRAC produced per chunk is structurally wrong. Resolved strategy: **condense-then-structure** — per-chunk condensation (reduce) first, then the IRAC structuring runs once on the condensate, so the whole document informs one coherent rättsfråga→slutsats chain. The zone's existing review disclaimer covers the condensation quality caveat.
 - Empty or whitespace-only chunks after splitting must be skipped, not sent to the model.
 - The sidecar consistency check for Anonymisera (PII residue sweep) must run on the full combined output, not per chunk.
 - Concurrency: a long run occupies the model for minutes; simultaneous drops on other zones must still behave per the existing concurrency semantics (spec 017).
@@ -92,7 +101,7 @@ Processing a 100-page document means several model passes and can take minutes. 
 - **FR-001**: The system MUST process the entire extracted text of a dropped document (up to the documented ceiling), not only its first 24,000 characters.
 - **FR-002**: Documents that fit within a single model pass MUST be processed exactly as today: one model call, no chunking, byte-identical output path.
 - **FR-003**: Documents exceeding the single-pass limit MUST be split into chunks at text-structure-aware boundaries (paragraph preferred, then sentence, then whitespace; never mid-word), each chunk processed with the zone's task, and the results combined per the zone's combine semantics.
-- **FR-004**: Each zone MUST declare its combine semantics: **reduce** (Sammanfatta, Punktlista — per-chunk partial results condensed by a final combine pass into one coherent result honoring the zone's output conventions), **concat** (Till engelska, Till svenska, Förenkla, Anonymisera — per-chunk transforms joined in original order), **aggregate** (Kontakter, Källor, Identifiera, Förklara — per-chunk extractions merged with duplicates removed). Generera is exempt (its input is user instructions, not a document).
+- **FR-004**: Each zone MUST declare its combine semantics: **reduce** (Sammanfatta, Punktlista — per-chunk partial results condensed by a final combine pass into one coherent result honoring the zone's output conventions), **concat** (Till engelska, Till svenska, Förenkla, Anonymisera — per-chunk transforms joined in original order), **aggregate** (Kontakter, Källor, Identifiera, Förklara — per-chunk extractions merged with duplicates removed), **condense-then-structure** (Strukturera — per-chunk condensation first, then the structuring task runs once on the condensate). Generera is exempt (its input is user instructions, not a document).
 - **FR-005**: Every model call MUST declare an explicit context-window size sufficient for the prompt framing + chunk + expected response, on all three model tiers, so input is never silently clipped inside the model runtime.
 - **FR-006**: The existing truncation disclaimer MUST appear only when content was genuinely not processed (document exceeds the chunked-processing ceiling), and MUST NOT appear for any document fully processed via chunking.
 - **FR-007**: The prompt-injection framing (DOKUMENT BÖRJAR/SLUTAR markers + guard, spec 022) MUST wrap every chunk and every combine-pass input that contains document-derived content.
@@ -101,7 +110,8 @@ Processing a 100-page document means several model passes and can take minutes. 
 - **FR-010**: The Anonymisera PII residue sweep (spec 014) MUST run on the final combined output.
 - **FR-011**: Chunked processing MUST work on all three model tiers (Snabb/Smart/Stor); chunk sizing MAY differ per tier but the user-visible contract (whole document processed) is identical.
 - **FR-012**: Processing MUST remain local-only: chunking introduces no new outbound traffic and no persistence of document content beyond the existing sidecar output (Principle I).
-- **FR-013**: A document above the chunked-processing ceiling MUST be processed up to the ceiling with the honest disclaimer naming what was skipped (e.g. "endast de första N sidorna/delarna").
+- **FR-013**: A document above the chunked-processing ceiling of **12 chunks (~288,000 characters)** MUST be processed up to the ceiling with the honest disclaimer naming what was skipped (e.g. "endast de första N delarna").
+- **FR-014**: Multi-chunk Anonymisera output MUST carry an honest Swedish disclaimer that placeholder labels can differ between document sections (chunks are anonymized independently) and the result must be reviewed; single-chunk output is unchanged.
 
 ### Key Entities
 
@@ -130,3 +140,4 @@ Processing a 100-page document means several model passes and can take minutes. 
 - The existing 50 MB pre-read file guard (spec 024) remains the outer bound on input size; the chunked-processing ceiling sits far below it.
 - Combine-pass quality on small models (a summary of summaries on llama3.2:1b) is inherently weaker than single-pass quality on short documents; the contract is full-document *coverage*, not large-model-grade prose.
 - Auto-clear timers, drag-drop mechanics, file-type support, and output-format mirroring are untouched by this feature.
+- Cancellation of an in-flight chunked run is **out of scope** (clarified 2026-06-04): no cancel affordance exists today for single-pass runs either; the 12-chunk ceiling plus the existing per-chunk timeout bounds worst-case duration. Candidate future register row if field feedback demands it.
