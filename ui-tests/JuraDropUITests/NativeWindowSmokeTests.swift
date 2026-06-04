@@ -22,12 +22,26 @@ final class NativeWindowSmokeTests: XCTestCase {
 
     private var env: [String: String] { ProcessInfo.processInfo.environment }
 
-    /// Launch the app under test with the hermetic seam, register teardown.
+    /// Launch the app under test BY URL — never by bundle id.
+    ///
+    /// EMPIRICAL FINDING (probe phase, the real culprit): a bundle-id
+    /// launch lets LaunchServices resolve `se.noisycricket.juradrop`,
+    /// which on a developer machine resolves to the INSTALLED RELEASE
+    /// copy in /Applications — a binary with no debug seam, silently
+    /// talking to the developer's real Ollama. Launching by the exact
+    /// bundle URL pins the freshly-built debug app. The hermetic seam is
+    /// delivered twice (belt and braces): launchEnvironment AND the
+    /// debug-only file channel (/tmp/juradrop-ollama-url-override) the
+    /// runner writes — the runner's hermeticity tripwire (mock must
+    /// serve the generation) catches any future regression of both.
     private func launchJuraDrop() throws -> XCUIApplication {
         guard let mockURL = env["JURADROP_OLLAMA_URL"], !mockURL.isEmpty else {
             throw XCTSkip("JURADROP_OLLAMA_URL not set — run via scripts/native-smoke.sh")
         }
-        let app = XCUIApplication(bundleIdentifier: Self.bundleId)
+        guard let bundlePath = env["JURADROP_APP_BUNDLE"], !bundlePath.isEmpty else {
+            throw XCTSkip("JURADROP_APP_BUNDLE not set — run via scripts/native-smoke.sh")
+        }
+        let app = XCUIApplication(url: URL(fileURLWithPath: bundlePath))
         app.launchEnvironment = ["JURADROP_OLLAMA_URL": mockURL]
         app.launch()
         addTeardownBlock {

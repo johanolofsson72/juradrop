@@ -119,6 +119,7 @@ npm run test:e2e                               # playwright (stub — replaced b
 cd src-tauri && cargo test                     # Rust unit tests
 cd src-tauri && cargo clippy -- -D warnings    # Rust lints
 cd src-tauri && cargo fmt -- --check           # Rust format check
+scripts/native-smoke.sh                        # native XCUITest mot riktiga .app:en (opt-in, kräver Xcode + GUI)
 ```
 
 Every command should exit 0 on a clean checkout.

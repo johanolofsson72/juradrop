@@ -176,3 +176,24 @@ Before anything is declared "done":
 1. `dotnet build` — no compilation errors
 2. `dotnet test` — all unit tests pass
 3. `dotnet test --filter "Category=UI"` — all E2E tests pass (including destructive tests)
+
+## Native window smoke (spec 037 — macOS XCUITest, OPT-IN ONLY)
+
+The only suite that drives the REAL built `.app` (real WKWebView, real IPC,
+real `NSOpenPanel`). Local-only by register amendment — deliberately absent
+from `npm test`, `cargo test`, Playwright, and CI (github-actions budget rule).
+
+```bash
+scripts/native-smoke.sh              # build-if-stale → mock → XCUITest → clean
+scripts/native-smoke.sh --probe-only # just the a11y exposure probe (test00)
+```
+
+- Hermetic: the app launches against `scripts/mock-ollama.py` via the
+  debug-only seam (env + `/tmp/juradrop-ollama-url-override` file channel);
+  a green run REQUIRES the mock to have served the generation (tripwire).
+- CRITICAL: tests launch the app by exact bundle URL — NEVER by bundle id
+  (LaunchServices resolves the id to an installed release copy in
+  /Applications, which has no seam and talks to a real Ollama).
+- Cadence: run when native wiring changes (drop/pick paths, window config,
+  IPC surface) or before a release. Needs a GUI session + a one-time
+  macOS automation permission grant (the runner's preflight explains).

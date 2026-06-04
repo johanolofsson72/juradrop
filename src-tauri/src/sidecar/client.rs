@@ -82,12 +82,27 @@ impl OllamaClient {
     /// the e2e smoke test can point the live construction path at a mock.
     /// Release builds NEVER read the env var (Principle I /
     /// `ReleaseUsesLocalhostOnly`) — the loopback URL is hardcoded.
+    ///
+    /// Spec 037 — debug-only FILE fallback for the same seam: macOS strips
+    /// the env var on every XCUITest launch path (launchEnvironment does
+    /// not survive bundle-id launch; testmanagerd ignores launchd session
+    /// env; externally-started instances cannot be attached). The native
+    /// smoke runner writes the mock URL to `/tmp/juradrop-ollama-url-
+    /// override` and removes it in its cleanup trap. The branch is
+    /// `#[cfg(debug_assertions)]`-gated like the env seam — release
+    /// builds never read the file.
     pub fn new() -> Self {
         #[cfg(debug_assertions)]
         {
             if let Ok(url) = std::env::var("JURADROP_OLLAMA_URL") {
                 if !url.is_empty() {
                     return Self::with_base_url(url);
+                }
+            }
+            if let Ok(url) = std::fs::read_to_string("/tmp/juradrop-ollama-url-override") {
+                let url = url.trim();
+                if !url.is_empty() {
+                    return Self::with_base_url(url.to_string());
                 }
             }
         }
@@ -355,12 +370,45 @@ mod tests {
         assert_eq!(json["options"]["num_ctx"], 8192);
     }
 
+    /// Spec 037 — the file fallback is process-global too; clear both
+    /// seam channels before asserting defaults.
+    fn clear_seam_channels() {
+        std::env::remove_var("JURADROP_OLLAMA_URL");
+        let _ = std::fs::remove_file("/tmp/juradrop-ollama-url-override");
+    }
+
     #[test]
     fn client_uses_loopback_base_url() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var("JURADROP_OLLAMA_URL");
+        clear_seam_channels();
         let c = OllamaClient::new();
         assert!(c.base_url().starts_with("http://127.0.0.1"));
+    }
+
+    // Spec 037 — the debug-only FILE fallback (macOS strips the env var on
+    // every XCUITest launch path; the native smoke runner writes this file
+    // and removes it in its cleanup trap). Env var, when present, wins.
+    #[test]
+    fn debug_seam_file_fallback_overrides_when_env_absent() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_seam_channels();
+        std::fs::write(
+            "/tmp/juradrop-ollama-url-override",
+            "http://127.0.0.1:43210\n",
+        )
+        .expect("write override file");
+        let c = OllamaClient::new();
+        assert_eq!(c.base_url(), "http://127.0.0.1:43210");
+        // Env var takes precedence over the file.
+        std::env::set_var("JURADROP_OLLAMA_URL", "http://127.0.0.1:54321");
+        let c2 = OllamaClient::new();
+        assert_eq!(c2.base_url(), "http://127.0.0.1:54321");
+        // Whitespace-only file content must NOT override.
+        clear_seam_channels();
+        std::fs::write("/tmp/juradrop-ollama-url-override", "  \n").expect("write");
+        let c3 = OllamaClient::new();
+        assert_eq!(c3.base_url(), BASE_URL);
+        clear_seam_channels();
     }
 
     // Spec 013 FR-015 — debug-only seam: a non-empty JURADROP_OLLAMA_URL
@@ -371,6 +419,7 @@ mod tests {
     #[test]
     fn debug_seam_overrides_base_url_when_env_set() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_seam_channels();
         std::env::set_var("JURADROP_OLLAMA_URL", "http://127.0.0.1:54321");
         let c = OllamaClient::new();
         // In debug builds (cargo test default profile) the seam is active.

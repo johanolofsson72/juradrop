@@ -74,6 +74,41 @@ fn seam_env_read_is_debug_gated_in_production_code() {
     }
 }
 
+// Spec 037 — the FILE fallback channel of the same seam (added because
+// macOS strips the env var on every XCUITest launch path) must obey the
+// identical discipline: every production read of the override file path
+// sits inside the #[cfg(debug_assertions)] gate.
+#[test]
+fn seam_file_fallback_is_debug_gated_in_production_code() {
+    const OVERRIDE_PATH: &str = "juradrop-ollama-url-override";
+    let prod = production_region(CLIENT_SRC);
+    let lines: Vec<&str> = prod.lines().collect();
+    let mut found = false;
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("//") || trimmed.starts_with("///") {
+            continue;
+        }
+        if line.contains(OVERRIDE_PATH) {
+            found = true;
+            let start = i.saturating_sub(12);
+            let gated = lines[start..i]
+                .iter()
+                .any(|l| l.contains("#[cfg(debug_assertions)]"));
+            assert!(
+                gated,
+                "the override-file read at production line {} is NOT inside a \
+                 #[cfg(debug_assertions)] gate — Principle I violation",
+                i + 1
+            );
+        }
+    }
+    assert!(
+        found,
+        "expected the spec-037 file-fallback read in production code"
+    );
+}
+
 #[test]
 fn no_unconditional_env_read_outside_debug_gate() {
     // Guard against a future refactor that reads the var at module scope
