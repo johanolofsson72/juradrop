@@ -210,14 +210,15 @@ Read these files WHEN you need them — do not load everything upfront:
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 
-- Active spec: `specs/036-study-method-zones/spec.md`
-- Allium spec: `specs/036-study-method-zones/spec.allium`
-- Implementation plan: `specs/036-study-method-zones/plan.md`
-- Research notes: `specs/036-study-method-zones/research.md`
-- Data model: `specs/036-study-method-zones/data-model.md`
-- Quickstart: `specs/036-study-method-zones/quickstart.md`
+- Active spec: `specs/038-chunked-summarization/spec.md`
+- Allium spec: `specs/038-chunked-summarization/spec.allium`
+- Implementation plan: `specs/038-chunked-summarization/plan.md`
+- Research notes: `specs/038-chunked-summarization/research.md`
+- Data model: `specs/038-chunked-summarization/data-model.md`
+- Contracts: `specs/038-chunked-summarization/contracts/chunking.md`
+- Quickstart: `specs/038-chunked-summarization/quickstart.md`
 
-Previous specs (completed): `specs/034-tier-download-pull-timeout/`, `specs/035-unwrap-audit/`.
+Previous specs (completed): `specs/034-tier-download-pull-timeout/`, `specs/035-unwrap-audit/`, `specs/036-study-method-zones/`.
 
 Previous specs (completed): `specs/001-tauri-bootstrap/`, `specs/002-ollama-sidecar-poc/`, `specs/003-first-zone-sammanfatta/`, `specs/004-all-six-zones/`, `specs/005-additional-input-formats/`, `specs/006-signing-and-ci/`, `specs/007-auto-updater/`, `specs/008-first-run-wizard/`, `specs/009-long-tail-formats/`, `specs/010-settings-panel/`, `specs/011-error-recovery/`, `specs/012-polish-and-public-beta/`
 <!-- SPECKIT END -->
