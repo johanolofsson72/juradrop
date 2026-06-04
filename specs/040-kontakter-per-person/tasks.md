@@ -35,7 +35,7 @@ No setup tasks — no new files, deps, or infrastructure. Existing module layout
 
 **Independent Test**: Canned output with an Övriga section round-trips; merge-level guarantees covered in US3 tests.
 
-- [ ] T005 [US2] Extend src-tauri/tests/zone_pipeline_kontakter.rs canned fixture with an `## Övriga uppgifter` section holding an orphan detail; assert it survives to the sidecar verbatim and appears after the person sections (single-part pass-through — position is model-emitted here, deterministic in US3)
+- [ ] T005 [US2] Extend src-tauri/tests/zone_pipeline_kontakter.rs with a second canned fixture where `## Övriga uppgifter` is deliberately NOT last (model disobedience); assert the sidecar preserves the model's section order exactly — pinning FR-012: the single-part path is a pass-through with NO reordering/normalization (the deterministic Övriga-last guarantee is multi-part-only, US3). Also assert the orphan detail survives verbatim (analyze G1 remediation)
 
 **Checkpoint**: Övriga section round-trips end-to-end.
 
