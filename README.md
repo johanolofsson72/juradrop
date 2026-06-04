@@ -23,7 +23,7 @@ JuraDrop är en macOS-app för svenska juridikstudenter. Dra ett Word- eller PDF
 | **Punktlista** | Plockar ut nyckelpunkter som listpunkter |
 | **Anonymisera** | Ersätter namn, adresser och personnummer med `[Person 1]`, `[Adress 1]`, `[Personnr 1]` |
 | **Förenkla** | Skriver om juridisk svenska i klarspråk |
-| **Plocka ut kontaktuppgifter** | Listar namn, adresser, personnummer, telefon och e-post var för sig |
+| **Plocka ut kontaktuppgifter** | Samlar adress, personnummer, telefon och e-post under varje persons namn |
 | **Generera juridisk text** | Skriver ett utkast utifrån en kort instruktion (`.txt`/`.md`) |
 | **Källförteckning** | Samlar lagar, rättsfall och litteratur i en förteckning |
 

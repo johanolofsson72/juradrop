@@ -45,7 +45,7 @@ pub async fn run_zone_pipeline(
     mock_response: &str,
     markers: &[&str],
 ) {
-    run_zone_pipeline_checked(zone, fixture_name, mock_response, markers, &[]).await;
+    let _ = run_zone_pipeline_checked(zone, fixture_name, mock_response, markers, &[]).await;
 }
 
 /// As `run_zone_pipeline`, plus (f) the sidecar MUST NOT contain any of the
@@ -59,7 +59,7 @@ pub async fn run_zone_pipeline_checked(
     mock_response: &str,
     markers: &[&str],
     forbidden: &[&str],
-) {
+) -> String {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -174,6 +174,10 @@ pub async fn run_zone_pipeline_checked(
     }
 
     println!("{zone:?}: sidecar {sidecar:?} OK ({} chars)", text.len());
+
+    // Returned so callers can assert ORDER properties the contains-checks
+    // above cannot (spec 040 T005: single-part pass-through section order).
+    text.to_string()
 }
 
 fn find_sidecar(dir: &Path, needle: &str) -> Option<PathBuf> {

@@ -208,11 +208,20 @@ async fn kontakter_multi_chunk_aggregates_with_exactly_once_dedup() {
     let doc = long_doc_with_sentinels(30_000, &["KONTAKT-ETT", "KONTAKT-TVA"]);
     assert_eq!(split_into_chunks(&doc).chunks.len(), 2);
 
-    // The same number appears in both chunks; a unique number only in the
-    // final chunk (the page-70-phone-number case from the field report).
+    // Spec 040: per-person parts. The same person appears in both chunks
+    // with an overlapping detail (dedup) and a chunk-2-only detail
+    // (union — the page-70-phone-number case from the field report).
+    // An unattributable detail arrives in the FIRST chunk: the merge must
+    // still pin "## Övriga uppgifter" after every person section.
     let templates = vec![
-        ok_generate("## Telefonnummer\n\n- 046-222 00 00"),
-        ok_generate("## Telefonnummer\n\n- 046-222 00 00\n- 070-123 45 67"),
+        ok_generate(
+            "## Övriga uppgifter\n\n- Telefon: 046-222 00 00\n\n\
+             ## David Dahl\n\n- Telefon: 070-123 45 67",
+        ),
+        ok_generate(
+            "## David Dahl\n\n- Telefon: 070-123 45 67\n- E-post: david@exempel.se\n\n\
+             ## Eva Ek\n\n- Personnummer: 19850312-1234",
+        ),
     ];
     let setup = ChunkedSetup::new(ZoneId::Kontakter, &doc, templates).await;
     setup.drop_file().await;
@@ -221,11 +230,23 @@ async fn kontakter_multi_chunk_aggregates_with_exactly_once_dedup() {
     // Deterministic merge: exactly 2 model calls, no combine pass.
     assert_eq!(setup.generate_bodies().await.len(), 2);
 
-    // SC-003: the tail-only item present exactly once; the duplicate
-    // deduplicated to exactly once.
-    assert_eq!(sidecar.matches("070-123 45 67").count(), 1);
-    assert_eq!(sidecar.matches("046-222 00 00").count(), 1);
-    assert_eq!(sidecar.matches("## Telefonnummer").count(), 1);
+    // SC-003: ONE section for the cross-chunk person; overlapping detail
+    // exactly once; chunk-2-only details exactly once.
+    assert_eq!(sidecar.matches("## David Dahl").count(), 1);
+    assert_eq!(sidecar.matches("- Telefon: 070-123 45 67").count(), 1);
+    assert_eq!(sidecar.matches("- E-post: david@exempel.se").count(), 1);
+    assert_eq!(sidecar.matches("- Telefon: 046-222 00 00").count(), 1);
+    assert_eq!(sidecar.matches("## Övriga uppgifter").count(), 1);
+
+    // SC-002: Övriga uppgifter is the LAST heading even though chunk 1
+    // produced it first (deterministic pin, not model obedience).
+    let ovriga = sidecar.find("## Övriga uppgifter").expect("ovriga");
+    let david = sidecar.find("## David Dahl").expect("david");
+    let eva = sidecar.find("## Eva Ek").expect("eva");
+    assert!(
+        david < ovriga && eva < ovriga,
+        "Övriga uppgifter must render after every person section:\n{sidecar}"
+    );
 }
 
 // ===== T014b + T017(1) — all-or-nothing failure ===========================

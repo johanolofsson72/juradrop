@@ -252,45 +252,49 @@ fn dot_ends_abbreviation(window: &str, dot_idx: usize) -> bool {
     matches!((chars.next(), chars.next(), chars.next()), (Some(c), Some('.'), None) if c.is_alphabetic())
 }
 
-/// Kontakter: group `- ` bullets under their `## ` headings across parts,
-/// canonical category order first, then unknown headings in first-seen
-/// order; exact-trim dedup per heading. Headingless bullets keep a
-/// headingless leading section.
+/// Spec 040 — the reserved catch-all heading for unattributable contact
+/// details. Single source of truth shared by the merge below (which pins
+/// this section last) and the Kontakter prompt-agreement test (which
+/// asserts the system prompt demands exactly this heading), so prompt
+/// and merge can never disagree — same pattern as spec 039's shared PII
+/// regexes.
+pub(crate) const OVRIGA_HEADING: &str = "## Övriga uppgifter";
+
+/// Kontakter (spec 040): one section per PERSON. Sections are keyed by
+/// exact trimmed `## ` heading text and merge across parts in first-seen
+/// order (no canonical category order — spec 040 FR-010 removed it).
+/// `OVRIGA_HEADING` is pinned LAST regardless of where it was first
+/// seen; lines arriving before any heading in a part (including whole
+/// heading-less parts) fold into it — unattributed by definition.
+/// Exact-trim dedup per section ONLY: the same line under two different
+/// persons stays under both (cross-section dedup would force choosing
+/// an owner, i.e. fabricated attribution). A person heading with zero
+/// lines is kept as a bare heading (a found name is information); an
+/// empty Övriga section is omitted.
 fn merge_kontakter(parts: &[String]) -> String {
-    const CANONICAL: [&str; 5] = [
-        "## Namn",
-        "## Adresser",
-        "## Personnummer",
-        "## Telefonnummer",
-        "## E-post",
-    ];
-    let mut order: Vec<String> = CANONICAL.iter().map(|s| s.to_string()).collect();
+    // Person sections in first-seen order; the Övriga bucket is separate
+    // so its render position is structural, not first-seen.
     let mut sections: Vec<(String, Vec<String>)> = Vec::new();
-    let mut headingless: Vec<String> = Vec::new();
+    let mut ovriga: Vec<String> = Vec::new();
 
     for part in parts {
-        let mut current: Option<String> = None;
+        // None => unattributed: before any heading, or under Övriga.
+        let mut current: Option<usize> = None;
         for line in part.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("## ") {
-                let heading = trimmed.to_string();
-                if !order.contains(&heading) {
-                    order.push(heading.clone());
+                if trimmed == OVRIGA_HEADING {
+                    current = None;
+                } else if let Some(pos) = sections.iter().position(|(h, _)| h == trimmed) {
+                    current = Some(pos);
+                } else {
+                    sections.push((trimmed.to_string(), Vec::new()));
+                    current = Some(sections.len() - 1);
                 }
-                current = Some(heading);
             } else if !trimmed.is_empty() {
-                let bucket = match &current {
-                    Some(heading) => {
-                        if let Some((_, items)) = sections.iter_mut().find(|(h, _)| h == heading) {
-                            items
-                        } else {
-                            sections.push((heading.clone(), Vec::new()));
-                            // Just pushed — the entry exists.
-                            let last = sections.len() - 1;
-                            &mut sections[last].1
-                        }
-                    }
-                    None => &mut headingless,
+                let bucket = match current {
+                    Some(pos) => &mut sections[pos].1,
+                    None => &mut ovriga,
                 };
                 if !bucket.iter().any(|b| b == trimmed) {
                     bucket.push(trimmed.to_string());
@@ -300,15 +304,16 @@ fn merge_kontakter(parts: &[String]) -> String {
     }
 
     let mut out: Vec<String> = Vec::new();
-    if !headingless.is_empty() {
-        out.push(headingless.join("\n"));
-    }
-    for heading in &order {
-        if let Some((_, items)) = sections.iter().find(|(h, _)| h == heading) {
-            if !items.is_empty() {
-                out.push(format!("{heading}\n\n{}", items.join("\n")));
-            }
+    for (heading, items) in &sections {
+        if items.is_empty() {
+            // Bare person heading survives — a found name is information.
+            out.push(heading.clone());
+        } else {
+            out.push(format!("{heading}\n\n{}", items.join("\n")));
         }
+    }
+    if !ovriga.is_empty() {
+        out.push(format!("{OVRIGA_HEADING}\n\n{}", ovriga.join("\n")));
     }
     out.join("\n\n")
 }
@@ -603,50 +608,133 @@ mod tests {
     // ===== merge_aggregate: G7 exactly-once =====
 
     #[test]
-    fn g7_kontakter_merges_headings_and_dedups() {
-        let p1 = "## Namn\n\n- David Dahl\n- Erik Eriksson\n\n## Telefonnummer\n\n- 08-555 12 34"
-            .to_string();
-        let p2 =
-            "## Namn\n\n- David Dahl\n- Fatima Farah\n\n## E-post\n\n- david.dahl@dahl.exempel.se"
-                .to_string();
+    fn g7_kontakter_merges_person_headings_and_dedups() {
+        // Spec 040: per-person sections, exact-heading keyed across parts.
+        let p1 = "## David Dahl\n\n- Telefon: 08-555 12 34\n\n## Erik Eriksson\n\n- E-post: erik@exempel.se".to_string();
+        let p2 = "## David Dahl\n\n- Telefon: 08-555 12 34\n- E-post: david.dahl@dahl.exempel.se\n\n## Fatima Farah\n\n- Adress: Storgatan 1, 211 34 Malmö".to_string();
         let merged = merge_aggregate(ZoneId::Kontakter, &[p1, p2]);
-        // Exactly once each.
-        assert_eq!(merged.matches("David Dahl").count(), 1);
-        assert_eq!(merged.matches("Erik Eriksson").count(), 1);
-        assert_eq!(merged.matches("Fatima Farah").count(), 1);
-        assert_eq!(merged.matches("08-555 12 34").count(), 1);
-        // Canonical heading order: Namn before Telefonnummer before E-post.
-        let namn = merged.find("## Namn").expect("namn heading");
-        let tel = merged.find("## Telefonnummer").expect("tel heading");
-        let epost = merged.find("## E-post").expect("epost heading");
-        assert!(namn < tel && tel < epost);
-        // No duplicated headings.
-        assert_eq!(merged.matches("## Namn").count(), 1);
+        // ONE section per person (SC-003): cross-part heading dedup.
+        assert_eq!(merged.matches("## David Dahl").count(), 1);
+        assert_eq!(merged.matches("## Erik Eriksson").count(), 1);
+        assert_eq!(merged.matches("## Fatima Farah").count(), 1);
+        // Union of details, duplicate exactly once.
+        assert_eq!(merged.matches("Telefon: 08-555 12 34").count(), 1);
+        assert_eq!(
+            merged.matches("E-post: david.dahl@dahl.exempel.se").count(),
+            1
+        );
+        // First-seen order (M-2): David before Erik before Fatima.
+        let david = merged.find("## David Dahl").expect("david heading");
+        let erik = merged.find("## Erik Eriksson").expect("erik heading");
+        let fatima = merged.find("## Fatima Farah").expect("fatima heading");
+        assert!(david < erik && erik < fatima);
+    }
+
+    #[test]
+    fn g7_kontakter_ovriga_pinned_last_even_when_first_seen_first() {
+        // M-3/FR-007: Övriga seen in part 1 still renders after persons
+        // introduced in part 2.
+        let p1 = format!("{OVRIGA_HEADING}\n\n- Telefon: 046-222 00 00");
+        let p2 = "## Greta Granlund\n\n- E-post: greta@exempel.se".to_string();
+        let merged = merge_aggregate(ZoneId::Kontakter, &[p1, p2]);
+        let ovriga = merged.find(OVRIGA_HEADING).expect("ovriga heading");
+        let greta = merged.find("## Greta Granlund").expect("greta heading");
+        assert!(greta < ovriga, "Övriga must render last: {merged}");
+        assert_eq!(merged.matches(OVRIGA_HEADING).count(), 1);
+    }
+
+    #[test]
+    fn g7_kontakter_cross_person_duplicate_preserved() {
+        // M-5 (clarified): per-section dedup ONLY — the same line under
+        // two persons stays under both (no fabricated owner choice).
+        let p1 = "## Hanna Hall\n\n- Telefon: 070-111 22 33".to_string();
+        let p2 = "## Ivar Isaksson\n\n- Telefon: 070-111 22 33".to_string();
+        let merged = merge_aggregate(ZoneId::Kontakter, &[p1, p2]);
+        assert_eq!(merged.matches("- Telefon: 070-111 22 33").count(), 2);
+    }
+
+    #[test]
+    fn g7_kontakter_bare_person_heading_preserved() {
+        // M-6/FR-009: a person found with no details is still a person.
+        let p1 = "## Johan Jonsson".to_string();
+        let p2 = "## Karin Kvist\n\n- E-post: karin@exempel.se".to_string();
+        let merged = merge_aggregate(ZoneId::Kontakter, &[p1, p2]);
+        assert!(
+            merged.contains("## Johan Jonsson"),
+            "bare heading dropped: {merged}"
+        );
+    }
+
+    #[test]
+    fn g7_kontakter_headingless_part_folds_into_ovriga() {
+        // M-4/FR-008: a whole part with no headings is unattributed.
+        let p1 = "- Telefon: 040-12 34 56\n- E-post: info@exempel.se".to_string();
+        let p2 = "## Lena Lind\n\n- Adress: Kungsvägen 14, Göteborg".to_string();
+        let merged = merge_aggregate(ZoneId::Kontakter, &[p1, p2]);
+        let ovriga = merged.find(OVRIGA_HEADING).expect("ovriga heading");
+        let lena = merged.find("## Lena Lind").expect("lena heading");
+        assert!(lena < ovriga, "Övriga last: {merged}");
+        // The orphan lines live INSIDE the Övriga section (after its heading).
+        let tel = merged.find("- Telefon: 040-12 34 56").expect("orphan tel");
+        assert!(tel > ovriga, "orphan must be under Övriga: {merged}");
+    }
+
+    #[test]
+    fn g7_kontakter_ovriga_only_parts_yield_single_ovriga_section() {
+        let p1 = format!("{OVRIGA_HEADING}\n\n- Telefon: 010-1\n");
+        let p2 = format!("{OVRIGA_HEADING}\n\n- Telefon: 010-1\n- Telefon: 010-2\n");
+        let merged = merge_aggregate(ZoneId::Kontakter, &[p1, p2]);
+        assert_eq!(merged.matches(OVRIGA_HEADING).count(), 1);
+        assert_eq!(merged.matches("- Telefon: 010-1").count(), 1, "{merged}");
+        assert_eq!(merged.matches("- Telefon: 010-2").count(), 1);
+    }
+
+    #[test]
+    fn g7_kontakter_no_empty_ovriga_section() {
+        // M-7/FR-004: nothing unattributed → no Övriga section, even when
+        // a part emitted the bare heading.
+        let p1 = format!("## Maja Malm\n\n- Telefon: 070-9\n\n{OVRIGA_HEADING}");
+        let p2 = "## Maja Malm\n\n- E-post: maja@exempel.se".to_string();
+        let merged = merge_aggregate(ZoneId::Kontakter, &[p1, p2]);
+        assert!(
+            !merged.contains(OVRIGA_HEADING),
+            "empty Övriga must be omitted: {merged}"
+        );
     }
 
     #[test]
     fn g7_kontakter_dedup_ignores_surrounding_whitespace() {
-        let p1 = "## Namn\n\n- Helena Holm".to_string();
-        let p2 = "## Namn\n\n-   Helena Holm  ".to_string();
+        // Identical-after-trim headings and lines merge (M-1/M-5): trim
+        // strips OUTER whitespace only.
+        let p1 = "## Helena Holm\n\n- Telefon: 070-5".to_string();
+        let p2 = "## Helena Holm  \n\n- Telefon: 070-5  ".to_string();
         let merged = merge_aggregate(ZoneId::Kontakter, &[p1, p2]);
-        // "- Helena Holm" vs "-   Helena Holm" differ after trim → both kept
-        // (exact-trim on the full bullet line; near-dupe merging is out of
-        // scope per contract). Identical-after-trim lines dedup:
-        let p3 = "## Namn\n\n- Helena Holm".to_string();
-        let p4 = "## Namn\n\n- Helena Holm  ".to_string();
+        assert_eq!(merged.matches("## Helena Holm").count(), 1);
+        assert_eq!(merged.matches("Telefon: 070-5").count(), 1);
+
+        // INNER whitespace differs after trim → exact-heading mismatch →
+        // separate sections (near-dupe merging out of scope per contract).
+        let p3 = "## Helena Holm\n\n- Telefon: 070-5".to_string();
+        let p4 = "##   Helena Holm\n\n- Telefon: 070-5".to_string();
         let merged2 = merge_aggregate(ZoneId::Kontakter, &[p3, p4]);
-        assert_eq!(merged2.matches("Helena Holm").count(), 1);
-        let _ = merged;
+        assert!(merged2.contains("## Helena Holm"));
+        assert!(merged2.contains("##   Helena Holm"));
+        assert_eq!(merged2.matches("- Telefon: 070-5").count(), 2);
     }
 
     #[test]
-    fn g7_kontakter_handles_missing_headings_and_empty_parts() {
+    fn g7_kontakter_handles_headingless_lines_and_empty_parts() {
+        // M-4: lines before any heading fold into Övriga (no headingless
+        // leading block anymore); empty parts contribute nothing.
         let p1 = "- En rad utan rubrik".to_string();
         let p2 = String::new();
-        let p3 = "## Namn\n\n- Gustav Grön".to_string();
+        let p3 = "## Gustav Grön\n\n- E-post: gustav@exempel.se".to_string();
         let merged = merge_aggregate(ZoneId::Kontakter, &[p1, p2, p3]);
-        assert!(merged.contains("En rad utan rubrik"));
-        assert!(merged.contains("Gustav Grön"));
+        let ovriga = merged.find(OVRIGA_HEADING).expect("ovriga heading");
+        let rad = merged.find("- En rad utan rubrik").expect("orphan line");
+        assert!(rad > ovriga, "orphan line must be under Övriga: {merged}");
+        assert!(merged.contains("## Gustav Grön"));
+        assert!(merged.find("## Gustav Grön").expect("gustav") < ovriga);
     }
 
     #[test]

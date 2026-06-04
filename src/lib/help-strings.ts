@@ -42,7 +42,7 @@ export const ZONE_HELP_STRINGS = {
   },
   kontakter: {
     short: 'Samlar ihop alla kontaktuppgifter i dokumentet.',
-    long: 'Letar igenom dokumentet och listar namn, adresser, personnummer, telefonnummer och e-post var för sig. Smidigt när du snabbt behöver få fram vem som är vem i ett ärende.',
+    long: 'Letar igenom dokumentet och samlar adress, personnummer, telefon och e-post under varje persons namn. Uppgifter som inte säkert hör till någon hamnar under Övriga uppgifter. Smidigt när du snabbt behöver få fram vem som är vem i ett ärende.',
   },
   generera: {
     short: 'Skapar ny juridisk text utifrån dina instruktioner.',
