@@ -4,6 +4,7 @@ import { ConsentModal } from '@/components/ConsentModal';
 import { DropZone } from '@/components/DropZone';
 import { ZONE_ORDER } from '@/components/DropZone.identity';
 import { InstructionField } from '@/components/InstructionField';
+import { PrivacyBadge } from '@/components/PrivacyBadge';
 import { instructionForDispatch } from '@/lib/instruction-store';
 import { GearIcon } from '@/components/GearIcon';
 import { HelpIcon } from '@/components/HelpIcon';
@@ -219,6 +220,9 @@ export function App() {
               <DropZone key={id} zoneId={id} />
             ))}
           </section>
+          {/* Spec 042 — the privacy colophon: rendered with the grid,
+              in every zone state (a standing fact, not a status). */}
+          <PrivacyBadge />
         </div>
       )}
       <ConsentModal />

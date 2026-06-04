@@ -85,6 +85,37 @@ fn instruction_help_matches_fixture() {
     );
 }
 
+// Spec 042 — the chrome-level privacy entry, pinned the same way:
+// Rust consts ↔ JSON (TS pins TS ↔ JSON). Content rules: canonical
+// "din dator" + names BOTH network uses (P-5/P-7).
+#[test]
+fn privacy_help_matches_fixture_and_names_both_network_uses() {
+    let fixture = load_fixture();
+    let raw = fixture
+        .get("_privacy_help")
+        .expect("fixture has _privacy_help (spec 042)");
+    assert_eq!(
+        raw.get("title").and_then(|v| v.as_str()),
+        Some(zone_help::PRIVACY_HELP_TITLE),
+        "privacy help title drifted (Rust vs JSON)"
+    );
+    assert_eq!(
+        raw.get("body").and_then(|v| v.as_str()),
+        Some(zone_help::PRIVACY_HELP_BODY),
+        "privacy help body drifted (Rust vs JSON)"
+    );
+    let body = zone_help::PRIVACY_HELP_BODY;
+    assert!(body.contains("din dator"), "canonical vocabulary (P-7)");
+    assert!(
+        body.to_lowercase().contains("modell"),
+        "must name the model download (P-5)"
+    );
+    assert!(
+        body.to_lowercase().contains("uppdater"),
+        "must name the update check (P-5)"
+    );
+}
+
 #[test]
 fn budgets_hold_in_fixture() {
     let fixture = load_fixture();

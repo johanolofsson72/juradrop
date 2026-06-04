@@ -92,9 +92,25 @@ describe('WIZARD_STRINGS cross-language drift (T005)', () => {
     }
   });
 
-  it('privacy line names the Mac', () => {
+  it('privacy line names the machine and the full never-leaves scope (spec 042)', () => {
     const s = WIZARD_STRINGS.welcome_privacy_line;
-    expect(s).toContain('Mac');
-    expect(s.toLowerCase()).toContain('dokumentinnehåll');
+    expect(s).toContain('din dator');
+    expect(s.toLowerCase()).toContain('dokument');
+    expect(s.toLowerCase()).toContain('instruktioner');
+    expect(s.toLowerCase()).toContain('resultat');
+  });
+
+  it('spec 042 P-7 / C1 — no wizard string uses the non-canonical "din Mac"', () => {
+    for (const key of ALL_KEYS) {
+      expect(WIZARD_STRINGS[key], `${key} uses "din Mac"`).not.toMatch(/din Mac/);
+    }
+  });
+
+  it('spec 042 P-4 — download note keeps the one-time + offline-after meaning', () => {
+    const s = WIZARD_STRINGS.welcome_download_note;
+    expect(s).toContain('första gången');
+    // Scoped, TRUE offline-after claim — explicitly allowlisted against
+    // the overclaim guard (research R7): "efter det" bounds it.
+    expect(s).toContain('efter det fungerar allt utan nät');
   });
 });

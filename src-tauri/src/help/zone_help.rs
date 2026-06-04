@@ -118,6 +118,14 @@ pub const ZONE_HELP_STRINGS: [(ZoneId, ZoneHelp); 12] = [
 pub const INSTRUCTION_HELP_TITLE: &str = "Egna instruktioner";
 pub const INSTRUCTION_HELP_BODY: &str = "Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig.";
 
+/// Spec 042 FR-006 — chrome-level privacy entry (the honest fine print:
+/// what never leaves + the only two network uses). Mirrored as
+/// `_privacy_help` in the JSON fixture and as `PRIVACY_HELP` in
+/// `src/lib/help-strings.ts` — edit all three together. Swedish,
+/// humanizer-reviewed.
+pub const PRIVACY_HELP_TITLE: &str = "Dina dokument stannar på din dator";
+pub const PRIVACY_HELP_BODY: &str = "All bearbetning sker på din dator. Dokument, egna instruktioner och resultat skickas aldrig någonstans. Appen använder internet vid två tillfällen: när AI-modellen laddas ner första gången och när den letar efter uppdateringar. Inget av det innehåller något du har skrivit eller släppt.";
+
 /// Look up one zone's help strings.
 pub fn zone_help(zone: ZoneId) -> ZoneHelp {
     ZONE_HELP_STRINGS

@@ -24,9 +24,15 @@ export function ConsentModal() {
       <DialogContent className="sm:max-w-md" aria-describedby="consent-body">
         <DialogHeader>
           <DialogTitle>Ladda ner AI-modell</DialogTitle>
+          {/* Spec 042 — canonical "din dator" + honest scoping: the old
+              "enda gången något skickas utanför din Mac" overclaimed (the
+              updater also checks for releases). The truthful claim is the
+              direction: the model comes TO the computer; nothing the user
+              writes or drops is sent. Humanizer-reviewed. */}
           <DialogDescription id="consent-body">
-            JuraDrop hämtar nu en AI-modell (~3 GB) från ollama.com. Det är enda
-            gången något skickas utanför din Mac.
+            JuraDrop hämtar nu en AI-modell (~3 GB) från ollama.com. Modellen
+            laddas ner till din dator — inget du skriver eller släpper skickas
+            någonstans.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-2 sm:gap-2">

@@ -13,6 +13,7 @@ import { ZONE_IDENTITIES, ZONE_ORDER } from '@/components/DropZone.identity';
 import {
   HELP_CHROME_STRINGS,
   INSTRUCTION_HELP,
+  PRIVACY_HELP,
   ZONE_HELP_STRINGS,
 } from '@/lib/help-strings';
 import type { PanelVisibility } from '@/lib/settings-types';
@@ -97,6 +98,20 @@ export function HelpPanel({ visibility, onClose }: Props) {
         </header>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
+          {/* Spec 042 — chrome-level privacy entry FIRST (the standing
+              guarantee), then the spec-041 instruction entry; both
+              above the zone list since they apply to every zone. */}
+          <section
+            data-privacy-help
+            className="mb-6 flex flex-col gap-1.5 border-b border-border pb-6"
+          >
+            <h2 className="text-base font-semibold text-foreground">
+              {PRIVACY_HELP.title}
+            </h2>
+            <p className="text-sm leading-relaxed text-foreground/80">
+              {PRIVACY_HELP.body}
+            </p>
+          </section>
           {/* Spec 041 — chrome-level entry for the instruction field,
               above the zone list (it applies to every zone). */}
           <section

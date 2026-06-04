@@ -4,6 +4,10 @@
     "title": "Egna instruktioner",
     "body": "Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig."
   },
+  "_privacy_help": {
+    "title": "Dina dokument stannar på din dator",
+    "body": "All bearbetning sker på din dator. Dokument, egna instruktioner och resultat skickas aldrig någonstans. Appen använder internet vid två tillfällen: när AI-modellen laddas ner första gången och när den letar efter uppdateringar. Inget av det innehåller något du har skrivit eller släppt."
+  },
   "sammanfatta": {
     "short": "Kortar ner ett långt dokument till det viktigaste.",
     "long": "Släpp ett dokument här så får du en kortare version som lyfter fram de viktigaste punkterna. Bra när du snabbt behöver greppa vad ett långt domslut eller avtal egentligen handlar om."

@@ -1,8 +1,8 @@
 {
   "_comment": "Spec 008 — single source of truth for the 12 Swedish wizard strings. Rust side (src-tauri/tests/wizard_strings.rs) and TS side (src/__tests__/WizardCopy.errors.test.tsx) both assert against this file in their drift-detection tests. Update all three together when changing a string.",
   "welcome_title": "Välkommen till JuraDrop",
-  "welcome_paragraph": "JuraDrop läser dokument lokalt på din Mac och hjälper dig sammanfatta, översätta, anonymisera, punktlista och förenkla juridisk text — utan att något skickas till någon molntjänst.",
-  "welcome_privacy_line": "Inget dokumentinnehåll lämnar din Mac.",
+  "welcome_paragraph": "JuraDrop läser dokument lokalt på din dator och hjälper dig sammanfatta, översätta, anonymisera, punktlista och förenkla juridisk text — utan att något skickas till någon molntjänst.",
+  "welcome_privacy_line": "Dina dokument, instruktioner och resultat lämnar aldrig din dator.",
   "welcome_download_note": "En AI-modell på cirka 2 GB laddas ner första gången du startar appen — efter det fungerar allt utan nät.",
   "welcome_cta_primary": "Fortsätt",
   "welcome_cta_secondary": "Avbryt",

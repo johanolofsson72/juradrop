@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import fixture from '../../src-tauri/tests/fixtures/zone-help-strings.json';
-import { INSTRUCTION_HELP, ZONE_HELP_STRINGS } from '@/lib/help-strings';
+import { INSTRUCTION_HELP, PRIVACY_HELP, ZONE_HELP_STRINGS } from '@/lib/help-strings';
 import { ZONE_ORDER } from '@/components/DropZone.identity';
 
 type Entry = { short: string; long: string };
@@ -55,5 +55,20 @@ describe('zone help strings cross-language drift', () => {
     expect(fx, 'fixture missing _instruction_help').toBeDefined();
     expect(fx!.title).toBe(INSTRUCTION_HELP.title);
     expect(fx!.body).toBe(INSTRUCTION_HELP.body);
+  });
+
+  // Spec 042 — the chrome-level privacy entry, same discipline, plus
+  // the P-5/P-7 content rules (canonical vocabulary, both network uses).
+  it('privacy help matches the fixture and names both network uses', () => {
+    const fx = fixtureMap['_privacy_help'] as
+      | { title: string; body: string }
+      | undefined;
+    expect(fx, 'fixture missing _privacy_help').toBeDefined();
+    expect(fx!.title).toBe(PRIVACY_HELP.title);
+    expect(fx!.body).toBe(PRIVACY_HELP.body);
+    expect(PRIVACY_HELP.body).toContain('din dator');
+    expect(PRIVACY_HELP.body.toLowerCase()).toContain('modell');
+    expect(PRIVACY_HELP.body.toLowerCase()).toContain('uppdater');
+    expect(PRIVACY_HELP.body).not.toMatch(/din Mac/);
   });
 });

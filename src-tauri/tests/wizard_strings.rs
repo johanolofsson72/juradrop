@@ -114,12 +114,32 @@ fn welcome_paragraph_names_all_six_zones() {
 }
 
 #[test]
-fn privacy_line_mentions_mac() {
-    // FR-014 — privacy reassurance is meaningful only if it names the
-    // user's machine. "Inget dokumentinnehåll lämnar din Mac." is the
-    // canonical wording.
+fn privacy_line_names_machine_and_full_scope() {
+    // Spec 008 FR-014, amended by spec 042: the reassurance names the
+    // user's machine with the canonical "din dator" vocabulary and the
+    // widened never-leaves scope (dokument, instruktioner, resultat —
+    // matching the spec-041 instruction field's guarantee).
     let f = load_fixture();
     let s = f.get("welcome_privacy_line").unwrap();
-    assert!(s.contains("Mac"));
-    assert!(s.to_lowercase().contains("dokumentinnehåll"));
+    assert!(s.contains("din dator"));
+    let lower = s.to_lowercase();
+    assert!(lower.contains("dokument"));
+    assert!(lower.contains("instruktioner"));
+    assert!(lower.contains("resultat"));
+}
+
+#[test]
+fn no_wizard_string_uses_non_canonical_din_mac() {
+    // Spec 042 P-7 / analyze C1 — full-set vocabulary sweep: the
+    // canonical machine reference is "din dator" everywhere in-app.
+    let f = load_fixture();
+    for (key, value) in f.iter() {
+        if key.starts_with('_') {
+            continue;
+        }
+        assert!(
+            !value.contains("din Mac"),
+            "{key}: non-canonical 'din Mac' (spec 042 vocabulary): {value}"
+        );
+    }
 }

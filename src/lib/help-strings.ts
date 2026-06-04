@@ -76,6 +76,15 @@ export const INSTRUCTION_HELP = {
   body: 'Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig.',
 } as const;
 
+// Spec 042 FR-006 — chrome-level privacy entry (the honest fine print).
+// Mirrored as `_privacy_help` in the drift fixture and as
+// PRIVACY_HELP_TITLE/_BODY in src-tauri/src/help/zone_help.rs — edit all
+// three together.
+export const PRIVACY_HELP = {
+  title: 'Dina dokument stannar på din dator',
+  body: 'All bearbetning sker på din dator. Dokument, egna instruktioner och resultat skickas aldrig någonstans. Appen använder internet vid två tillfällen: när AI-modellen laddas ner första gången och när den letar efter uppdateringar. Inget av det innehåller något du har skrivit eller släppt.',
+} as const;
+
 // Chrome-bar + panel chrome strings (Swedish). Kept alongside the zone
 // strings; the panel title and help labels are part of the same surface.
 export const HELP_CHROME_STRINGS = {

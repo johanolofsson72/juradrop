@@ -143,6 +143,8 @@ The only network traffic JuraDrop makes:
 
 That's it. No analytics, no crash reports that include document text, no cloud LLM fallback, no "anonymous usage statistics", no `phone-home-just-this-once`. Adding any new outbound network call requires a constitutional amendment, not a code review — see [Principle I of the constitution](.specify/memory/constitution.md).
 
+Dina dokument, egna instruktioner och resultat lämnar aldrig din dator — och appen säger det numera rakt ut: en rad under zonerna i huvudfönstret, en förklaring i välkomstguiden och en post i hjälppanelen upprepar samma fakta som ovan. AI-modellen bor på din dator; efter den första nedladdningen fungerar all bearbetning utan internet.
+
 ## Documentation map
 
 | File | Purpose |

@@ -21,9 +21,12 @@ export type WizardStringKey =
 
 export const WIZARD_STRINGS: Record<WizardStringKey, string> = {
   welcome_title: 'Välkommen till JuraDrop',
+  // Spec 042 — canonical vocabulary "din dator" + the never-leaves scope
+  // widened to match the spec-041 instruction field (dokument,
+  // instruktioner, resultat). Humanizer-reviewed 2026-06-04.
   welcome_paragraph:
-    'JuraDrop läser dokument lokalt på din Mac och hjälper dig sammanfatta, översätta, anonymisera, punktlista och förenkla juridisk text — utan att något skickas till någon molntjänst.',
-  welcome_privacy_line: 'Inget dokumentinnehåll lämnar din Mac.',
+    'JuraDrop läser dokument lokalt på din dator och hjälper dig sammanfatta, översätta, anonymisera, punktlista och förenkla juridisk text — utan att något skickas till någon molntjänst.',
+  welcome_privacy_line: 'Dina dokument, instruktioner och resultat lämnar aldrig din dator.',
   welcome_download_note:
     'En AI-modell på cirka 2 GB laddas ner första gången du startar appen — efter det fungerar allt utan nät.',
   welcome_cta_primary: 'Fortsätt',
