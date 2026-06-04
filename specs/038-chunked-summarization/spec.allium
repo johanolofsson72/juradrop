@@ -1,0 +1,340 @@
+-- allium: 3
+
+-- Spec 038: Chunked processing for long documents
+-- Elicited 2026-06-04 from specs/038-chunked-summarization/spec.md (post-/clarify).
+-- Field bug provenance: tester report 2026-06-04 — only the beginning of 30/100-page
+-- documents was processed (hard 24k-char cut + no explicit model context window).
+
+enum CombineStrategy { reduce | concat | aggregate | condense_then_structure | exempt }
+
+config {
+    chunk_char_target: Integer = 24000       -- per-chunk size baseline (single-pass limit today)
+    max_chunks: Integer = 12                 -- chunked-processing ceiling (clarified 2026-06-04)
+    per_chunk_timeout_seconds: Integer = 180 -- existing generate timeout, applied per chunk
+}
+
+external entity Zone {
+    id: String
+    combine_strategy: CombineStrategy
+}
+
+external entity DroppedDocument {
+    char_count: Integer
+    processed_prefix: String
+}
+
+external entity LocalUser {
+    name: String
+}
+
+-- One contiguous slice of the extracted document text.
+entity Chunk {
+    plan: ChunkPlan
+    index: Integer
+    text: String
+    boundary_kind: paragraph | sentence | whitespace | document_edge
+    status: pending | processing | done | failed
+    result: String? when status = done
+
+    transitions status {
+        pending -> processing
+        processing -> done
+        processing -> failed
+        terminal: done, failed
+    }
+
+    invariant ChunkNeverEmpty { this.trimmed_length > 0 }
+}
+
+-- The ordered list of chunks for one document + zone, fixed before processing starts.
+entity ChunkPlan {
+    zone: Zone
+    document: DroppedDocument
+    strategy: CombineStrategy
+    was_capped: Boolean                       -- document exceeded max_chunks * chunk_char_target
+    chunks_ordered_concat: String
+
+    chunks: Chunk with plan = this
+    chunk_count: chunks.count
+    is_single_pass: chunk_count = 1
+
+    invariant CeilingBound { this.chunk_count <= 12 }
+    invariant StrategyMatchesZone { this.strategy = this.zone.combine_strategy }
+    invariant ChunksCoverDocumentInOrder {
+        -- concatenating chunk texts in index order reproduces the processed prefix
+        -- of the extracted text (the whole text when was_capped = false)
+        this.chunks_ordered_concat = this.document.processed_prefix
+    }
+}
+
+-- One model invocation (per-chunk pass or combine pass).
+entity ModelCall {
+    run: ChunkedRun
+    purpose: chunk_pass | combine_pass | structure_pass
+    context_window: Integer                   -- explicitly declared, never runtime default
+    fits_with_headroom: Boolean
+    contains_document_content: Boolean
+    is_injection_framed: Boolean
+    target: localhost_ollama | other
+
+    invariant ExplicitContextWindow { this.context_window > 0 }
+    invariant InputFitsDeclaredWindow {
+        -- prompt framing + content + response headroom fit the declared window
+        this.fits_with_headroom = true
+    }
+    invariant DocumentContentAlwaysFramed {
+        -- every call whose input contains document-derived content carries the
+        -- spec-022 injection framing (DOKUMENT BÖRJAR/SLUTAR + guard)
+        this.contains_document_content implies this.is_injection_framed
+    }
+}
+
+-- The execution of a chunk plan: sequential passes, all-or-nothing completion.
+entity ChunkedRun {
+    plan: ChunkPlan
+    status: planning | processing_chunks | combining | writing | succeeded | failed
+    progress_current: Integer when status = processing_chunks
+    progress_total: Integer
+    combined_output: String when status = writing | succeeded
+
+    transitions status {
+        planning -> processing_chunks
+        processing_chunks -> combining          -- multi-chunk plans
+        processing_chunks -> writing            -- single-pass plans skip combine
+        processing_chunks -> failed
+        combining -> writing
+        combining -> failed
+        writing -> succeeded
+        writing -> failed
+        terminal: succeeded, failed
+    }
+
+    calls: ModelCall with run = this
+
+    invariant SequentialChunks {
+        this.plan.chunks.where(status = processing).count <= 1
+    }
+    invariant SinglePassUnchanged {
+        -- a single-chunk run makes exactly one model call: today's behavior, untouched
+        this.plan.is_single_pass implies this.calls.count = 1
+    }
+    invariant ProgressMonotonicAndBounded {
+        this.progress_current <= this.progress_total
+    }
+}
+
+entity SidecarFile {
+    run: ChunkedRun
+    has_truncation_disclaimer: Boolean
+    has_anonymisera_chunk_disclaimer: Boolean
+}
+
+-- ── Rules ────────────────────────────────────────────────────────────────
+
+rule PlanChunks {
+    when: ExtractedTextReady(document, zone)
+    requires: zone.combine_strategy != exempt
+    ensures:
+        -- boundaries: paragraph preferred, then sentence (Swedish abbreviations
+        -- t.ex./bl.a./kap. are not sentence ends), then whitespace; never mid-word;
+        -- empty/whitespace-only slices are skipped
+        let plan = ChunkPlan.created(zone: zone, document: document, strategy: zone.combine_strategy)
+        let run = ChunkedRun.created(plan: plan, status: planning)
+        if document.char_count > 288000:
+            plan.was_capped = true
+}
+
+rule StartRun {
+    when: RunPlanned(run)
+    requires: run.status = planning
+    ensures: run.status = processing_chunks
+}
+
+rule ProcessNextChunk {
+    when: ChunkReady(run, chunk)
+    requires:
+        run.status = processing_chunks
+        chunk.status = pending
+        run.plan.chunks.all(c => c.index >= chunk.index or c.status = done)
+    ensures:
+        chunk.status = processing
+        ModelCall.created(run: run, purpose: chunk_pass)
+}
+
+rule ChunkPassSucceeded {
+    when: ModelPassSucceeded(run, chunk)
+    requires: chunk.status = processing
+    ensures:
+        chunk.status = done
+        run.progress_current = chunk.index + 1
+        ProgressShown(swedish: true)   -- e.g. "Bearbetar del 3 av 8"
+}
+
+rule ChunkPassFailed {
+    when: ModelPassFailed(run, chunk)
+    requires: chunk.status = processing
+    ensures:
+        chunk.status = failed
+        run.status = failed
+        -- existing-style honest Swedish error; remaining chunks never start
+        ZoneFailureShown(swedish: true)
+}
+
+rule SinglePassStraightToWrite {
+    when: AllChunksDone(run)
+    requires:
+        run.status = processing_chunks
+        run.plan.is_single_pass = true
+    ensures:
+        run.combined_output = run.plan.chunks_ordered_concat
+        run.status = writing
+}
+
+rule CombineReduce {
+    when: AllChunksDone(run)
+    requires:
+        run.status = processing_chunks
+        run.plan.strategy = reduce
+        run.plan.chunk_count > 1
+    ensures:
+        run.status = combining
+        -- one combine pass condenses partial results into one coherent result
+        -- honoring the zone's output conventions; if the combined input does not
+        -- fit one pass, combine recursively until it does
+        ModelCall.created(run: run, purpose: combine_pass)
+}
+
+rule CombineConcat {
+    when: AllChunksDone(run)
+    requires:
+        run.status = processing_chunks
+        run.plan.strategy = concat
+        run.plan.chunk_count > 1
+    ensures:
+        run.status = combining
+        -- deterministic join in chunk-index order; no model call needed
+        CombinedOutputReady(run)
+}
+
+rule CombineAggregate {
+    when: AllChunksDone(run)
+    requires:
+        run.status = processing_chunks
+        run.plan.strategy = aggregate
+        run.plan.chunk_count > 1
+    ensures:
+        run.status = combining
+        -- per-chunk extractions merged, duplicates removed (same item appearing
+        -- in several chunks appears once in the final output)
+        CombinedOutputReady(run)
+}
+
+rule CondenseThenStructure {
+    when: AllChunksDone(run)
+    requires:
+        run.status = processing_chunks
+        run.plan.strategy = condense_then_structure
+        run.plan.chunk_count > 1
+    ensures:
+        run.status = combining
+        -- per-chunk passes produced condensations; one structure_pass runs the
+        -- zone task (IRAC) over the condensate so the whole document informs
+        -- one coherent rättsfråga -> slutsats chain
+        ModelCall.created(run: run, purpose: structure_pass)
+}
+
+rule CombinePassFailed {
+    when: CombineFailed(run)
+    requires: run.status = combining
+    ensures:
+        run.status = failed
+        ZoneFailureShown(swedish: true)
+}
+
+rule WriteSidecar {
+    when: CombinedOutputReady(run)
+    requires: run.status in {combining, processing_chunks}
+    ensures:
+        run.status = writing
+        let sidecar = SidecarFile.created(run: run)
+        if run.plan.was_capped:
+            sidecar.has_truncation_disclaimer = true   -- names what was skipped
+        if run.plan.zone.id = `anonymisera` and run.plan.chunk_count > 1:
+            sidecar.has_anonymisera_chunk_disclaimer = true
+        if run.plan.zone.id = `anonymisera`:
+            PiiSweepRun(run)                            -- spec 014 sweep on FULL combined output
+}
+
+rule SidecarWritten {
+    when: SidecarWriteSucceeded(run)
+    requires: run.status = writing
+    ensures: run.status = succeeded
+}
+
+rule SidecarWriteFailed {
+    when: SidecarWriteErrored(run)
+    requires: run.status = writing
+    ensures:
+        run.status = failed
+        ZoneFailureShown(swedish: true)
+}
+
+-- ── Global invariants ────────────────────────────────────────────────────
+
+invariant NoPartialSidecar {
+    for sidecar in SidecarFiles:
+        sidecar.run.status in {writing, succeeded}
+        and sidecar.run.plan.chunks.all(c => c.status = done)
+}
+
+invariant HonestTruncationDisclaimer {
+    -- disclaimer present iff content was genuinely not processed
+    for sidecar in SidecarFiles:
+        sidecar.has_truncation_disclaimer = sidecar.run.plan.was_capped
+}
+
+invariant LocalOnlyProcessing {
+    -- Principle I: chunking adds zero outbound traffic; every ModelCall targets
+    -- the local inference endpoint; no document content persisted beyond sidecar
+    for call in ModelCalls:
+        call.target = localhost_ollama
+}
+
+invariant AnonymiseraChunkDisclosure {
+    -- FR-014: multi-chunk anonymisera output discloses cross-section placeholder
+    -- independence; single-chunk output unchanged
+    for sidecar in SidecarFiles where run.plan.zone.id = `anonymisera`:
+        sidecar.has_anonymisera_chunk_disclaimer = (sidecar.run.plan.chunk_count > 1)
+}
+
+-- ── Surfaces ─────────────────────────────────────────────────────────────
+
+actor Student {
+    identified_by: LocalUser
+}
+
+surface DropZoneProgress {
+    facing viewer: Student
+    context run: ChunkedRun
+    exposes:
+        run.status
+        run.progress_current
+        run.progress_total
+    -- multi-chunk runs show Swedish per-part progress; single-pass runs show
+    -- the existing processing state unchanged
+}
+
+-- ── Out of scope / deferred ──────────────────────────────────────────────
+
+deferred ChunkedRun.cancellation
+-- Location hint: the zone processing state machine (drop -> processing -> done/error).
+-- Clarified 2026-06-04: no cancel affordance in 038. The 12-chunk ceiling plus
+-- the per-chunk 180 s timeout bounds worst-case duration. Candidate future
+-- register row if field feedback demands it.
+
+deferred Chunk.cross_chunk_placeholder_consistency
+-- Location hint: anonymisera per-chunk passes (each chunk anonymized independently).
+-- Clarified 2026-06-04: placeholder labels can differ between sections; disclosed
+-- via sidecar disclaimer (FR-014). A cross-chunk identity map was rejected
+-- (fragile small-model extraction; a wrong mapping silently mislabels people —
+-- worse than disclosure).
