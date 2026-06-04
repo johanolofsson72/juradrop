@@ -1,0 +1,164 @@
+-- allium: 3
+
+-- Spec 042: privacy-visibility — make the local-only guarantee unmissable.
+-- Elicited from specs/042-privacy-visibility/spec.md (post-/clarify, 2026-06-04).
+--
+-- Nature of this spec: STATIC content + placement. There is deliberately no
+-- new state machine — the affordance is a standing fact, not a status
+-- indicator. The formal value here is the consistency contract: ONE fact
+-- base rendered on FOUR surfaces, none of which may overclaim ("never uses
+-- the internet" is FALSE — model download + updater exist) or underclaim.
+--
+-- DECIDED (clarifications 2026-06-04, not open):
+--   * Badge is static and non-interactive — no link, no focusable control.
+--   * Help entry ships as a second chrome-level entry (_privacy_help) via
+--     the spec-041 three-way-mirror mechanism with drift assertions.
+--   * Canonical vocabulary: "din dator"; "Mac" only where the platform
+--     itself is the subject (README install).
+
+enum SurfaceKind { badge | wizard_welcome | wizard_download | help_entry | readme_section }
+
+-- The single source of truth all surfaces render from.
+value FactBase {
+    never_leaves: String          -- documents, custom instructions, results
+    network_use_one: String       -- one-time model download at install
+    network_use_two: String       -- update check (manifest + signed DMG)
+    processing_location: String   -- on this computer ("din dator")
+}
+
+-- One rendered privacy claim on one surface.
+entity PrivacySurface {
+    kind: SurfaceKind
+    facts: FactBase                      -- every surface renders the ONE fact base
+    text: String
+    claims_user_content_scope: Boolean   -- claim is about user content, not "no internet"
+    claims_no_internet_ever: Boolean     -- must never be true
+    uses_canonical_vocabulary: Boolean   -- "din dator" (not synonyms) where the machine is referenced
+    names_both_network_uses: Boolean     -- required on the detail surfaces only
+    humanizer_reviewed: Boolean
+}
+
+external entity ZoneGrid {
+    visible: Boolean   -- the twelve-zone grid (governed by specs 004/013/036)
+}
+
+-- The badge itself: rendered iff the grid is rendered; no own state.
+entity PrivacyBadge {
+    grid: ZoneGrid                  -- governed by specs 004/013/036
+    surface: PrivacySurface
+    visible_with_grid: Boolean      -- true whenever ZoneGrid.visible
+    interactive: Boolean            -- must be false (clarified)
+    focusable: Boolean              -- must be false
+    screen_reader_content: Boolean  -- exposed as content, not decoration
+    fits_default_window: Boolean    -- grid + instruction field + badge, no scroll
+}
+
+-- ── Rules ────────────────────────────────────────────────────────────────
+
+rule RenderBadgeWithGrid {
+    when: GridRendered(grid)
+    requires: grid.visible = true
+    ensures:
+        PrivacyBadge.created(
+            visible_with_grid: true,
+            interactive: false,
+            focusable: false,
+            screen_reader_content: true
+        )
+}
+
+-- The badge is a standing fact: zone state changes never touch it.
+rule ZoneStateChangeLeavesBadgeAlone {
+    when: ZoneStateChanged(zone)
+    ensures:
+        for badge in PrivacyBadges:
+            badge.surface.text = badge.surface.text
+}
+
+rule WizardExplainsLocalProcessing {
+    when: WizardWelcomeShown(surface)
+    requires: surface.kind = wizard_welcome
+    ensures:
+        surface.claims_user_content_scope = true
+        surface.uses_canonical_vocabulary = true
+}
+
+rule DownloadStepExplainsOneTimeModel {
+    when: WizardDownloadShown(surface)
+    requires: surface.kind = wizard_download
+    ensures:
+        -- the one visible network moment is converted into the proof:
+        -- "the model is coming TO din dator, once; offline after that"
+        surface.claims_user_content_scope = true
+        surface.uses_canonical_vocabulary = true
+}
+
+-- ── Invariants (the consistency contract) ────────────────────────────────
+
+-- FR-001/FR-002 + SC-001: visible whenever the grid is, in every zone state.
+invariant BadgeAlwaysWithGrid {
+    for badge in PrivacyBadges:
+        badge.visible_with_grid = true
+}
+
+-- Clarified: static text, nothing to click, nothing to focus.
+invariant BadgeNonInteractive {
+    for badge in PrivacyBadges:
+        badge.interactive = false
+        badge.focusable = false
+}
+
+-- FR-003 + SC-004: HONEST SCOPING. No surface may claim the app never
+-- uses the internet; every surface scopes the guarantee to user content.
+invariant NoSurfaceOverclaims {
+    for surface in PrivacySurfaces:
+        surface.claims_no_internet_ever = false
+}
+
+invariant AllSurfacesScopeToUserContent {
+    for surface in PrivacySurfaces:
+        surface.claims_user_content_scope = true
+}
+
+-- FR-006/FR-007: the DETAIL surfaces (help, readme) must name BOTH
+-- network uses; the compact surfaces (badge, wizard) need not.
+invariant DetailSurfacesNameBothNetworkUses {
+    for surface in PrivacySurfaces where kind in {help_entry, readme_section}:
+        surface.names_both_network_uses = true
+}
+
+-- FR-008: one vocabulary, four surfaces, zero synonym drift.
+invariant CanonicalVocabularyEverywhere {
+    for surface in PrivacySurfaces:
+        surface.uses_canonical_vocabulary = true
+}
+
+-- FR-012: every Swedish string passed the humanizer gate.
+invariant AllCopyHumanized {
+    for surface in PrivacySurfaces:
+        surface.humanizer_reviewed = true
+}
+
+-- FR-009 + SC-003: static feature — the app's network surface is unchanged.
+-- (Structurally pinned by the existing CSP tests + no-egress e2e assertion.)
+invariant NoNewEgress {
+    for badge in PrivacyBadges:
+        badge.surface.text.length >= 0  -- text-only artifact; no fetch, no call
+}
+
+-- FR-011 + US1/AS4: default window fits grid + instruction field + badge.
+invariant DefaultWindowFitsAll {
+    for badge in PrivacyBadges:
+        badge.fits_default_window = true
+}
+
+-- ── Surface ──────────────────────────────────────────────────────────────
+
+actor Student { identified_by: AppUser }
+
+surface MainWindowPrivacyLine {
+    facing viewer: Student
+    context badge: PrivacyBadge where visible_with_grid = viewer.grid_visible
+    exposes: badge.surface.text
+    -- No provides: — the badge is deliberately non-interactive (clarified).
+}
