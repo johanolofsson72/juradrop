@@ -13,6 +13,9 @@
 // wraps the untrusted document so it can't hijack the system prompt.
 pub mod framing;
 
+// Spec 038 — combine/condense instructions for multi-chunk runs.
+pub mod combine;
+
 pub mod anonymisera;
 pub mod forenkla;
 pub mod forklara;
@@ -26,6 +29,9 @@ pub mod strukturera;
 pub mod tillengelska;
 pub mod tillsvenska;
 
+pub use combine::{
+    PUNKTLISTA_COMBINE_PROMPT, SAMMANFATTA_COMBINE_PROMPT, STRUKTURERA_CONDENSE_PROMPT,
+};
 pub use framing::frame_prompt;
 
 pub use anonymisera::ANONYMISERA_SYSTEM_PROMPT;

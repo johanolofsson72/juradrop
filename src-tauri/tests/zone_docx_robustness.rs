@@ -13,7 +13,7 @@
 use std::io::{Cursor, Write};
 
 use docx_rs::{Docx, Paragraph, Run};
-use juradrop_lib::zones::docx_extract::{extract_text_from_bytes, TRUNCATION_CHAR_LIMIT};
+use juradrop_lib::zones::docx_extract::{extract_text_from_bytes, EXTRACT_CEILING_CHARS};
 use juradrop_lib::zones::errors::ZoneFailure;
 
 fn pack_docx(paragraphs: &[&str]) -> Vec<u8> {
@@ -86,29 +86,31 @@ fn whitespace_only_paragraph_surfaces_empty_text() {
 }
 
 #[test]
-fn body_at_exact_truncation_limit_is_not_marked_truncated() {
-    let exact = "a".repeat(TRUNCATION_CHAR_LIMIT);
+fn body_at_exact_extraction_ceiling_is_not_marked_truncated() {
+    // Spec 038 — the 24k single-pass cut became the 288k extraction memory
+    // bound (chunking owns the user-facing cap).
+    let exact = "a".repeat(EXTRACT_CEILING_CHARS);
     let bytes = pack_docx(&[&exact]);
-    let result = extract_text_from_bytes(&bytes).expect("ok at the limit");
+    let result = extract_text_from_bytes(&bytes).expect("ok at the ceiling");
     assert!(!result.was_truncated);
-    assert_eq!(result.char_count, TRUNCATION_CHAR_LIMIT);
+    assert_eq!(result.char_count, EXTRACT_CEILING_CHARS);
 }
 
 #[test]
-fn body_one_char_over_limit_is_truncated_to_the_limit() {
-    let over = "a".repeat(TRUNCATION_CHAR_LIMIT + 1);
+fn body_one_char_over_ceiling_is_truncated_to_the_ceiling() {
+    let over = "a".repeat(EXTRACT_CEILING_CHARS + 1);
     let bytes = pack_docx(&[&over]);
     let result = extract_text_from_bytes(&bytes).expect("ok one-over");
     assert!(result.was_truncated);
-    assert_eq!(result.char_count, TRUNCATION_CHAR_LIMIT);
+    assert_eq!(result.char_count, EXTRACT_CEILING_CHARS);
 }
 
 #[test]
-fn body_well_over_limit_with_swedish_chars_truncates_on_char_boundary() {
-    // 25,000 å characters — each is 2 bytes in UTF-8. A naive byte slice
-    // at byte 24,000 would land mid-character; the char-boundary slice
-    // must preserve the å character exactly.
-    let body = "å".repeat(25_000);
+fn body_well_over_ceiling_with_swedish_chars_truncates_on_char_boundary() {
+    // Ceiling+1k å characters — each is 2 bytes in UTF-8. A naive byte
+    // slice at the ceiling would land mid-character; the char-boundary
+    // slice must preserve the å character exactly.
+    let body = "å".repeat(EXTRACT_CEILING_CHARS + 1_000);
     let bytes = pack_docx(&[&body]);
     let result = extract_text_from_bytes(&bytes).expect("ok swedish");
     assert!(result.was_truncated);
@@ -116,7 +118,7 @@ fn body_well_over_limit_with_swedish_chars_truncates_on_char_boundary() {
     // character on truncation, calling chars().count() here would
     // either panic or produce a wrong count.
     let counted = result.raw.as_inner().chars().count();
-    assert_eq!(counted, TRUNCATION_CHAR_LIMIT);
+    assert_eq!(counted, EXTRACT_CEILING_CHARS);
 }
 
 #[test]

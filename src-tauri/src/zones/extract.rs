@@ -3,9 +3,10 @@
 // The dispatcher picks the right per-format extractor based on
 // `InputFormat`, then applies the shared post-processing: blank-line
 // collapse (FR-002 — runs of 3+ blank lines → exactly 2) and the
-// 24,000-UTF-8-character truncation cap (FR-016, inherited from
-// spec 003 FR-019). Per-format extractors only need to produce the
-// raw text + the format-specific flags.
+// 288,000-UTF-8-character extraction memory bound (spec 038 — the old
+// 24,000-char single-pass cut became `chunking::CHUNK_CHAR_TARGET`; the
+// user-facing cap is `chunking::MAX_CHUNKS`). Per-format extractors only
+// need to produce the raw text + the format-specific flags.
 
 use std::path::Path;
 
@@ -14,10 +15,14 @@ use crate::sidecar::log_safe::Redacted;
 use super::errors::ZoneFailure;
 use super::input_format::InputFormat;
 
-/// FR-016 / spec 003 FR-019 — character-count proxy for ~6,000 tokens,
-/// conservative for Swedish where chars-per-token is slightly higher
-/// than English.
-pub const TRUNCATION_CHAR_LIMIT: usize = 24_000;
+/// Spec 038 — coarse extraction MEMORY bound only (12 × the 24,000-char
+/// per-chunk target). Before spec 038 this was the 24,000-char single-pass
+/// cut that silently discarded everything past ~20 pages; chunking now owns
+/// the user-facing cap (`chunking::MAX_CHUNKS`), and this ceiling exists so
+/// extraction never materializes an unbounded String. `was_truncated` means
+/// "exceeded this memory bound" and feeds the writer disclaimer OR'd with
+/// `ChunkPlan::was_capped` (analyze F1).
+pub const EXTRACT_CEILING_CHARS: usize = 288_000;
 
 /// Spec 024 — pre-read file-size cap. Every extractor reads the whole
 /// file into memory; without this guard a multi-GB drop could OOM the
@@ -41,9 +46,10 @@ pub struct ExtractedText {
     pub raw: Redacted<String>,
     /// Length in UTF-8 characters AFTER truncation, if any.
     pub char_count: usize,
-    /// True iff the input exceeded `TRUNCATION_CHAR_LIMIT` and was
-    /// truncated. The writer uses this to flip the truncation notice
-    /// paragraph in the sidecar (spec 003 FR-019).
+    /// True iff the input exceeded `EXTRACT_CEILING_CHARS` and was
+    /// truncated at the extraction memory bound. The writer flips the
+    /// truncation notice when this OR the chunk plan's `was_capped` is set
+    /// (spec 038 — disclaimer fires iff content was genuinely skipped).
     pub was_truncated: bool,
     /// (Spec 005 FR-002a) True when PDF extraction recovered text from
     /// fewer than 100% of the source pages OR pdf-extract reported any
@@ -139,7 +145,7 @@ pub fn finalise(
     if collapsed.trim().is_empty() {
         return Err(ZoneFailure::EmptyText);
     }
-    let (final_text, was_truncated) = truncate_to_char_limit(collapsed, TRUNCATION_CHAR_LIMIT);
+    let (final_text, was_truncated) = truncate_to_char_limit(collapsed, EXTRACT_CEILING_CHARS);
     let char_count = final_text.chars().count();
     Ok(ExtractedText {
         raw: Redacted::new(final_text),

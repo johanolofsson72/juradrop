@@ -14,11 +14,12 @@ use docx_rs::DocumentChild;
 
 use super::errors::ZoneFailure;
 
-// Spec 005 — the canonical `ExtractedText` shape + truncation constant
+// Spec 005 — the canonical `ExtractedText` shape + ceiling constant
 // now live in `super::extract`; this module re-exports them so the
 // spec 003 import path (`use ...::zones::docx_extract::ExtractedText`)
-// keeps working byte-identically.
-pub use super::extract::{ExtractedText, TRUNCATION_CHAR_LIMIT};
+// keeps working byte-identically. Spec 038 renamed the 24k single-pass
+// cut to the 288k extraction memory bound (chunking owns the user cap).
+pub use super::extract::{ExtractedText, EXTRACT_CEILING_CHARS};
 
 /// Read a `.docx` file from disk and return its extracted text.
 ///
@@ -62,7 +63,7 @@ pub fn extract_text_from_bytes(bytes: &[u8]) -> Result<ExtractedText, ZoneFailur
         return Err(ZoneFailure::EmptyText);
     }
 
-    let (final_text, was_truncated) = truncate_to_char_limit(joined, TRUNCATION_CHAR_LIMIT);
+    let (final_text, was_truncated) = truncate_to_char_limit(joined, EXTRACT_CEILING_CHARS);
     let char_count = final_text.chars().count();
 
     Ok(ExtractedText {
@@ -195,33 +196,33 @@ mod tests {
 
     #[test]
     fn truncation_at_char_boundary_for_swedish_text() {
-        // 25,000-char Swedish-style text — å is 2 bytes in UTF-8 so a
-        // naive byte slice at index 24,000 could land mid-char.
-        let chunk = "å".repeat(25_000);
-        let (truncated, was_truncated) = truncate_to_char_limit(chunk, TRUNCATION_CHAR_LIMIT);
+        // Ceiling+1k Swedish-style text — å is 2 bytes in UTF-8 so a naive
+        // byte slice at the ceiling could land mid-char.
+        let chunk = "å".repeat(EXTRACT_CEILING_CHARS + 1_000);
+        let (truncated, was_truncated) = truncate_to_char_limit(chunk, EXTRACT_CEILING_CHARS);
         assert!(was_truncated);
-        assert_eq!(truncated.chars().count(), TRUNCATION_CHAR_LIMIT);
+        assert_eq!(truncated.chars().count(), EXTRACT_CEILING_CHARS);
         // String::chars validates UTF-8 boundaries — if we corrupted
         // a char, this iteration would panic.
         assert_eq!(
             truncated.chars().filter(|c| *c == 'å').count(),
-            TRUNCATION_CHAR_LIMIT
+            EXTRACT_CEILING_CHARS
         );
     }
 
     #[test]
     fn text_at_exact_limit_is_not_marked_truncated() {
-        let exact = "a".repeat(TRUNCATION_CHAR_LIMIT);
-        let (text, was_truncated) = truncate_to_char_limit(exact.clone(), TRUNCATION_CHAR_LIMIT);
+        let exact = "a".repeat(EXTRACT_CEILING_CHARS);
+        let (text, was_truncated) = truncate_to_char_limit(exact.clone(), EXTRACT_CEILING_CHARS);
         assert!(!was_truncated);
         assert_eq!(text, exact);
     }
 
     #[test]
     fn text_one_over_limit_is_truncated() {
-        let over = "a".repeat(TRUNCATION_CHAR_LIMIT + 1);
-        let (text, was_truncated) = truncate_to_char_limit(over, TRUNCATION_CHAR_LIMIT);
+        let over = "a".repeat(EXTRACT_CEILING_CHARS + 1);
+        let (text, was_truncated) = truncate_to_char_limit(over, EXTRACT_CEILING_CHARS);
         assert!(was_truncated);
-        assert_eq!(text.len(), TRUNCATION_CHAR_LIMIT);
+        assert_eq!(text.len(), EXTRACT_CEILING_CHARS);
     }
 }

@@ -185,3 +185,197 @@ fn find_sidecar(dir: &Path, needle: &str) -> Option<PathBuf> {
     }
     None
 }
+
+// ===== Spec 038 — chunked-run harness =====================================
+//
+// Drives a generated .txt document (mirror-output → .txt sidecar, trivially
+// inspectable) through the full pipeline against a SEQUENCED wiremock
+// responder: the i-th /api/generate request receives the i-th template.
+// Records every request body and every ZoneSnapshot emitted on the zone's
+// channel so tests can assert request counts, num_ctx, framing, progress
+// hints, and all-or-nothing failure semantics.
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+
+use juradrop_lib::zones::{ZoneSnapshot, ZoneState};
+use tauri::Listener;
+use wiremock::{Request, Respond};
+
+/// Returns the i-th template per request, clamping to the last.
+pub struct SeqResponder {
+    templates: Vec<ResponseTemplate>,
+    counter: AtomicUsize,
+}
+
+impl SeqResponder {
+    pub fn new(templates: Vec<ResponseTemplate>) -> Self {
+        assert!(!templates.is_empty(), "SeqResponder needs >= 1 template");
+        Self {
+            templates,
+            counter: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl Respond for SeqResponder {
+    fn respond(&self, _req: &Request) -> ResponseTemplate {
+        let i = self.counter.fetch_add(1, Ordering::SeqCst);
+        self.templates
+            .get(i)
+            .or_else(|| self.templates.last())
+            .cloned()
+            .expect("non-empty templates")
+    }
+}
+
+/// 200 OK /api/generate body with the given model response text.
+pub fn ok_generate(response: &str) -> ResponseTemplate {
+    ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        "model": "gemma3:4b",
+        "response": response,
+        "done": true,
+    }))
+}
+
+pub struct ChunkedSetup {
+    pub server: MockServer,
+    pub app: tauri::App<tauri::test::MockRuntime>,
+    pub dir: TempDir,
+    pub source: PathBuf,
+    pub zone_obj: Arc<DropZone>,
+    pub client: Arc<OllamaClient>,
+    pub snapshots: Arc<Mutex<Vec<ZoneSnapshot>>>,
+}
+
+impl ChunkedSetup {
+    /// Build the harness: temp .txt source with `doc_text`, sequenced
+    /// responder, snapshot listener on the zone channel.
+    pub async fn new(zone: ZoneId, doc_text: &str, templates: Vec<ResponseTemplate>) -> Self {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/generate"))
+            .respond_with(SeqResponder::new(templates))
+            .mount(&server)
+            .await;
+
+        let app = mock_builder()
+            .plugin(tauri_plugin_shell::init())
+            .build(mock_context(noop_assets()))
+            .expect("build mock tauri app");
+
+        let dir = TempDir::new().expect("tempdir");
+        let source = dir.path().join("dokument.txt");
+        std::fs::write(&source, doc_text).expect("write source txt");
+
+        let zone_obj = DropZone::new(zone);
+        let client = Arc::new(OllamaClient::with_base_url(server.uri()));
+
+        let snapshots: Arc<Mutex<Vec<ZoneSnapshot>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = snapshots.clone();
+        let channel = format!("juradrop://zone/{}", zone.slug());
+        app.handle().listen(channel, move |event| {
+            if let Ok(snap) = serde_json::from_str::<ZoneSnapshot>(event.payload()) {
+                sink.lock().expect("snapshot sink lock").push(snap);
+            }
+        });
+
+        Self {
+            server,
+            app,
+            dir,
+            source,
+            zone_obj,
+            client,
+            snapshots,
+        }
+    }
+
+    /// Dispatch the source file onto the zone (sidecar_ready = true).
+    pub async fn drop_file(&self) {
+        self.zone_obj
+            .clone()
+            .handle_drop(
+                self.app.handle().clone(),
+                self.client.clone(),
+                true,
+                "gemma3:4b",
+                vec![self.source.clone()],
+            )
+            .await;
+    }
+
+    /// Poll until a sidecar appears OR the zone settles in Error OR the
+    /// timeout passes. Returns the sidecar text if one was written.
+    pub async fn wait_settled(&self, timeout: Duration) -> Option<String> {
+        let needle = format!(".{}.", self.zone_obj.id().sidecar_suffix());
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if let Some(p) = find_sidecar(self.dir.path(), &needle) {
+                return Some(std::fs::read_to_string(p).expect("read txt sidecar"));
+            }
+            if matches!(self.zone_obj.visible_for_test(), ZoneState::Error) {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        None
+    }
+
+    /// True iff any sidecar file exists next to the source.
+    pub fn sidecar_exists(&self) -> bool {
+        let needle = format!(".{}.", self.zone_obj.id().sidecar_suffix());
+        find_sidecar(self.dir.path(), &needle).is_some()
+    }
+
+    /// Parsed /api/generate request bodies, in arrival order.
+    pub async fn generate_bodies(&self) -> Vec<serde_json::Value> {
+        self.server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|r| r.url.path() == "/api/generate")
+            .map(|r| serde_json::from_slice(&r.body).expect("json body"))
+            .collect()
+    }
+
+    /// Progress hints observed so far, in emission order.
+    pub fn progress_hints(&self) -> Vec<String> {
+        self.snapshots
+            .lock()
+            .expect("snapshot lock")
+            .iter()
+            .filter_map(|s| s.progress_hint.clone())
+            .collect()
+    }
+}
+
+/// A multi-paragraph Swedish-ish document of roughly `target_chars` chars
+/// with `sentinels` planted at evenly spread positions (start of evenly
+/// spaced paragraphs), so chunk i is guaranteed to contain sentinel i for
+/// suitable chunk counts.
+pub fn long_doc_with_sentinels(target_chars: usize, sentinels: &[&str]) -> String {
+    let para = format!(
+        "{} domslutet vann laga kraft.",
+        "rättegångsord ".repeat(140)
+    );
+    let mut paragraphs: Vec<String> = Vec::new();
+    let mut chars = 0usize;
+    while chars < target_chars {
+        paragraphs.push(para.clone());
+        chars += para.chars().count() + 2;
+    }
+    // Plant sentinels at evenly spread paragraph indices; the LAST sentinel
+    // goes in the LAST paragraph so end-coverage is directly assertable.
+    let n = paragraphs.len();
+    for (i, s) in sentinels.iter().enumerate() {
+        let idx = if i + 1 == sentinels.len() {
+            n - 1
+        } else {
+            (i * n) / sentinels.len().max(1)
+        };
+        paragraphs[idx] = format!("{s} {para}");
+    }
+    paragraphs.join("\n\n")
+}

@@ -68,4 +68,33 @@ test.describe('US6 — live event channels', () => {
     const none = await juradrop.emit('juradrop://nonexistent-channel', {});
     expect(none).toBe(0);
   });
+
+  // Spec 038 T015/T017(9) — multi-chunk per-part progress rides the existing
+  // progress_hint surface: successive processing snapshots must re-render the
+  // advancing Swedish hint inside the zone (the zone's accessible content),
+  // then the combine hint, then the normal success flow.
+  test('chunked-run progress hints render and advance in the zone (spec 038)', async ({
+    page,
+    juradrop,
+  }) => {
+    await page.goto('/');
+    const zone = page.locator('[data-zone-id="sammanfatta"]');
+    await expect(zone).toBeVisible();
+    await expect.poll(() => juradrop.listenerCount(ZONE)).toBeGreaterThan(0);
+
+    await juradrop.emit(ZONE, snapshot('processing', 'Bearbetar del 1 av 5…'));
+    await expect(zone).toContainText('Bearbetar del 1 av 5…');
+
+    await juradrop.emit(ZONE, snapshot('processing', 'Bearbetar del 2 av 5…'));
+    await expect(zone).toContainText('Bearbetar del 2 av 5…');
+    await expect(zone).not.toContainText('Bearbetar del 1 av 5…');
+
+    await juradrop.emit(ZONE, snapshot('processing', 'Sammanställer…'));
+    await expect(zone).toContainText('Sammanställer…');
+
+    await juradrop.emit(ZONE, snapshot('success', 'Klar — öppnar fil…'));
+    await expect(
+      page.locator('[data-zone-id="sammanfatta"][data-state="success"]'),
+    ).toBeVisible();
+  });
 });

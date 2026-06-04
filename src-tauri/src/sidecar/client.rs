@@ -129,6 +129,9 @@ impl OllamaClient {
             model: model.to_string(),
             prompt: prompt.into_inner(),
             stream: false,
+            options: GenerateOptions {
+                num_ctx: GENERATE_NUM_CTX,
+            },
         };
         let resp = self.http.post(&url).json(&body).send().await?;
         let parsed: GenerateResponse = resp.json().await?;
@@ -248,11 +251,25 @@ struct TagEntry {
     name: String,
 }
 
+/// Spec 038 FR-005 — explicit context window on every generate call.
+/// Ollama's DEFAULT num_ctx (4096 in current builds) is smaller than the
+/// ~6,000-token chunk payload, so leaving it unset silently clipped the
+/// input inside the model runtime. Budget: framing + system prompt (~400
+/// tokens) + 24k-char Swedish chunk (~6,000 tokens) + response headroom
+/// (~1,500 tokens) fits 8192 with margin on all three tiers.
+pub const GENERATE_NUM_CTX: u32 = 8192;
+
+#[derive(Debug, Serialize)]
+struct GenerateOptions {
+    num_ctx: u32,
+}
+
 #[derive(Debug, Serialize)]
 struct GenerateRequest {
     model: String,
     prompt: String,
     stream: bool,
+    options: GenerateOptions,
 }
 
 #[derive(Debug, Deserialize)]
@@ -319,6 +336,24 @@ mod tests {
     // `new()` (which reads JURADROP_OLLAMA_URL in debug) must serialize
     // against the seam test. Shared lock; poisoning is irrelevant here.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    // Spec 038 FR-005 — every generate body carries the explicit context
+    // window so the model runtime can never silently clip the input at its
+    // default num_ctx. Pins both the field path ("options.num_ctx") and the
+    // value (8192).
+    #[test]
+    fn generate_request_serializes_explicit_num_ctx() {
+        let body = GenerateRequest {
+            model: "gemma3:4b".to_string(),
+            prompt: "x".to_string(),
+            stream: false,
+            options: GenerateOptions {
+                num_ctx: GENERATE_NUM_CTX,
+            },
+        };
+        let json = serde_json::to_value(&body).expect("serialize");
+        assert_eq!(json["options"]["num_ctx"], 8192);
+    }
 
     #[test]
     fn client_uses_loopback_base_url() {
