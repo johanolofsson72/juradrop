@@ -210,15 +210,15 @@ Read these files WHEN you need them — do not load everything upfront:
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
 
-- Active spec: `specs/041-custom-instructions/spec.md`
-- Allium spec: `specs/041-custom-instructions/spec.allium`
-- Implementation plan: `specs/041-custom-instructions/plan.md`
-- Research notes: `specs/041-custom-instructions/research.md`
-- Data model: `specs/041-custom-instructions/data-model.md`
-- Contracts: `specs/041-custom-instructions/contracts/instruction-slot.md`
-- Quickstart: `specs/041-custom-instructions/quickstart.md`
+- Active spec: `specs/042-privacy-visibility/spec.md`
+- Allium spec: `specs/042-privacy-visibility/spec.allium`
+- Implementation plan: `specs/042-privacy-visibility/plan.md`
+- Research notes: `specs/042-privacy-visibility/research.md`
+- Data model: `specs/042-privacy-visibility/data-model.md`
+- Contracts: `specs/042-privacy-visibility/contracts/privacy-copy.md`
+- Quickstart: `specs/042-privacy-visibility/quickstart.md`
 
-Previous specs (completed): `specs/034-tier-download-pull-timeout/`, `specs/035-unwrap-audit/`, `specs/036-study-method-zones/`, `specs/038-chunked-summarization/`, `specs/039-anonymisera-hardening/`, `specs/040-kontakter-per-person/`.
+Previous specs (completed): `specs/036-study-method-zones/`, `specs/038-chunked-summarization/`, `specs/039-anonymisera-hardening/`, `specs/040-kontakter-per-person/`, `specs/041-custom-instructions/`.
 
 Previous specs (completed): `specs/001-tauri-bootstrap/`, `specs/002-ollama-sidecar-poc/`, `specs/003-first-zone-sammanfatta/`, `specs/004-all-six-zones/`, `specs/005-additional-input-formats/`, `specs/006-signing-and-ci/`, `specs/007-auto-updater/`, `specs/008-first-run-wizard/`, `specs/009-long-tail-formats/`, `specs/010-settings-panel/`, `specs/011-error-recovery/`, `specs/012-polish-and-public-beta/`
 <!-- SPECKIT END -->
