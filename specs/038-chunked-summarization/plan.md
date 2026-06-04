@@ -109,7 +109,7 @@ itself is a pure std-only module for exhaustive unit testing.
 
 ## Execution flow (implementation order)
 
-1. **chunking.rs** (pure logic + unit tests): `split_into_chunks(&str) -> Vec<String>`,
+1. **chunking.rs** (pure logic + unit tests): `split_into_chunks(&str) -> ChunkPlan`,
    boundary cascade paragraph→sentence (Swedish-abbrev guard)→whitespace→char, skip-blank
    rule, ceiling cap + `was_capped`, `CombineStrategy` + `ZoneId::combine_strategy()`,
    deterministic `merge_concat` / `merge_aggregate` (heading/numbered/bullet-aware,

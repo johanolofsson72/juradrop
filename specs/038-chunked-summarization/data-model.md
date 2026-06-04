@@ -41,7 +41,16 @@ Invariants (unit-test enforced, mirroring spec.allium):
 | `GENERATE_NUM_CTX` | 8192 | sidecar/client.rs | (new — Ollama left at default before) |
 
 `ExtractedText.was_truncated` keeps its name and writer wiring; its meaning tightens to
-"exceeded the 288k ceiling" (the only case where content is genuinely skipped — FR-006).
+"exceeded the 288k extraction memory bound".
+
+**Cap ownership (analyze F1)**: boundary-aware splitting yields chunks *smaller* than
+CHUNK_CHAR_TARGET on average, so ≤288k chars can produce >12 raw slices. **Chunking owns the
+user-facing cap**: `split_into_chunks` keeps the first 12 chunks and sets
+`ChunkPlan.was_capped = true` when it drops a tail. The disclaimer flag passed to the writers
+is the OR of both signals: `extracted.was_truncated || plan.was_capped` — the truncation
+disclaimer fires iff content was genuinely skipped at either layer (FR-006/FR-013, Principle
+VIII). The extraction ceiling (288_000) remains as a coarse memory bound only and never
+drives the disclaimer on its own.
 
 ## GenerateRequest (modified, sidecar/client.rs)
 

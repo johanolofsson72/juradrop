@@ -33,7 +33,10 @@ pub fn merge_aggregate(zone: ZoneId, parts: &[String]) -> String;
 - G1 `split("")`/whitespace-only → never called (extraction rejects EmptyText first); defensive: returns 0-chunk plan treated as EmptyText upstream
 - G2 text ≤ CHUNK_CHAR_TARGET → exactly 1 chunk, content identical to input (single-pass path)
 - G3 joins of `chunks` reproduce the processed prefix (no loss, no reorder, no mid-word cuts except the pathological no-whitespace fallback)
-- G4 `chunks.len() <= MAX_CHUNKS`; `was_capped` true iff prefix < full text
+- G4 `chunks.len() <= MAX_CHUNKS`; `was_capped` true iff a tail was dropped — chunking OWNS
+  the user-facing cap (boundary-aware chunks average < CHUNK_CHAR_TARGET, so ≤288k chars can
+  yield >12 raw slices; the first MAX_CHUNKS are kept). The writer disclaimer flag is
+  `extracted.was_truncated || plan.was_capped` (analyze F1)
 - G5 Swedish abbreviations never create sentence boundaries
 - G6 multi-byte chars (å/ä/ö/é) never split mid-char
 - G7 `merge_aggregate` output contains each distinct (exact-trim) item exactly once
