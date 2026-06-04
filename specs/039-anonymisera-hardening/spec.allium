@@ -131,7 +131,11 @@ deferred Replacement.format_normalization
 -- "19850312-1234" vs "850312-1234" form gets two indices). Shape-based v1;
 -- normalize-before-index is a quality improvement if field feedback demands.
 
-deferred Replacement.swedish_char_emails
--- Location hint: the spec-014 email pattern's \w excludes å/ä/ö — the ASCII
--- tail of "åsa@exempel.se" is replaced, the leading å survives. Same blind
--- spot the sweep has today; fix both together if it surfaces in the field.
+-- (Resolved 2026-06-04, user decision FIX NOW: the formerly-deferred
+-- swedish_char_emails gap is in scope — the shared email pattern is widened
+-- to match å/ä/ö in the local part, fixing scrub AND sweep at the single
+-- source. See FR-009.)
+invariant EmailPatternCoversSwedishChars {
+    for result in ScrubResults:
+        result.email_pattern_matches_swedish_local_parts = true
+}

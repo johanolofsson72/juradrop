@@ -73,7 +73,7 @@ The spec-014 output sweep keeps running unchanged on the final combined output: 
 - Phone-number-shaped strings inside case references — replaced if they match the spec-014 phone shape; accepted over-redaction, same trade-off the sweep already made.
 - PII straddling a chunk boundary cannot occur for scrub categories: the scrub runs on the WHOLE extracted text before chunking (spec 038 order: extract → scrub → chunk).
 - Placeholders must survive chunking: `[Personnr 1]` must never be split mid-placeholder by a chunk cut (boundary cascade cuts at paragraph/sentence/whitespace — a bracketed token is never split by those; the pathological char-fallback could split one, accepted as a vanishing edge case in whitespace-free 24k-char runs).
-- Email with Swedish chars (`åsa@exempel.se`) — the spec-014 email regex's `\w` does not match å/ä/ö; partial match replaces the ASCII tail. Accepted v1 limitation (sweep has the same blind spot today); documented.
+- Email with Swedish chars (`åsa@exempel.se`) — the spec-014 email regex's `\w` does not match å/ä/ö, so the leading å would survive a partial replacement. RESOLVED (allium finding 2, user: fix now): the shared email pattern in the sweep is widened to cover å/ä/ö in the local part, fixing scrub and sweep at the single source (FR-009).
 - Empty document after scrub cannot occur (scrub only substitutes, never deletes).
 - The scrub counter and value→index mapping live in memory for the duration of one run and are never persisted or logged (Principle I).
 
@@ -89,6 +89,7 @@ The spec-014 output sweep keeps running unchanged on the final combined output: 
 - **FR-006**: The spec-014 output sweep MUST keep running unchanged on the final (combined) output as the independent net for fabricated or unmatched PII.
 - **FR-007**: The value→index mapping MUST exist only in memory for the duration of the run — never persisted, never logged (Principle I).
 - **FR-008**: Scrub replacement MUST be UTF-8-safe (Swedish characters adjacent to matches must never be corrupted).
+- **FR-009**: The shared e-post pattern MUST match Swedish characters (å/ä/ö, upper and lower) in the local part, so `åsa@exempel.se` is replaced in full — by both the scrub and the sweep (single pattern source).
 
 ### Key Entities
 
