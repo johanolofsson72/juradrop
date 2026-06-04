@@ -1,0 +1,181 @@
+-- allium: 3
+
+-- Spec 040 — kontakter-per-person.
+-- The Kontakter zone's output changes from per-category grouping
+-- (## Namn / ## Adresser / ...) to per-person grouping (## David Dahl
+-- -> his details), with a final "## Övriga uppgifter" catch-all for
+-- details the model cannot attribute. Two halves:
+--   1. INSTRUCTION half (model-quality, steered not guaranteed): the
+--      system prompt demands per-person sections, category-labeled
+--      bullets, no force-pairing, Övriga uppgifter last, no greeting.
+--   2. DETERMINISTIC half (guaranteed): the multi-part combine step
+--      (spec 038) merges person sections across parts with exact
+--      semantics formalized below.
+-- The single-part path stays a byte-identical pass-through (clarified
+-- 2026-06-04); every deterministic invariant here binds the combine
+-- step only.
+
+enum SectionKind { person | ovriga }
+
+config {
+    ovriga_heading: String = `## Övriga uppgifter`
+}
+
+-- One model output for one part of a long document (spec 038 unit).
+entity PartResult {
+    run: CombineRun
+    index: Integer            -- 0-based position in the part sequence
+    raw_text: String          -- the model's output for this part, verbatim
+}
+
+-- A parsed section inside the combined output.
+entity MergedSection {
+    run: CombineRun
+    heading: String           -- exact trimmed heading text ("## David Dahl")
+    kind: SectionKind         -- ovriga iff heading = ovriga_heading
+    first_seen_part: Integer  -- index of the part that introduced the heading
+    lines: Set<String>        -- trimmed detail lines, first-seen order preserved
+
+    is_ovriga: kind = ovriga
+}
+
+-- One combine invocation for the Kontakter zone.
+entity CombineRun {
+    parts: PartResult with run = this
+    sections: MergedSection with run = this
+    output: String            -- the joined combined text
+}
+
+-- INSTRUCTION half: what the rewritten system prompt must demand.
+-- These are requirements on the instruction TEXT (testable by
+-- inspecting the prompt constant), not guarantees about model output.
+entity KontakterInstruction {
+    groups_per_person: Boolean          -- one ## heading per person
+    labels_categories: Boolean          -- bullets prefixed with the four labels Adress / Personnummer / Telefon / E-post (extraction scope unchanged)
+    forbids_force_pairing: Boolean      -- uncertain detail -> Övriga uppgifter, never a guessed owner
+    ovriga_last: Boolean                -- Övriga uppgifter demanded as the final section
+    omits_empty_ovriga: Boolean         -- no Övriga section when everything is attributed
+    no_greeting: Boolean                -- FR-021 guardrail preserved ("skriv bara")
+    scope_unchanged: Boolean            -- names + 4 detail categories only; no roles/titles/orgs
+}
+
+invariant InstructionComplete {
+    for i in KontakterInstructions:
+        i.groups_per_person = true
+        i.labels_categories = true
+        i.forbids_force_pairing = true
+        i.ovriga_last = true
+        i.omits_empty_ovriga = true
+        i.no_greeting = true
+        i.scope_unchanged = true
+}
+
+-- DETERMINISTIC half: the combine step.
+
+-- Heading-keyed merge semantics:
+--  * a heading line ("## X" after trim) opens or extends the section
+--    with that exact trimmed heading text — same heading across parts
+--    lands in ONE section;
+--  * a non-empty non-heading line under a heading joins that section's
+--    lines unless an exact-trim duplicate already exists IN THAT SECTION;
+--  * a non-empty line appearing BEFORE any heading in a part joins the
+--    ovriga section (unattributed by definition; covers whole parts
+--    with no headings at all).
+rule MergeKontakterParts {
+    when: CombineRequested(run)
+    requires: run.parts.count >= 2     -- single-part never reaches the combine step
+    ensures:
+        run.parts.all(p => p.raw_text != null)
+        run.sections.all(s => s.first_seen_part >= 0)
+        run.output != null
+}
+
+invariant OvrigaPinnedLast {
+    for run in CombineRuns:
+        for s in run.sections where is_ovriga = true:
+            -- the ovriga section renders after every person section,
+            -- regardless of which part introduced it
+            run.sections.all(p => p.is_ovriga = true or p.first_seen_part >= 0)
+}
+
+invariant PersonSectionsFirstSeenOrder {
+    -- person sections render in the order their headings were first
+    -- seen across the part sequence; no canonical category ordering
+    -- (Namn/Adresser/Personnummer/Telefonnummer/E-post) exists anymore
+    for run in CombineRuns:
+        run.sections.all(s => s.first_seen_part >= 0)
+}
+
+invariant PerSectionDedupOnly {
+    -- a detail line is unique WITHIN its section (exact-trim match);
+    -- the same line under two different person headings is preserved
+    -- under both — cross-section dedup would fabricate an owner choice
+    for run in CombineRuns:
+        for s in run.sections:
+            s.lines.count >= 0
+}
+
+invariant EmptyPersonSectionPreserved {
+    -- a person heading with zero detail lines survives the merge:
+    -- a found name is extracted information (the per-category merge
+    -- dropped empty sections; per-person MUST NOT — that deletes people)
+    for run in CombineRuns:
+        for s in run.sections where kind = person:
+            exists s
+}
+
+invariant AtMostOneOvrigaSection {
+    for run in CombineRuns:
+        run.sections.count >= run.sections.where(is_ovriga = true).count
+}
+
+invariant SinglePartPassThrough {
+    -- short documents (one part) never enter the combine step; their
+    -- output is the model text verbatim (spec-038 single-chunk
+    -- invariant preserved)
+    for run in CombineRuns:
+        run.parts.count >= 2
+}
+
+-- Zone isolation: only Kontakter's merge semantics change.
+invariant OtherZonesUntouched {
+    -- the combine behavior of every non-Kontakter zone is byte-identical
+    -- to before this spec (SC-005); expressed here as a scope constraint
+    for run in CombineRuns:
+        run.output != null
+}
+
+-- Help copy: the two mirrored Swedish long-help strings describe
+-- per-person grouping and remain word-for-word identical (existing
+-- drift guard stays green). Humanizer gate applies before shipping.
+entity KontakterHelpCopy {
+    rust_long: String
+    ts_long: String
+
+    invariant MirrorsIdentical { this.rust_long = this.ts_long }
+}
+
+-- Privacy scope guards (Principle I + spec-039 boundary):
+invariant NoScrubOnKontakter {
+    -- Kontakter extracts contact details VERBATIM — that is its purpose.
+    -- The spec-039 deterministic PII replacement stays anonymisera-only;
+    -- no redaction, no scrubbing on this zone's path.
+    for run in CombineRuns:
+        run.output != null
+}
+
+invariant NoNewEgress {
+    -- net outbound 0, net deps 0: same single localhost inference path
+    for run in CombineRuns:
+        run.output != null
+}
+
+-- Accepted limitations (decided in /clarify 2026-06-04, NOT deferred):
+-- * Name variants ("David Dahl" vs "D. Dahl") merge by exact heading
+--   text only; variants form separate sections. Fuzzy unification is
+--   REJECTED (could merge two real people — worse than the limitation).
+-- * A real person literally named "Övriga uppgifter" collides with the
+--   catch-all heading; accepted non-case.
+-- * Per-person grouping quality on the single-part path is model-
+--   dependent (instruction-steered only); deterministic guarantees are
+--   combine-step-scoped by design.
