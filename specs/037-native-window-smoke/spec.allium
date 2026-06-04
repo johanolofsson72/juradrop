@@ -1,0 +1,206 @@
+-- allium: 3
+
+-- Spec 037: native-window-smoke — XCUITest harness driving the real .app.
+-- Elicited from specs/037-native-window-smoke/spec.md (post-/clarify, 2026-06-05).
+--
+-- Domain note: the "system" here is the TEST HARNESS itself — its run
+-- lifecycle, hermeticity, and cleanup guarantees. The app under test is
+-- external (governed by specs 001–042).
+--
+-- DECIDED (register rewrite + /clarify, not open):
+--   * LOCAL-ONLY: no CI workflow (github-actions budget rule).
+--   * Debug build is the test subject (carries the spec-013 mock seam).
+--   * Twelve zones (spec 036 count).
+--   * Hand-committed minimal .xcodeproj under ui-tests/.
+
+enum ProbeOutcome { web_content_reachable | chrome_only_fallback }
+
+external entity AppUnderTest {
+    bundle_id: String                  -- se.noisycricket.juradrop (debug build)
+    is_debug_build: Boolean            -- carries the JURADROP_OLLAMA_URL seam
+    process_alive: Boolean
+}
+
+entity MockEndpoint {
+    port: Integer
+    serves_model_listing: Boolean      -- model reported present → app ready, no wizard
+    serves_generation: Boolean         -- canned Swedish response
+    localhost_only: Boolean
+    running: Boolean
+}
+
+entity FixtureWorkspace {
+    path: String                       -- temp dir holding the .txt fixture
+    fixture_present: Boolean
+    sidecar_present: Boolean           -- appears after the pick journey
+    removed: Boolean                   -- true after cleanup
+}
+
+-- One execution of the harness, end to end.
+entity TestRun {
+    status: preflight | building | launching | probing | asserting_render | driving_pick | settled_pass | settled_fail | cleaned
+    probe_outcome: ProbeOutcome when status = asserting_render | driving_pick | settled_pass | settled_fail | cleaned
+    permission_ok: Boolean             -- automation/accessibility granted
+    app: AppUnderTest
+    mock: MockEndpoint
+    workspace: FixtureWorkspace
+    exit_code_nonzero_on_failure: Boolean
+
+    transitions status {
+        preflight -> building          -- app stale → rebuild
+        preflight -> launching         -- app fresh
+        preflight -> settled_fail      -- permission missing → honest message (FR-007)
+        building -> launching
+        building -> settled_fail
+        launching -> probing
+        launching -> settled_fail      -- window never appeared within timeout
+        probing -> asserting_render
+        asserting_render -> driving_pick   -- only when probe = web_content_reachable
+        asserting_render -> settled_pass   -- chrome_only_fallback: render assertions are the scope
+        asserting_render -> settled_fail
+        driving_pick -> settled_pass
+        driving_pick -> settled_fail
+        settled_pass -> cleaned
+        settled_fail -> cleaned
+        terminal: cleaned
+    }
+}
+
+-- ── Rules ────────────────────────────────────────────────────────────────
+
+rule PreflightChecksPermission {
+    when: RunnerStarted(run)
+    requires: run.status = preflight
+    ensures:
+        if run.permission_ok = false:
+            run.status = settled_fail
+            -- FR-007: plain actionable message naming the grant, never a bare timeout
+        if run.permission_ok = true:
+            run.status = building
+}
+
+rule BuildIfStaleThenLaunch {
+    when: BuildCompleted(run)
+    requires: run.status = building
+    ensures: run.status = launching
+}
+
+rule LaunchTimeoutFails {
+    when: WindowNeverAppeared(run)
+    requires: run.status = launching
+    ensures: run.status = settled_fail
+}
+
+rule LaunchHermetically {
+    when: LaunchApp(run)
+    requires:
+        run.status = launching
+        run.app.is_debug_build = true
+        run.mock.running = true
+        run.mock.localhost_only = true
+    ensures:
+        run.status = probing
+        -- launchEnvironment carries the mock seam URL; no real model anywhere
+}
+
+-- FR-009 — the load-bearing unknown is probed FIRST and recorded.
+rule ProbeWebContentExposure {
+    when: ProbeAccessibilityTree(run)
+    requires: run.status = probing
+    ensures:
+        run.status = asserting_render
+        if run.probe_outcome = chrome_only_fallback:
+            SpecAmendmentRequired(scope: "window/chrome assertions only")
+            -- honest fallback per FR-009: the spec + register say exactly what shipped
+}
+
+rule AssertTwelveZonesRender {
+    when: RenderAssertions(run)
+    requires: run.status = asserting_render
+    ensures:
+        -- FR-002: twelve canonical Swedish zone titles + chrome affordances,
+        -- sourced from the canonical string constants (FR-012), waited on
+        -- with bounded timeouts (FR-011)
+        if run.probe_outcome = web_content_reachable:
+            run.status = driving_pick
+}
+
+rule DrivePickToSidecar {
+    when: PickJourney(run)
+    requires:
+        run.status = driving_pick
+        run.workspace.fixture_present = true
+    ensures:
+        -- FR-003: Välj fil → native picker → fixture → success state →
+        -- sidecar on disk whose content contains the canned mock response
+        run.workspace.sidecar_present = true
+        run.status = settled_pass
+}
+
+rule CleanupAlways {
+    when: run: TestRun.status transitions_to settled_pass
+    ensures:
+        run.app.process_alive = false
+        run.mock.running = false
+        run.workspace.removed = true
+        run.status = cleaned
+}
+
+rule CleanupOnFailureToo {
+    when: run: TestRun.status transitions_to settled_fail
+    ensures:
+        run.app.process_alive = false
+        run.mock.running = false
+        run.workspace.removed = true
+        run.status = cleaned
+}
+
+-- ── Invariants ───────────────────────────────────────────────────────────
+
+-- FR-004 — hermeticity: the harness never touches a real model or any
+-- non-localhost endpoint.
+invariant Hermetic {
+    for run in TestRuns:
+        run.mock.localhost_only = true
+        run.app.is_debug_build = true
+}
+
+-- FR-005 / SC-003 — every run ends cleaned, both outcomes.
+invariant TerminalIsCleaned {
+    for run in TestRuns where status = cleaned:
+        run.app.process_alive = false
+        run.mock.running = false
+        run.workspace.removed = true
+}
+
+-- FR-006 — failures are visible to the caller.
+invariant FailuresExitNonZero {
+    for run in TestRuns:
+        run.exit_code_nonzero_on_failure = true
+}
+
+-- FR-008 — the suite exists OUTSIDE every default gate: not cargo test,
+-- not npm test, not Playwright, not any CI workflow. (Pinned by the
+-- absence of wiring; checked structurally at review time.)
+invariant OptInOnly {
+    for run in TestRuns:
+        run.status != preflight or run.permission_ok = run.permission_ok
+        -- structural: no gate may construct a TestRun implicitly
+}
+
+-- FR-003 SC-002 — a pass with web content reachable REQUIRES the sidecar
+-- to have genuinely appeared (the pipeline ran; not a stale artifact).
+invariant PassImpliesSidecar {
+    for run in TestRuns where status = settled_pass:
+        run.probe_outcome != web_content_reachable or run.workspace.sidecar_present = true
+}
+
+actor Developer { identified_by: LocalUser }
+
+surface RunnerScript {
+    facing viewer: Developer
+    context run: TestRun where invoked_by = viewer.session
+    provides: RunnerStarted(run)
+    exposes: run.status
+    exposes: run.probe_outcome
+}
