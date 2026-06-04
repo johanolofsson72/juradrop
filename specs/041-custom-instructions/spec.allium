@@ -1,0 +1,226 @@
+-- allium: 3
+
+-- Spec 041: custom-instructions — per-drop user guidance to the local model.
+-- Elicited from specs/041-custom-instructions/spec.md (post-/clarify, session 2026-06-04).
+--
+-- Trust model (the load-bearing distinction):
+--   user-typed instruction  = TRUSTED  → sits above the spec-022 injection guard
+--   dropped document content = UNTRUSTED → stays inside the data delimiters, always
+--
+-- DECIDED LIMITATIONS (recorded, not open):
+--   * Single global field, not per-zone — the instruction steers the next drop wherever it lands.
+--   * Session-sticky: cleared only by user action or app exit; restart always starts empty.
+--   * Field PLACEMENT in the window is a frontend-design-gate decision, not a spec entity.
+--   * No content validation of the instruction (trusted input; only cap + trim apply).
+
+config {
+    max_instruction_chars: Integer = 500
+}
+
+enum PassKind { single | per_chunk | combine | condense_batch | condense_final }
+
+-- The one in-memory instruction field. No identity beyond the app session.
+entity InstructionField {
+    raw_text: String                       -- exactly what the user typed, capped at input time
+    effective: String                      -- raw_text minus leading/trailing whitespace
+    is_active: effective != ""             -- whitespace-only collapses to dormant
+    char_count: raw_text.length            -- drives the visible counter (FR-011)
+
+    invariant CapEnforcedAtInput { this.raw_text.length <= 500 }
+}
+
+-- One document processed by one zone (existing concept; gains a pinned instruction).
+entity DropJob {
+    zone: Zone
+    instruction: String                    -- snapshot of InstructionField.effective at drop time
+    status: running | succeeded | failed | cancelled
+
+    transitions status {
+        running -> succeeded
+        running -> failed
+        running -> cancelled
+        terminal: succeeded, failed, cancelled
+    }
+
+    passes: ModelPass with job = this
+}
+
+external entity Zone {
+    is_generera: Boolean                   -- Generera's input IS instructions (spec 022 exemption)
+    has_guard: Boolean                     -- all 11 document zones carry the injection guard
+}
+
+-- One generation call to the local model.
+entity ModelPass {
+    job: DropJob
+    kind: PassKind
+    prompt: PromptAssembly
+    endpoint_is_localhost: Boolean         -- Principle I: the only place a prompt may travel
+}
+
+-- The assembled prompt, decomposed into its ordered slots.
+value PromptAssembly {
+    task_description: String               -- zone system prompt OR combine/condense instruction
+    user_instruction: String?              -- the new trusted slot; absent (not empty) when dormant
+    guard_present: Boolean                 -- spec-022 guard, unchanged text
+    document_inside_delimiters: Boolean    -- document content strictly within data framing
+    document_fragment_in_trusted_slots: Boolean  -- must never be true
+}
+
+-- ── Field lifecycle ──────────────────────────────────────────────────────────
+
+rule EditInstruction {
+    when: UserTypes(field, text)
+    requires: text.length <= 500           -- the field refuses input past the cap (visible counter)
+    ensures: field.raw_text = text
+}
+
+rule ClearInstruction {
+    when: UserClears(field)
+    ensures: field.raw_text = ""           -- one-action clear affordance
+}
+
+rule AppLaunchStartsEmpty {
+    when: AppLaunched(field)
+    ensures: field.raw_text = ""           -- nothing was persisted, so nothing can be restored
+}
+
+-- Run terminal outcomes (existing zone state machine; restated so transitions are grounded).
+rule RunSucceeds {
+    when: ModelRunCompleted(job)
+    requires: job.status = running
+    ensures: job.status = succeeded
+}
+
+rule RunFails {
+    when: ModelRunFailed(job)
+    requires: job.status = running
+    ensures: job.status = failed
+}
+
+rule RunCancelled {
+    when: UserCancels(job)
+    requires: job.status = running
+    ensures: job.status = cancelled
+}
+
+-- Failed/cancelled runs leave the field untouched so the user can retry without retyping.
+rule RunOutcomeLeavesFieldAlone {
+    when: job: DropJob.status transitions_to failed
+    ensures: InstructionField.raw_text = InstructionField.raw_text
+}
+
+-- ── Pinning at drop time ─────────────────────────────────────────────────────
+
+rule PinInstructionAtDrop {
+    when: DocumentDropped(zone, document, field)
+    ensures:
+        DropJob.created(zone: zone, instruction: field.effective, status: running)
+        -- later edits to the field never reach this job (see PinnedInstructionImmutable)
+}
+
+-- ── Prompt assembly (the seam this spec exists to guard) ─────────────────────
+
+-- Document zones: task → [instruction] → guard → delimited document. Always in that order.
+rule AssembleDocumentZonePass {
+    when: PassAssembled(job, pass)
+    requires: job.zone.is_generera = false
+    ensures:
+        pass.prompt.guard_present = true
+        pass.prompt.document_inside_delimiters = true
+        pass.prompt.document_fragment_in_trusted_slots = false
+        if job.instruction != "":
+            pass.prompt.user_instruction = job.instruction
+        if job.instruction = "":
+            pass.prompt.user_instruction = null   -- byte-identical legacy prompt, no slot artifacts
+}
+
+-- Generera: no guard (its document IS instructions), but the user slot behaves identically.
+rule AssembleGenereraPass {
+    when: PassAssembled(job, pass)
+    requires: job.zone.is_generera = true
+    ensures:
+        pass.prompt.guard_present = false
+        if job.instruction != "":
+            pass.prompt.user_instruction = job.instruction
+        if job.instruction = "":
+            pass.prompt.user_instruction = null
+}
+
+-- ── Invariants ───────────────────────────────────────────────────────────────
+
+-- FR-006: the instruction a run started with is the instruction it finishes with.
+invariant PinnedInstructionImmutable {
+    for job in DropJobs:
+        job.instruction = job.instruction  -- immutable after creation; edits create no writes here
+}
+
+-- FR-005 / SC-005: every model-generating pass of a steered run carries the instruction.
+invariant AllPassesCarryInstruction {
+    for job in DropJobs where instruction != "":
+        job.passes.all(p => p.prompt.user_instruction = job.instruction)
+}
+
+-- FR-003 / SC-002: dormant instruction ⇒ no trace of the slot in any pass.
+invariant DormantMeansAbsent {
+    for job in DropJobs where instruction = "":
+        job.passes.all(p => p.prompt.user_instruction = null)
+}
+
+-- FR-010 / SC-003: the injection wall. Document content never escapes the data framing,
+-- with or without an instruction present; the guard text is present and unchanged for
+-- all document zones. A user instruction containing delimiter-like text cannot break
+-- framing because the trusted slot precedes the data framing entirely.
+invariant DocumentStaysData {
+    for pass in ModelPasses:
+        pass.prompt.document_fragment_in_trusted_slots = false
+}
+
+invariant GuardOnAllDocumentZones {
+    for pass in ModelPasses where job.zone.is_generera = false:
+        pass.prompt.guard_present = true
+}
+
+-- FR-007/FR-008/FR-016 / SC-004: the instruction lives in memory and in model requests only.
+-- "disk artifacts" = settings file, diagnostics log, caches, sidecar output files.
+invariant InstructionNeverOnDisk {
+    for job in DropJobs:
+        not exists disk_artifact where content_contains = job.instruction
+}
+
+-- FR-009: Principle I — the only network destination is the local model endpoint.
+invariant LocalhostOnly {
+    for pass in ModelPasses:
+        pass.endpoint_is_localhost = true
+}
+
+-- FR-011: cap sized so the spec-038 context budget holds at maximum instruction length.
+invariant ContextBudgetHoldsAtCap {
+    for pass in ModelPasses:
+        pass.prompt.task_description.length + 500 <= context_budget_headroom
+}
+
+-- FR-012: deterministic machinery is structurally upstream/downstream of the model passes
+-- and reads nothing from the instruction: structured-PII pre-replacement (039), output
+-- PII sweep (014), zone disclaimers, chunk disclaimers all run regardless of instruction.
+invariant DeterministicMachineryInstructionBlind {
+    for job in DropJobs:
+        job.deterministic_steps_executed = job.deterministic_steps_required
+}
+
+-- ── Surface ──────────────────────────────────────────────────────────────────
+
+actor Student { identified_by: AppUser }
+
+surface InstructionFieldSurface {
+    facing viewer: Student
+    context field: InstructionField where session = viewer.session
+    provides: UserTypes(field) when field.raw_text.length <= 500
+    provides: UserClears(field)
+    -- visible character counter (FR-011)
+    exposes: field.raw_text
+    exposes: field.char_count
+    -- Swedish label + placeholder + help copy (FR-013, humanizer-gated);
+    -- keyboard-reachable, screen-reader labeled (FR-014);
+    -- always editable regardless of zone/sidecar state (FR-015).
+}
