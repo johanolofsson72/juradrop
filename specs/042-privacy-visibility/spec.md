@@ -8,6 +8,14 @@
 
 **Input**: User description: "Make the local-only guarantee VISIBLE (field insight from beta tester Meja, user directive 2026-06-04: 'användaren ska vara väl medveten om att ingenting lämnar datorn — detta måste framgå tydligt'). The tester believed the AI fetches information from the internet. The guarantee is structurally true (CSP wall, localhost-only inference, Principle I) but INVISIBLE in the UI. Deliver: persistent UI affordance near the zone grid, reinforced first-run wizard copy, README/help section. Honest framing only. No new outbound anything; static UI + copy."
 
+## Clarifications
+
+### Session 2026-06-04
+
+- Q: Is the privacy affordance interactive? → A: No — static text, no link, no focusable control; the chrome help icon already provides the detail path (auto-picked recommended).
+- Q: How does the help entry ship? → A: As a second chrome-level help entry riding the spec-041 mechanism (`_privacy_help` in the three-way mirror, sibling section above the zone list), with the same drift assertions (auto-picked recommended).
+- Q: Canonical vocabulary for the machine? → A: "din dator" everywhere in-app (matches the user directive and the shipped 041 copy); "Mac" only where the platform itself is the subject, e.g. README install instructions (auto-picked recommended).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - The main window itself answers "where does my document go?" (Priority: P1)
@@ -78,9 +86,9 @@ A skeptical user (or the friend they ask) wants the details: what network traffi
 - **FR-003**: All privacy copy MUST be honestly scoped: claims concern user content (documents, custom instructions, results); no surface may claim the app never uses the network.
 - **FR-004**: The first-run wizard welcome copy MUST state that processing happens locally on this Mac.
 - **FR-005**: The wizard model-download copy MUST explain that the AI model is downloaded to this Mac once and the app then works without internet access.
-- **FR-006**: The help panel MUST gain a privacy entry stating what never leaves the machine AND naming the only two network uses (one-time model download, update check), mirrored across the established three-way help-string surfaces.
+- **FR-006**: The help panel MUST gain a privacy entry stating what never leaves the machine AND naming the only two network uses (one-time model download, update check), shipped as a second chrome-level entry (`_privacy_help`) via the spec-041 mechanism and mirrored across the established three-way help-string surfaces with dedicated drift assertions.
 - **FR-007**: The README privacy section MUST be updated to the same facts, consistent with the in-app copy.
-- **FR-008**: All surfaces MUST use consistent vocabulary ("din dator"/"din Mac" consistently, no synonym drift), and MUST NOT contradict each other.
+- **FR-008**: All surfaces MUST use the canonical vocabulary "din dator" (no synonym drift; "Mac" only where the platform itself is the subject, e.g. README install), and MUST NOT contradict each other.
 - **FR-009**: The feature MUST add zero network calls, zero new dependencies, zero behavioral changes — static UI and copy only.
 - **FR-010**: The affordance MUST be accessible: screen-reader reachable as content, legible contrast in both appearances.
 - **FR-011**: At the default window size, the grid, instruction field, and affordance MUST all fit without scrolling.
@@ -88,7 +96,7 @@ A skeptical user (or the friend they ask) wants the details: what network traffi
 
 ### Key Entities
 
-- **Privacy affordance**: a static, always-rendered text element near the zone grid. No state, no persistence, no interaction (unless design review adds a link-to-help, which must look like what it is).
+- **Privacy affordance**: a static, always-rendered, non-interactive text element near the zone grid. No state, no persistence, no link, no focusable control (clarified 2026-06-04).
 - **Copy set**: one fact base (what never leaves; the two network uses) rendered at four sizes: badge (one line), wizard (two short passages), help entry (short paragraph), README (section).
 
 ## Success Criteria *(mandatory)*
@@ -105,7 +113,7 @@ A skeptical user (or the friend they ask) wants the details: what network traffi
 ## Assumptions
 
 - **Placement: footer line under the zone grid** — the area was deliberately left free when the spec-041 instruction field took the above-grid slot. Final visual treatment is the frontend-design gate's call.
-- **Not interactive by default**: a static line; if design review wants "läs mer" → it opens the existing help panel (no new surfaces).
+- ~~Not interactive by default~~ Resolved by clarification: static, non-interactive — the chrome help icon is the detail path.
 - **The wizard copy is amended, not redesigned**: existing welcome/download screens gain/adjust sentences; no new wizard steps.
 - **Help entry rides the established chrome-level help mechanism** introduced in spec 041 (`_instruction_help` pattern) — same three-way mirror discipline.
 - **README "Privacy guarantees" section exists** and is updated in place; the stale nine-zone/3×3 README copy is a separate doc-fix, not this spec (noted in the register since 040).
