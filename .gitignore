@@ -51,3 +51,6 @@ temp/
 appsettings.Development.json
 .claude/projects/
 .claude/settings.local.json
+
+# Local manual-test corpus (contains a 53 MB size-cap fixture — never commit)
+juradrop-test/
