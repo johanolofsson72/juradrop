@@ -8,6 +8,14 @@
 
 **Input**: User description: "Let the user give per-drop custom instructions to the model (field request from beta tester Meja, e.g. 'translate but keep the quoted sections in Swedish'). No mechanism exists today: SettingsSnapshot is deliberately 2-field and there is no prompt-override surface. Needs a new UI affordance (Swedish copy) plus a prompt-assembly slot that sits ABOVE the spec-022 anti-injection framing — user instructions are trusted input, document content stays framed as DATA; the injection seam must not reopen. Instructions interact with the spec-038 chunked map-reduce passes (must apply consistently across per-chunk and combine passes). Privacy-clean: instructions go to localhost Ollama like everything else and are never persisted to disk."
 
+## Clarifications
+
+### Session 2026-06-04
+
+- Q: Maximum instruction length? → A: 500 characters (auto-picked recommended; sized against the long-document context budget with ample headroom).
+- Q: Is the instruction echoed into the sidecar output file? → A: No — the output contains only the processing result plus existing deterministic disclaimers; the app never writes the instruction text into any output file (auto-picked recommended).
+- Q: Can an instruction suppress deterministic output machinery (zone disclaimers, chunk disclaimers, structured-PII replacement, output PII sweep)? → A: No — deterministic machinery runs regardless of instruction content; the instruction steers only the model passes (auto-picked recommended).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Steer a single run with my own instruction (Priority: P1)
@@ -116,8 +124,9 @@ A first-time user sees the instruction field, understands from its Swedish label
 - **FR-008**: The instruction text MUST never be written to the local diagnostics log (the log's content-free design must structurally prevent it).
 - **FR-009**: The instruction MUST be transmitted only to the local model endpoint on the user's machine, like all other user content.
 - **FR-010**: Document content MUST remain framed as data in all cases: no content originating from the dropped file may ever occupy the trusted instruction slot, and the protective guard from spec 022 MUST remain present and unchanged for all document zones.
-- **FR-011**: The instruction field MUST enforce a maximum length, with a visible character counter, sized so that instruction text can never push a long-document pass over the model's context budget (the spec-038 context-budget guarantee must continue to hold with a maximum-length instruction in place).
-- **FR-012**: Deterministic privacy machinery MUST be unaffected by instructions: the structured-PII pre-replacement (spec 039) and the output-side PII sweep (spec 014) run regardless of what the instruction says.
+- **FR-011**: The instruction field MUST enforce a maximum length of 500 characters, with a visible character counter, so that instruction text can never push a long-document pass over the model's context budget (the spec-038 context-budget guarantee must continue to hold with a maximum-length instruction in place).
+- **FR-012**: Deterministic output machinery MUST be unaffected by instructions: the structured-PII pre-replacement (spec 039), the output-side PII sweep (spec 014), zone disclaimer paragraphs, and chunk disclaimers run regardless of what the instruction says — the instruction steers only the model passes.
+- **FR-016**: The instruction text MUST NOT be written into any output file: the sidecar contains only the processing result plus existing deterministic disclaimers.
 - **FR-013**: The field MUST have natural Swedish label, placeholder, and help copy (humanizer-reviewed), a one-action clear affordance, and the zone-help surface MUST document the feature identically across all help surfaces.
 - **FR-014**: The field MUST be keyboard-reachable and screen-reader labeled, consistent with the app's existing accessibility affordances.
 - **FR-015**: The instruction field MUST remain editable regardless of zone/sidecar state; its content survives failed or cancelled runs so the user can retry without retyping.
@@ -145,6 +154,6 @@ A first-time user sees the instruction field, understands from its Swedish label
 - **Session-sticky, manual clear**: the instruction stays in the field until the user clears it or quits the app. Rationale: the common loop is "re-run the same document with a tweaked instruction"; auto-clearing after each drop would force retyping. Restart always clears (FR-007 makes persistence impossible).
 - **Generera included**: the instruction applies to Generera as additional trusted guidance. Excluding it would create an inconsistent "works everywhere except one zone" story.
 - **No content validation**: the instruction is trusted user input; the app does not attempt to detect "bad" instructions. The only constraints are the length cap and whitespace trim.
-- **Length cap around a few hundred characters**: precise number chosen at planning time against the existing context-budget guard; the spec constraint is that the guard must keep holding (FR-011).
+- ~~Length cap around a few hundred characters~~ Resolved by clarification: 500 characters (FR-011).
 - **Existing UI gates apply**: frontend-design skill before UI code, humanizer for all new Swedish copy, three-way help-string mirror (Rust/JSON/TS) kept in sync — all established project conventions.
 - **The existing per-zone state machine is unchanged**: no new zone states; the instruction rides along the existing dispatch flow.
