@@ -85,8 +85,14 @@ mod tests {
             .expect("twelve zones exist");
 
         // Worst-case framed prompt: instruction + guard/markers overhead +
-        // a full CHUNK_CHAR_TARGET document payload.
-        let framing_overhead = frame_prompt(ZoneId::Sammanfatta, "", "").chars().count();
+        // a full CHUNK_CHAR_TARGET document payload + (spec 041 C-7) a
+        // maximum-length user instruction riding the trusted slot with its
+        // lead-in. The slot is measured with the REAL consts so prompt
+        // growth on either side trips this test, not the model's clipper.
+        let max_instruction = "x".repeat(crate::prompts::framing::MAX_INSTRUCTION_CHARS);
+        let framing_overhead = frame_prompt(ZoneId::Sammanfatta, "", "", Some(&max_instruction))
+            .chars()
+            .count();
         let worst_case_chars = longest_instruction + framing_overhead + CHUNK_CHAR_TARGET;
 
         let input_tokens = worst_case_chars.div_ceil(CHARS_PER_TOKEN);
@@ -95,8 +101,9 @@ mod tests {
             needed <= GENERATE_NUM_CTX as usize,
             "num_ctx budget blown: worst-case prompt needs ~{needed} tokens \
              but GENERATE_NUM_CTX = {GENERATE_NUM_CTX}. Either shorten the \
-             grown prompt, lower CHUNK_CHAR_TARGET, or raise GENERATE_NUM_CTX \
-             (and re-verify memory on 8 GB Macs)."
+             grown prompt (zone/combine prompt or the spec-041 instruction \
+             lead-in), lower MAX_INSTRUCTION_CHARS or CHUNK_CHAR_TARGET, or \
+             raise GENERATE_NUM_CTX (and re-verify memory on 8 GB Macs)."
         );
     }
 
@@ -106,7 +113,12 @@ mod tests {
     #[test]
     fn framed_combine_pass_has_guard_and_doc_markers() {
         let partials = "Del 1:\nförsta delsammanfattningen\n\nDel 2:\nandra delsammanfattningen";
-        let p = frame_prompt(ZoneId::Sammanfatta, SAMMANFATTA_COMBINE_PROMPT, partials);
+        let p = frame_prompt(
+            ZoneId::Sammanfatta,
+            SAMMANFATTA_COMBINE_PROMPT,
+            partials,
+            None,
+        );
         assert!(p.starts_with(SAMMANFATTA_COMBINE_PROMPT));
         assert!(p.contains(INJECTION_GUARD));
         assert!(p.contains(DOC_BEGIN));

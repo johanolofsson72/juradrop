@@ -91,7 +91,14 @@ async fn run_one(zone: ZoneId, fixture_name: &'static str) -> RunResult {
 
     let client = Arc::new(OllamaClient::with_base_url(server.uri()));
     DropZone::new(zone)
-        .handle_drop(handle, client, true, "gemma3:4b", vec![source.clone()])
+        .handle_drop(
+            handle,
+            client,
+            true,
+            "gemma3:4b",
+            vec![source.clone()],
+            None,
+        )
         .await;
 
     let suffix = zone.sidecar_suffix();

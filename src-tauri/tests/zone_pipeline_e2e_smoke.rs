@@ -63,7 +63,14 @@ async fn e2e_smoke_seam_routes_new_client_to_mock() {
     std::fs::copy(&fixture, &source).expect("copy fixture");
 
     DropZone::new(ZoneId::Sammanfatta)
-        .handle_drop(handle, client, true, "gemma3:4b", vec![source.clone()])
+        .handle_drop(
+            handle,
+            client,
+            true,
+            "gemma3:4b",
+            vec![source.clone()],
+            None,
+        )
         .await;
 
     // The sidecar landing proves the whole pipeline ran against the mock

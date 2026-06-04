@@ -135,9 +135,17 @@ export async function cancelSummary(zoneId: ZoneId, jobId: string): Promise<void
 
 /** Dispatch a file drop to a specific zone. The WebView resolves the
  *  zone via `document.elementFromPoint` after the
- *  `juradrop://file-dropped` event and invokes this command. */
-export async function dispatchToZone(zoneId: ZoneId, paths: string[]): Promise<void> {
-  await invoke<void>('dispatch_to_zone', { zoneId, paths });
+ *  `juradrop://file-dropped` event and invokes this command.
+ *  Spec 041 — `instruction` is the per-drop user guidance (null when the
+ *  field is empty); read from the instruction store at the CALL SITE so
+ *  the value is pinned at drop/pick time (FR-006). The bridge itself
+ *  stays a pure args-in/invoke-out mapper. */
+export async function dispatchToZone(
+  zoneId: ZoneId,
+  paths: string[],
+  instruction: string | null = null,
+): Promise<void> {
+  await invoke<void>('dispatch_to_zone', { zoneId, paths, instruction });
 }
 
 /** Spec 025 — opt-in local diagnostics status (consent + local log path). */
@@ -178,7 +186,11 @@ export async function pickFileForZone(zoneId: ZoneId): Promise<void> {
     filters: [{ name: 'Dokument', extensions: formatFilterFor(zoneId) }],
   });
   if (typeof selected === 'string') {
-    await dispatchToZone(zoneId, [selected]);
+    // Spec 041 — pin the instruction at pick time, same as the OS-drop
+    // path in App.tsx (pickFileForZone is the dialog+dispatch
+    // composition seam; dispatchToZone stays a pure mapper).
+    const { instructionForDispatch } = await import('./instruction-store');
+    await dispatchToZone(zoneId, [selected], instructionForDispatch());
   }
 }
 

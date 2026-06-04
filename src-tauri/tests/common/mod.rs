@@ -88,7 +88,14 @@ pub async fn run_zone_pipeline_checked(
     let client = Arc::new(OllamaClient::with_base_url(server.uri()));
     zone_obj
         .clone()
-        .handle_drop(handle, client, true, "gemma3:4b", vec![source.clone()])
+        .handle_drop(
+            handle,
+            client,
+            true,
+            "gemma3:4b",
+            vec![source.clone()],
+            None,
+        )
         .await;
 
     // Poll for a sidecar named `*.<sidecar_suffix>.*` next to the source.
@@ -297,6 +304,12 @@ impl ChunkedSetup {
 
     /// Dispatch the source file onto the zone (sidecar_ready = true).
     pub async fn drop_file(&self) {
+        self.drop_file_with_instruction(None).await;
+    }
+
+    /// Spec 041 — dispatch with a pinned user instruction (already
+    /// normalized; production normalization lives in `dispatch_to_zone`).
+    pub async fn drop_file_with_instruction(&self, instruction: Option<String>) {
         self.zone_obj
             .clone()
             .handle_drop(
@@ -305,6 +318,7 @@ impl ChunkedSetup {
                 true,
                 "gemma3:4b",
                 vec![self.source.clone()],
+                instruction,
             )
             .await;
     }
@@ -317,6 +331,26 @@ impl ChunkedSetup {
         while std::time::Instant::now() < deadline {
             if let Some(p) = find_sidecar(self.dir.path(), &needle) {
                 return Some(std::fs::read_to_string(p).expect("read txt sidecar"));
+            }
+            if matches!(self.zone_obj.visible_for_test(), ZoneState::Error) {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        None
+    }
+
+    /// Spec 041 — like `wait_settled`, but for zones whose .txt input maps
+    /// to a .docx sidecar (Generera per spec 013 FR-003): extracts the
+    /// document text from the docx bytes instead of reading raw UTF-8.
+    pub async fn wait_settled_docx(&self, timeout: Duration) -> Option<String> {
+        let needle = format!(".{}.", self.zone_obj.id().sidecar_suffix());
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if let Some(p) = find_sidecar(self.dir.path(), &needle) {
+                let bytes = std::fs::read(p).expect("read docx sidecar");
+                let extracted = extract_text_from_bytes(&bytes).expect("sidecar parses as docx");
+                return Some(extracted.raw.as_inner().to_string());
             }
             if matches!(self.zone_obj.visible_for_test(), ZoneState::Error) {
                 return None;

@@ -75,6 +75,50 @@ fn dispatch_log_lines_never_reference_document_content_bindings() {
     }
 }
 
+// Spec 041 T017 / FR-008 — the user instruction is user content with the
+// same confidentiality as the document. The modules that touch it
+// (command normalization, dispatch threading, prompt assembly) must never
+// reference it from a log macro; framing.rs additionally must contain no
+// log macro at all (pure string assembly).
+const COMMANDS_SRC: &str = include_str!("../src/sidecar/commands.rs");
+const FRAMING_SRC: &str = include_str!("../src/prompts/framing.rs");
+
+#[test]
+fn framing_module_has_no_log_macros_at_all() {
+    let prod = production_region(FRAMING_SRC);
+    for needle in ["println!", "eprintln!", "print!", "eprint!", "dbg!"] {
+        assert!(
+            !prod.contains(needle),
+            "framing.rs production code must not contain {needle} — \
+             it assembles prompts from document + instruction content"
+        );
+    }
+}
+
+#[test]
+fn instruction_bindings_never_referenced_from_log_macros() {
+    for (name, src) in [
+        ("commands.rs", COMMANDS_SRC),
+        ("sammanfatta.rs", DISPATCH_SRC),
+    ] {
+        let prod = production_region(src);
+        for (i, line) in prod.lines().enumerate() {
+            let is_log = ["println!", "eprintln!", "print!(", "eprint!(", "dbg!"]
+                .iter()
+                .any(|m| line.contains(m));
+            if !is_log {
+                continue;
+            }
+            assert!(
+                !line.contains("instruction"),
+                "{name} line {}: log macro references an instruction binding \
+                 — Principle I / spec 041 FR-008 violation: {line}",
+                i + 1
+            );
+        }
+    }
+}
+
 #[test]
 fn progress_hints_are_integer_only_format_strings() {
     // The two spec-038 progress hints must not interpolate anything but the

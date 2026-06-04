@@ -84,7 +84,7 @@ async fn all_zones_real_inference_smoke() {
 
         let client = Arc::new(OllamaClient::with_base_url(OLLAMA_URL.to_string()));
         DropZone::new(zone)
-            .handle_drop(handle, client, true, MODEL, vec![source.clone()])
+            .handle_drop(handle, client, true, MODEL, vec![source.clone()], None)
             .await;
 
         // Real inference can take tens of seconds — be generous.

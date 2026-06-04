@@ -120,7 +120,9 @@ See `.claude/docs/skills.md` for LSP plugins (C#, TypeScript, PHP) and installat
 
 Consider Claude Code hooks (`.claude/settings.json`) for rules that MUST be followed without exception. Unlike CLAUDE.md instructions which are advisory, hooks are deterministic and guaranteed.
 
-### Hook events (27)
+> **Cross-platform warning (Windows without Git Bash).** Since v2.1.120 Git for Windows is no longer required, and Claude Code falls back to **PowerShell** as the shell tool when Bash is absent. Every hook in this template's `settings.json` is shell-form `bash "$CLAUDE_PROJECT_DIR/scripts/..."`, which only works if `bash` is on `PATH`. On a Windows box with no Git Bash / WSL, those shell-form command hooks run under PowerShell and `bash` is not found, so **every script-backed hook silently no-ops**. This is a base-requirement gap (macOS + Linux + Windows). Mitigations: (1) keep Git Bash or WSL installed and on `PATH` on Windows — the simplest fix; (2) for hooks that must survive a bash-less Windows, use the exec form (`"command": "bash", "args": [...]`) so a missing `bash` surfaces as a clear spawn error instead of a silent PowerShell fall-through, or provide a `.ps1` sibling and branch on `shell`. Verify after setup with `bash --version` in the same shell Claude Code launches.
+
+### Hook events (30)
 
 | Hook event | When triggered |
 | --- | --- |
@@ -128,11 +130,14 @@ Consider Claude Code hooks (`.claude/settings.json`) for rules that MUST be foll
 | `SessionEnd` | Session ends. Matcher: `clear`, `logout`, `prompt_input_exit`, `other` |
 | `Setup` | One-time run on first session — good for installation scripts |
 | `UserPromptSubmit` | User submits a prompt — can block or inject context |
+| `UserPromptExpansion` | A slash command expands into a prompt — can inspect/adjust the expansion |
 | `PreToolUse` | Before a tool call — can block or modify input |
 | `PermissionRequest` | Permission dialog shown — can auto-approve or deny |
 | `PermissionDenied` | After auto mode classifier denials — return `{retry: true}` to retry |
 | `PostToolUse` | After a successful tool call |
 | `PostToolUseFailure` | After a failed tool call — can provide corrective feedback |
+| `PostToolBatch` | After a full batch of parallel tool calls resolves — good for aggregate checks |
+| `MessageDisplay` | While assistant message text is displayed — observe outgoing text |
 | `Notification` | Notifications (`permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog`) |
 | `SubagentStart` | A subagent starts |
 | `SubagentStop` | A subagent stops |
@@ -226,6 +231,22 @@ Set `"async": true` on command hooks to run them in the background without block
 
 **Limitations:** Async hooks cannot block, only `type: "command"` is supported, and output is delivered on the next turn.
 
+### Run-once and bulk-disable
+
+- **`once: true`** (per-handler) — run the handler the first time it matches in a session, then drop it for the rest of the session. Good for one-shot setup or a single orientation message you don't want re-firing on every edit.
+- **`disableAllHooks: true`** (top-level settings key, sibling of `hooks`) — kill switch that disables every hook without deleting the config. Respects the managed-settings hierarchy: only a managed-level `disableAllHooks` can disable managed hooks. Useful for a quick "why is this hook fighting me" bisect without gutting `settings.json`.
+
+```json
+{
+  "disableAllHooks": false,
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "./scripts/orient.sh", "once": true }] }
+    ]
+  }
+}
+```
+
 ### JSON output from hooks
 
 | Field | Description |
@@ -245,6 +266,7 @@ Set `"async": true` on command hooks to run them in the background without block
 | `$CLAUDE_PROJECT_DIR` | Project root directory |
 | `$CLAUDE_ENV_FILE` | Path where SessionStart hooks can write `export` statements |
 | `$CLAUDE_CODE_REMOTE` | `"true"` in remote/web environments |
+| `$CLAUDE_EFFORT` | Active effort level (`low`/`medium`/`high`/`xhigh`) — also on hook input as `effort.level` (v2.1.128+). Branch behavior on it, e.g. skip slow checks on `low` |
 | `$CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Set to `1` to strip Anthropic/cloud credentials from subprocess environments |
 | `${CLAUDE_PLUGIN_ROOT}` | Plugin root directory |
 
@@ -256,6 +278,23 @@ Set `"async": true` on command hooks to run them in the background without block
 - Stop hook (agent): verify tests pass before Claude stops
 - Async post-edit: run tests in the background while Claude continues working
 - PreCompact hook: preserve critical context during compaction
+
+## Recent features (2026)
+
+Newer capabilities worth knowing when wiring this template into a project. None are required by the template; they are the current platform surface as of the May 2026 releases.
+
+### Dynamic workflows (v2.1.150+)
+
+Ask Claude to write a workflow and it orchestrates work across dozens to hundreds of subagents from a script, in the background, returning a single result. The script encodes the control flow (fan-out, pipelines, loop-until-done, adversarial verify) deterministically instead of leaving it to the model turn-by-turn. Good fit for this template's exhaustive-review and migration-style tasks (e.g. "audit every spec against its implementation"). It is **opt-in** — the user must ask for it ("use a workflow" / "ultracode") — so it does not change the default pipeline. Treat it as a heavier alternative to spawning individual subagents, not a replacement for the `/specify → … → /tla` pipeline.
+
+### `security-guidance` plugin (v2.1.150+)
+
+Official Anthropic plugin that reviews Claude's own changes for vulnerabilities as it works. It overlaps this template's `security-scanner` agent. We keep `security-scanner` because it is project-scoped (knows our .NET/SQLite/React conventions, our `security.md` rules, and runs inside our pipeline), whereas the plugin is a general-purpose pass. They compose fine — run the plugin as a second, model-agnostic opinion on top of the project agent. Install with `/plugin install security-guidance@claude-plugins-official` if you want both.
+
+### Other recent settings
+
+- **`worktree.baseRef`** (v2.1.128+) — controls whether a new git worktree branches from the remote default branch or local `HEAD`. Relevant when running agents with `isolation: worktree`; set it in `settings.json` if your worktree agents should branch from `origin/main` rather than your dirty local `HEAD`.
+- **Plugins from `.zip` and URLs** (v2.1.128+) — `--plugin-dir` accepts `.zip` archives and `--plugin-url` fetches a plugin archive for the current session, so a project can pin a plugin without a marketplace.
 
 ## Subagents
 

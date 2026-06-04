@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 
 import fixture from '../../src-tauri/tests/fixtures/zone-help-strings.json';
-import { ZONE_HELP_STRINGS } from '@/lib/help-strings';
+import { INSTRUCTION_HELP, ZONE_HELP_STRINGS } from '@/lib/help-strings';
 import { ZONE_ORDER } from '@/components/DropZone.identity';
 
 type Entry = { short: string; long: string };
@@ -43,5 +43,17 @@ describe('zone help strings cross-language drift', () => {
       expect(help.short.length, `${slug} short over budget`).toBeLessThanOrEqual(80);
       expect(help.long.length, `${slug} long over budget`).toBeLessThanOrEqual(300);
     }
+  });
+
+  // Spec 041 — the chrome-level instruction-field entry (underscore-
+  // prefixed, skipped by the per-zone iterations) pinned explicitly:
+  // TS ↔ JSON. The Rust side pins Rust ↔ JSON.
+  it('instruction help matches the fixture (title + body)', () => {
+    const fx = fixtureMap['_instruction_help'] as
+      | { title: string; body: string }
+      | undefined;
+    expect(fx, 'fixture missing _instruction_help').toBeDefined();
+    expect(fx!.title).toBe(INSTRUCTION_HELP.title);
+    expect(fx!.body).toBe(INSTRUCTION_HELP.body);
   });
 });

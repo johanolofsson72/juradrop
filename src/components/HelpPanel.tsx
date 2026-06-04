@@ -10,7 +10,11 @@
 import { useEffect } from 'react';
 
 import { ZONE_IDENTITIES, ZONE_ORDER } from '@/components/DropZone.identity';
-import { HELP_CHROME_STRINGS, ZONE_HELP_STRINGS } from '@/lib/help-strings';
+import {
+  HELP_CHROME_STRINGS,
+  INSTRUCTION_HELP,
+  ZONE_HELP_STRINGS,
+} from '@/lib/help-strings';
 import type { PanelVisibility } from '@/lib/settings-types';
 import type { ZoneId } from '@/lib/tauri-bridge';
 
@@ -93,6 +97,19 @@ export function HelpPanel({ visibility, onClose }: Props) {
         </header>
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
+          {/* Spec 041 — chrome-level entry for the instruction field,
+              above the zone list (it applies to every zone). */}
+          <section
+            data-instruction-help
+            className="mb-6 flex flex-col gap-1.5 border-b border-border pb-6"
+          >
+            <h2 className="text-base font-semibold text-foreground">
+              {INSTRUCTION_HELP.title}
+            </h2>
+            <p className="text-sm leading-relaxed text-foreground/80">
+              {INSTRUCTION_HELP.body}
+            </p>
+          </section>
           <ul className="flex flex-col gap-6">
             {ZONE_ORDER.map((id) => (
               <li key={id} className="flex flex-col gap-1.5">

@@ -83,6 +83,7 @@ impl DropZone {
         sidecar_ready: bool,
         model_id: &'static str,
         paths: Vec<PathBuf>,
+        user_instruction: Option<String>,
     ) {
         // FR-012 — refuse drops on disabled zone (defense in depth).
         if !sidecar_ready {
@@ -160,23 +161,35 @@ impl DropZone {
         // Run the dispatch in a tokio task so the caller (the
         // DragDrop event handler) returns promptly. Spec 010 / FR-010 —
         // the model_id is pinned at dispatch entry; in-flight runs are
-        // immune to tier switches that happen mid-flight.
+        // immune to tier switches that happen mid-flight. Spec 041
+        // FR-006 — the user_instruction is pinned the same way: moved
+        // by value here, so a mid-run field edit has nothing to reach.
         let zone = self.clone();
         let app_clone = app.clone();
         tauri::async_runtime::spawn(async move {
-            zone.dispatch(app_clone, client, source, model_id, job_id, cancel_token)
-                .await;
+            zone.dispatch(
+                app_clone,
+                client,
+                source,
+                model_id,
+                user_instruction,
+                job_id,
+                cancel_token,
+            )
+            .await;
         });
     }
 
     /// The full pipeline. Runs in a background task so the
     /// DragDrop event handler doesn't block.
+    #[allow(clippy::too_many_arguments)]
     async fn dispatch<R: Runtime>(
         self: Arc<Self>,
         app: AppHandle<R>,
         client: Arc<OllamaClient>,
         source: PathBuf,
         model_id: &'static str,
+        user_instruction: Option<String>,
         job_id: Uuid,
         cancel_token: tokio_util::sync::CancellationToken,
     ) {
@@ -275,8 +288,13 @@ impl DropZone {
             // framed generate, no extra snapshots, no combine.
             // Spec 022 — frame the untrusted document so it can't hijack
             // the system prompt (Generera is framed as instructions).
-            let full_prompt =
-                crate::prompts::frame_prompt(self.id, self.id.system_prompt(), first_chunk);
+            // Spec 041 — the pinned user instruction rides the trusted slot.
+            let full_prompt = crate::prompts::frame_prompt(
+                self.id,
+                self.id.system_prompt(),
+                first_chunk,
+                user_instruction.as_deref(),
+            );
             match self
                 .generate_raced(&app, &client, model_id, full_prompt, job_id, &cancel_token)
                 .await
@@ -300,8 +318,13 @@ impl DropZone {
             let mut partials: Vec<String> = Vec::with_capacity(n);
             for (i, chunk) in chunks.iter().enumerate() {
                 self.emit_progress(&app, job_id, format!("Bearbetar del {} av {n}…", i + 1));
-                let full_prompt =
-                    crate::prompts::frame_prompt(self.id, per_chunk_instruction, chunk);
+                // Spec 041 FR-005 — every per-chunk pass carries the slot.
+                let full_prompt = crate::prompts::frame_prompt(
+                    self.id,
+                    per_chunk_instruction,
+                    chunk,
+                    user_instruction.as_deref(),
+                );
                 match self
                     .generate_raced(&app, &client, model_id, full_prompt, job_id, &cancel_token)
                     .await
@@ -329,6 +352,7 @@ impl DropZone {
                             model_id,
                             combine_instruction,
                             combine_instruction,
+                            user_instruction.as_deref(),
                             partials,
                             job_id,
                             &cancel_token,
@@ -349,6 +373,7 @@ impl DropZone {
                             model_id,
                             crate::prompts::STRUKTURERA_CONDENSE_PROMPT,
                             self.id.system_prompt(),
+                            user_instruction.as_deref(),
                             partials,
                             job_id,
                             &cancel_token,
@@ -542,6 +567,7 @@ impl DropZone {
         model_id: &str,
         instruction: &str,
         final_instruction: &str,
+        user_instruction: Option<&str>,
         mut parts: Vec<String>,
         job_id: Uuid,
         cancel_token: &tokio_util::sync::CancellationToken,
@@ -559,7 +585,12 @@ impl DropZone {
             let labeled = label_parts(&parts);
             if labeled.chars().nth(CHUNK_CHAR_TARGET).is_none() {
                 // Fits one pass — run the final combine/structure pass.
-                let full = crate::prompts::frame_prompt(self.id, final_instruction, &labeled);
+                let full = crate::prompts::frame_prompt(
+                    self.id,
+                    final_instruction,
+                    &labeled,
+                    user_instruction,
+                );
                 return self
                     .generate_raced(app, client, model_id, full, job_id, cancel_token)
                     .await;
@@ -572,7 +603,12 @@ impl DropZone {
                 // run the final pass (deterministic termination; in
                 // practice unreachable because each part is bounded above).
                 let truncated: String = labeled.chars().take(CHUNK_CHAR_TARGET).collect();
-                let full = crate::prompts::frame_prompt(self.id, final_instruction, &truncated);
+                let full = crate::prompts::frame_prompt(
+                    self.id,
+                    final_instruction,
+                    &truncated,
+                    user_instruction,
+                );
                 return self
                     .generate_raced(app, client, model_id, full, job_id, cancel_token)
                     .await;
@@ -580,7 +616,12 @@ impl DropZone {
 
             let mut next: Vec<String> = Vec::with_capacity(batches.len());
             for batch in &batches {
-                let full = crate::prompts::frame_prompt(self.id, instruction, &label_parts(batch));
+                let full = crate::prompts::frame_prompt(
+                    self.id,
+                    instruction,
+                    &label_parts(batch),
+                    user_instruction,
+                );
                 match self
                     .generate_raced(app, client, model_id, full, job_id, cancel_token)
                     .await

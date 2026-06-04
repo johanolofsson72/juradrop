@@ -22,7 +22,12 @@ test.describe('US5 — picker dispatches the chosen file', () => {
       .toBe(true);
 
     const dispatch = (await juradrop.invocations()).find((i) => i.command === 'dispatch_to_zone');
-    expect(dispatch?.payload).toEqual({ zoneId: 'sammanfatta', paths: ['/Users/x/avtal.docx'] });
+    // Spec 041 — the dormant instruction field rides along as null.
+    expect(dispatch?.payload).toEqual({
+      zoneId: 'sammanfatta',
+      paths: ['/Users/x/avtal.docx'],
+      instruction: null,
+    });
   });
 });
 

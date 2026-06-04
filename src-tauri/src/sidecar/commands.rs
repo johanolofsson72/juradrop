@@ -427,6 +427,7 @@ pub async fn dispatch_to_zone(
     settings: tauri::State<'_, crate::settings::snapshot::SettingsState>,
     zone_id: ZoneId,
     paths: Vec<std::path::PathBuf>,
+    instruction: Option<String>,
 ) -> Result<(), String> {
     let zone = state
         .zones
@@ -439,16 +440,97 @@ pub async fn dispatch_to_zone(
     // in-flight runs are immune to tier switches (FR-010 +
     // InFlightRunsImmuneToTierSwitch invariant).
     let model_id = settings.active_model_id();
+    // Spec 041 — normalize the per-drop user instruction AT the trust
+    // boundary (contract A): trim, empty ⇒ None, cap at
+    // MAX_INSTRUCTION_CHARS chars (defense in depth — the UI already
+    // caps at 500, but the command must not rely on it). Pinned by
+    // value from here on (FR-006).
+    let user_instruction = normalize_instruction(instruction);
     tauri::async_runtime::spawn(async move {
-        zone.handle_drop(app, client, sidecar_ready, model_id, paths)
-            .await;
+        zone.handle_drop(
+            app,
+            client,
+            sidecar_ready,
+            model_id,
+            paths,
+            user_instruction,
+        )
+        .await;
     });
     Ok(())
+}
+
+/// Spec 041 contract A — instruction normalization at the command
+/// boundary: trim surrounding whitespace, collapse empty to `None`, cap
+/// at `MAX_INSTRUCTION_CHARS` CHARS (char-boundary safe for å/ä/ö and
+/// emoji — a byte cap would split code points).
+fn normalize_instruction(instruction: Option<String>) -> Option<String> {
+    let raw = instruction?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(
+        trimmed
+            .chars()
+            .take(crate::prompts::MAX_INSTRUCTION_CHARS)
+            .collect(),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Spec 041 contract A — instruction normalization at the trust
+    // boundary. The UI caps at 500, but the command must hold alone
+    // (destructive category 3: skip-steps via direct invoke).
+
+    #[test]
+    fn normalize_missing_is_none() {
+        assert_eq!(normalize_instruction(None), None);
+    }
+
+    #[test]
+    fn normalize_trims_surrounding_whitespace() {
+        assert_eq!(
+            normalize_instruction(Some("  fokusera på domskälen \n".into())),
+            Some("fokusera på domskälen".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_whitespace_only_is_none() {
+        assert_eq!(normalize_instruction(Some(" \n\t ".into())), None);
+        assert_eq!(normalize_instruction(Some(String::new())), None);
+    }
+
+    #[test]
+    fn normalize_caps_at_500_chars() {
+        let long = "a".repeat(501);
+        let n = normalize_instruction(Some(long)).expect("capped, not dropped");
+        assert_eq!(n.chars().count(), 500);
+    }
+
+    #[test]
+    fn normalize_cap_is_char_boundary_safe_for_multibyte() {
+        // 600 å (2 bytes each) — a byte-indexed truncation would panic or
+        // split a code point; the char cap must yield exactly 500 å.
+        let long = "å".repeat(600);
+        let n = normalize_instruction(Some(long)).expect("capped");
+        assert_eq!(n.chars().count(), 500);
+        assert!(n.chars().all(|c| c == 'å'));
+        // And the same for an astral-plane emoji (4 bytes each).
+        let emoji = "📜".repeat(501);
+        let n = normalize_instruction(Some(emoji)).expect("capped");
+        assert_eq!(n.chars().count(), 500);
+    }
+
+    #[test]
+    fn normalize_exactly_500_passes_through_untouched() {
+        let exact = "b".repeat(500);
+        assert_eq!(normalize_instruction(Some(exact.clone())), Some(exact));
+    }
 
     // GAP-7: `TagIsDefault` invariant — DEFAULT_MODEL must equal the
     // spec.allium value `gemma3:4b`. Catches a typo'd constant at PR time.

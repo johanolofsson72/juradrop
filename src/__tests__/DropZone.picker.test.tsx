@@ -80,6 +80,8 @@ describe('DropZone "Välj fil" picker (spec 016)', () => {
       expect(invokeMock).toHaveBeenCalledWith('dispatch_to_zone', {
         zoneId: 'sammanfatta',
         paths: ['/tmp/foo.docx'],
+        // Spec 041 — empty instruction field dispatches null (dormant).
+        instruction: null,
       }),
     );
   });

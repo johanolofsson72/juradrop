@@ -64,6 +64,27 @@ fn fixture_has_exactly_the_twelve_zone_slugs_plus_comment() {
     );
 }
 
+// Spec 041 — the chrome-level instruction-field entry is underscore-
+// prefixed (skipped by the per-zone iterations above) and pinned here
+// explicitly: Rust consts ↔ JSON. The TS side pins TS ↔ JSON.
+#[test]
+fn instruction_help_matches_fixture() {
+    let fixture = load_fixture();
+    let raw = fixture
+        .get("_instruction_help")
+        .expect("fixture has _instruction_help (spec 041)");
+    assert_eq!(
+        raw.get("title").and_then(|v| v.as_str()),
+        Some(zone_help::INSTRUCTION_HELP_TITLE),
+        "instruction help title drifted (Rust vs JSON)"
+    );
+    assert_eq!(
+        raw.get("body").and_then(|v| v.as_str()),
+        Some(zone_help::INSTRUCTION_HELP_BODY),
+        "instruction help body drifted (Rust vs JSON)"
+    );
+}
+
 #[test]
 fn budgets_hold_in_fixture() {
     let fixture = load_fixture();

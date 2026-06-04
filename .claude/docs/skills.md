@@ -30,6 +30,8 @@ These skills ship with the template repo:
 | `/tla` | standard | TLA+ formal verification — invariants, state machines, race conditions |
 | `/update-template` | standard | Searches online for latest best practices and updates the template repo |
 
+> **Name collision — `/code-review`.** Since v2.1.143 Claude Code ships a **built-in** `/code-review` command (reports correctness bugs; `ultra` runs a cloud fleet). It shares the name of this template's `code-review` skill, so typing `/code-review` is ambiguous and the built-in may shadow the skill. They are different tools: the **built-in** is a general first-party reviewer; the **skill** reviews against *this project's* conventions (.NET/SQLite/React, the `security.md` rules, `context: fork`). We deliberately do **not** rename the skill — sync never deletes, so a rename would leave every already-synced downstream repo carrying both the old and new skill. To invoke the project skill unambiguously, call it via the Skill tool by name (`code-review`) rather than the slash command, or use the built-in `/code-review` when a generic pass is enough.
+
 ## SKILL.md structure
 
 ### Required fields (Agent Skills standard)

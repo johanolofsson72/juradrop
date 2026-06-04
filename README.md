@@ -27,7 +27,9 @@ JuraDrop är en macOS-app för svenska juridikstudenter. Dra ett Word- eller PDF
 | **Generera juridisk text** | Skriver ett utkast utifrån en kort instruktion (`.txt`/`.md`) |
 | **Källförteckning** | Samlar lagar, rättsfall och litteratur i en förteckning |
 
-Varje zon har en `(?)`-ikon med en kort förklaring, och hjälp-ikonen uppe till höger öppnar en panel som listar alla nio zoner.
+Varje zon har en `(?)`-ikon med en kort förklaring, och hjälp-ikonen uppe till höger öppnar en panel som listar alla zoner.
+
+**Egna instruktioner:** ovanför rutnätet finns ett fält där du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst — till exempel ”behåll citaten på svenska” på Till engelska. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig.
 
 ## Varför?
 

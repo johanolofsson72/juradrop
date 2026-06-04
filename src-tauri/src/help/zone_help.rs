@@ -110,6 +110,14 @@ pub const ZONE_HELP_STRINGS: [(ZoneId, ZoneHelp); 12] = [
     ),
 ];
 
+/// Spec 041 FR-013 — chrome-level help for the per-drop instruction
+/// field (not a zone; lives above the zone list in the help panel).
+/// Mirrored as `_instruction_help` in the JSON fixture and as
+/// `INSTRUCTION_HELP` in `src/lib/help-strings.ts` — edit all three
+/// together. Swedish, humanizer-reviewed.
+pub const INSTRUCTION_HELP_TITLE: &str = "Egna instruktioner";
+pub const INSTRUCTION_HELP_BODY: &str = "Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig.";
+
 /// Look up one zone's help strings.
 pub fn zone_help(zone: ZoneId) -> ZoneHelp {
     ZONE_HELP_STRINGS

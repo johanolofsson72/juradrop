@@ -67,6 +67,15 @@ export const ZONE_HELP_STRINGS = {
   },
 } as const satisfies Record<ZoneId, ZoneHelp>;
 
+// Spec 041 FR-013 — chrome-level help for the per-drop instruction field
+// (not a zone; rendered above the zone list). Mirrored as
+// `_instruction_help` in the drift fixture and as INSTRUCTION_HELP_TITLE/
+// _BODY in src-tauri/src/help/zone_help.rs — edit all three together.
+export const INSTRUCTION_HELP = {
+  title: 'Egna instruktioner',
+  body: 'Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig.',
+} as const;
+
 // Chrome-bar + panel chrome strings (Swedish). Kept alongside the zone
 // strings; the panel title and help labels are part of the same surface.
 export const HELP_CHROME_STRINGS = {

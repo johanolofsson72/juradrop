@@ -1,5 +1,9 @@
 {
-  "_comment": "Spec 013 FR-021 — cross-language drift fixture for the help system. Source of truth shared by the Rust ZONE_HELP_STRINGS const (src-tauri/src/help/zone_help.rs) and the TS mirror (src/lib/help-strings.ts). Budgets: short <= 80 chars, long <= 300 chars. Swedish, humanizer-reviewed.",
+  "_comment": "Spec 013 FR-021 — cross-language drift fixture for the help system. Source of truth shared by the Rust ZONE_HELP_STRINGS const (src-tauri/src/help/zone_help.rs) and the TS mirror (src/lib/help-strings.ts). Budgets: short <= 80 chars, long <= 300 chars. Swedish, humanizer-reviewed. The _instruction_help entry (spec 041) is chrome-level, not a zone — underscore-prefixed so the per-zone iterations skip it; dedicated drift assertions cover it on both sides.",
+  "_instruction_help": {
+    "title": "Egna instruktioner",
+    "body": "Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig."
+  },
   "sammanfatta": {
     "short": "Kortar ner ett långt dokument till det viktigaste.",
     "long": "Släpp ett dokument här så får du en kortare version som lyfter fram de viktigaste punkterna. Bra när du snabbt behöver greppa vad ett långt domslut eller avtal egentligen handlar om."

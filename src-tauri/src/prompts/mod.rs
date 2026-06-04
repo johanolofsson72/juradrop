@@ -32,7 +32,7 @@ pub mod tillsvenska;
 pub use combine::{
     PUNKTLISTA_COMBINE_PROMPT, SAMMANFATTA_COMBINE_PROMPT, STRUKTURERA_CONDENSE_PROMPT,
 };
-pub use framing::frame_prompt;
+pub use framing::{frame_prompt, INSTRUCTION_LEAD_IN, MAX_INSTRUCTION_CHARS};
 
 pub use anonymisera::ANONYMISERA_SYSTEM_PROMPT;
 pub use forenkla::FORENKLA_SYSTEM_PROMPT;

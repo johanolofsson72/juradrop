@@ -3,6 +3,8 @@ import { WelcomeCard } from '@/components/WelcomeCard';
 import { ConsentModal } from '@/components/ConsentModal';
 import { DropZone } from '@/components/DropZone';
 import { ZONE_ORDER } from '@/components/DropZone.identity';
+import { InstructionField } from '@/components/InstructionField';
+import { instructionForDispatch } from '@/lib/instruction-store';
 import { GearIcon } from '@/components/GearIcon';
 import { HelpIcon } from '@/components/HelpIcon';
 import { HelpPanel } from '@/components/HelpPanel';
@@ -118,7 +120,9 @@ export function App() {
         if (!zoneEl) return; // drop outside any zone — silently ignore
         const zoneId = zoneEl.dataset.zoneId as ZoneId | undefined;
         if (!zoneId) return;
-        void dispatchToZone(zoneId, paths);
+        // Spec 041 — pin the instruction at drop time (FR-006); the
+        // pick path in pickFileForZone does the same.
+        void dispatchToZone(zoneId, paths, instructionForDispatch());
       }).then((fn) => {
         dropUnsub = fn;
       });
@@ -199,6 +203,9 @@ export function App() {
       ) : (
         <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-4 pt-12">
           <WelcomeCard />
+          {/* Spec 041 — per-drop instruction "half-zone": steering for
+              the NEXT drop on any zone, pinned at dispatch time. */}
+          <InstructionField />
           <section
             aria-label="Drop-zoner"
             className={[
