@@ -1,0 +1,137 @@
+-- allium: 3
+
+-- Spec 039: Anonymisera hardening — deterministic structured-PII replacement.
+-- Elicited 2026-06-04 from specs/039-anonymisera-hardening/spec.md (post-clarify).
+-- Field bug provenance: tester screenshot IMG_2908 — raw personnummer, phones
+-- and e-mails survived the "anonymized" output; the sweep warned but never
+-- replaced; the prompt never mentioned telefon/e-post.
+
+enum PiiCategory { personnummer | telefon | epost }
+
+external entity Zone {
+    id: String
+}
+
+external entity ExtractedDocument {
+    text: String
+}
+
+-- One deterministic replacement performed by the scrub.
+entity Replacement {
+    registry: PlaceholderRegistry
+    category: PiiCategory
+    matched_value: String      -- in-memory only, never persisted/logged
+    index: Integer             -- 1-based, per category, first-occurrence order
+    placeholder: String        -- "[Personnr N]" / "[Telefon N]" / "[E-post N]"
+
+    invariant BracketedFormat {
+        -- the spec-014 sweep's placeholder mask recognizes this shape, so a
+        -- placeholder can never count as residue
+        this.is_bracketed_sweep_maskable = true
+    }
+}
+
+-- The in-memory value -> (category, index) map for ONE Anonymisera run.
+entity PlaceholderRegistry {
+    document: ExtractedDocument
+    replacements: Replacement with registry = this
+
+    invariant SameValueSameIndex {
+        -- identical matched values share one placeholder everywhere
+        for r in replacements:
+            not exists other in replacements
+                where other.matched_value = r.matched_value
+                and other.index != r.index
+    }
+    invariant SequentialFirstOccurrence {
+        -- indices are dense and ordered by first occurrence per category
+        this.indices_dense_per_category = true
+    }
+    invariant NeverPersisted {
+        -- Principle I: the registry lives only for the run
+        this.persisted = false
+        this.logged = false
+    }
+}
+
+entity ScrubResult {
+    registry: PlaceholderRegistry
+    scrubbed_text: String
+    count_personnummer: Integer
+    count_telefon: Integer
+    count_epost: Integer
+
+    invariant NoResidueOfMatchedPatterns {
+        -- SC-001: zero matches of the spec-014 shapes remain in the output
+        this.scrubbed_text_matches_pii_patterns = false
+    }
+    invariant Utf8Safe {
+        -- FR-008: replacement never corrupts adjacent Swedish characters
+        this.scrubbed_text_valid_utf8 = true
+    }
+}
+
+-- ── Rules ────────────────────────────────────────────────────────────────
+
+rule ScrubBeforeChunking {
+    when: AnonymiseraDispatch(document)
+    ensures:
+        -- FR-001/FR-003: the WHOLE extracted text is scrubbed BEFORE the
+        -- spec-038 chunk plan is built, so indices are globally consistent
+        -- across chunks
+        let registry = PlaceholderRegistry.created(document: document)
+        let result = ScrubResult.created(registry: registry)
+        ChunkPlanBuiltFrom(result)
+}
+
+rule OtherZonesUntouched {
+    when: NonAnonymiseraDispatch(document, zone)
+    requires: zone.id != `anonymisera`
+    ensures:
+        -- FR-005/SC-004: byte-identical input for every other zone
+        ChunkPlanBuiltFrom(document)
+}
+
+rule PromptPreservesPlaceholders {
+    when: AnonymiseraModelPass(chunk)
+    ensures:
+        -- FR-004: the system prompt instructs the model that bracketed
+        -- placeholders are already anonymized and must be kept verbatim,
+        -- and keeps the existing name/org/address conventions
+        PromptStatesPlaceholderPreservation()
+        PromptKeepsNameOrgAddressConventions()
+}
+
+rule SweepStillRuns {
+    when: AnonymiseraCombinedOutputReady(output)
+    ensures:
+        -- FR-006/SC-003: the spec-014 sweep runs unchanged on the final
+        -- combined output — fabricated PII still triggers the warning
+        PiiSweepRun(output)
+}
+
+-- ── Global invariants ────────────────────────────────────────────────────
+
+invariant DetectAndReplaceAgree {
+    -- the scrub uses literally the same compiled patterns as the sweep, so
+    -- "replaced" and "warned about" can never disagree on what PII is
+    for result in ScrubResults:
+        result.patterns_are_spec014_shapes = true
+}
+
+invariant AnonymiseraOnly {
+    for registry in PlaceholderRegistries:
+        registry.zone_id = `anonymisera`
+}
+
+-- ── Out of scope / deferred ──────────────────────────────────────────────
+
+deferred Replacement.format_normalization
+-- Location hint: the value -> index mapping (same person's personnummer in
+-- "19850312-1234" vs "850312-1234" form gets two indices). Shape-based v1;
+-- normalize-before-index is a quality improvement if field feedback demands.
+
+deferred Replacement.swedish_char_emails
+-- Location hint: the spec-014 email pattern's \w excludes å/ä/ö — the ASCII
+-- tail of "åsa@exempel.se" is replaced, the leading å survives. Same blind
+-- spot the sweep has today; fix both together if it surfaces in the field.
