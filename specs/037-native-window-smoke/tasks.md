@@ -23,7 +23,7 @@
 
 ## Phase 4: User Story 2 — pick-to-sidecar through real seams (P1)
 
-- [ ] T007 [US2] `test02_pickToSidecar`: temp fixture `dokument.txt` (from `JURADROP_SMOKE_FIXTURE_DIR`); activate `Välj fil för Sammanfatta`; drive the open panel via Go-to-Folder (Cmd+Shift+G → path → Return → confirm, per R5); bounded wait for `dokument.sammanfatta.txt` next to the fixture; assert content contains the canned mock text (H-5/H-6, SC-002); assert no fixed sleeps anywhere in the suite (H-7)
+- [ ] T007 [US2] `test02_pickToSidecar`: temp fixture `dokument.txt` (from `JURADROP_SMOKE_FIXTURE_DIR`); activate `Välj fil för Sammanfatta`; drive the open panel via Go-to-Folder (Cmd+Shift+G → path → Return → confirm, per R5); bounded wait for `dokument.sammanfatta.txt` next to the fixture; assert content contains the canned mock text (H-5/H-6, SC-002)
 
 ## Phase 5: User Story 3 — one-command runner (P2)
 
@@ -35,7 +35,7 @@
 - [ ] T010 SC-001 mutation proof: temporarily break one zone title in the canonical TS source → runner goes red naming the missing title → revert → green; record both runs' results in the register tick text
 - [ ] T011 Repeatability + residue: two consecutive green runs; post-run `pgrep -f JuraDrop|mock-ollama` empty, temp dirs gone (H-8); wall-clock under 5 min excluding build (SC-003)
 - [ ] T012 [P] Docs: verify quickstart.md matches reality post-impl; add the suite to `.claude/docs/testing.md` (what it covers/doesn't, opt-in cadence) and one line in README's build-from-source section
-- [ ] T013 Gate hygiene: grep-verify NO default gate references the suite (package.json test scripts, cargo, playwright.config, .github/) — H-9/FR-008; run the standard sweep (`npm test`, `npm run test:e2e`, `cd src-tauri && cargo test`, linters) to prove zero production impact (SC-005); `graphify update .`
+- [ ] T013 Gate hygiene: grep-verify NO default gate references the suite (package.json test scripts, cargo, playwright.config, .github/) — H-9/FR-008; grep-assert no fixed `sleep(` in the Swift suite (H-7, moved from T007 per analyze A1); run the standard sweep (`npm test`, `npm run test:e2e`, `cd src-tauri && cargo test`, linters) to prove zero production impact (SC-005); `graphify update .`
 - [ ] T014 `/tla` (full track): distill + drift vs spec.allium; the TestRun machine has 9 states/13 transitions — expect a real (non-trivial-gate) pass over the harness lifecycle, or an honest gate decision recorded
 - [ ] T015 Register tick + history entry (include the probe outcome + mutation-proof results); status summary
 
