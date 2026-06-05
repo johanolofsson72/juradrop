@@ -100,7 +100,13 @@ rule LaunchHermetically {
         run.mock.localhost_only = true
     ensures:
         run.status = probing
-        -- launchEnvironment carries the mock seam URL; no real model anywhere
+        -- AMENDED post-impl (drift finding 2, user-decided): the app is
+        -- launched by EXACT BUNDLE URL (bundle-id resolution finds the
+        -- installed release copy in /Applications — no seam, real Ollama),
+        -- and the seam travels via the debug-only FILE channel
+        -- (/tmp/juradrop-ollama-url-override) because every macOS launch
+        -- path strips the env var; launchEnvironment is kept only as
+        -- belt-and-braces. No real model anywhere.
 }
 
 -- FR-009 — the load-bearing unknown is probed FIRST and recorded.
@@ -163,6 +169,17 @@ invariant Hermetic {
     for run in TestRuns:
         run.mock.localhost_only = true
         run.app.is_debug_build = true
+}
+
+-- ADDED post-impl (drift finding 1, user-decided): a green run REQUIRES
+-- the mock to have served at least one generation — a silently-bypassed
+-- seam (e.g. a wrong app copy answering from a real Ollama) can never
+-- report green. Born from the /Applications-impostor incident.
+invariant MockServedGeneration {
+    for run in TestRuns where status = settled_pass:
+        run.mock.serves_generation = run.mock.serves_generation
+        -- enforced by the runner tripwire: grep "POST /api/generate" in
+        -- the mock log before reporting green
 }
 
 -- FR-005 / SC-003 — every run ends cleaned, both outcomes.
