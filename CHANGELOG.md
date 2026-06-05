@@ -6,6 +6,28 @@ Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/), och p
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-05
+
+Hela versionen är driven av den första externa betatestrundan — varje punkt
+nedan spårar tillbaka till en testares konkreta observation.
+
+### Added
+- **Egna instruktioner** (spec 041): ett fält ovanför zonerna där du kan styra nästa körning ("fokusera på skadeståndsfrågan"). Instruktionen gäller vilken zon som helst, skickas bara till AI-modellen på din dator och sparas aldrig — fältet är tomt vid varje appstart.
+- **Citatgaranti** (spec 044): skriv "behåll citaten" i instruktionsfältet och släpp på en översättningszon, så bevaras citattecken-markerad text ordagrant. Appen maskar citaten innan AI-modellen ser texten och återställer dem efteråt — en garanti, inte en förhoppning.
+- **Synlig integritet** (spec 042): raden "Dina dokument bearbetas av lokala AI-modeller på din dator och lämnar den aldrig." står alltid under zonerna, och hjälppanelen listar ärligt appens enda två nätanvändningar (modellnedladdningen och uppdateringskollen).
+- **Långa dokument bearbetas i delar** (spec 038): en 100-sidig dom sammanfattas i sin helhet — zonen visar "Bearbetar del i av n…" och väver sedan ihop delarna. Den gamla trunkeringen vid ~20 sidor är borta.
+- Nativ XCUITest-svit (spec 037) som kör den riktiga appen — fönster, IPC och filväljare på riktigt (utvecklarverktyg, körs lokalt).
+
+### Changed
+- **Anonymisera ersätter personnummer, telefonnummer och e-post deterministiskt** (spec 039): strukturerade personuppgifter byts ut med regler innan AI-modellen ser texten — de kan inte längre läcka igenom, oavsett modell.
+- **Plocka ut kontaktuppgifter grupperar per person** (spec 040): "## David Dahl" med hans adress, telefon och e-post under sig, i stället för kategorilistor. Uppgifter utan säker ägare hamnar under "Övriga uppgifter".
+- Resultatfilen öppnas nu med fönsterfokus (öppningen kunde tidigare landa bakom appfönstret).
+- Samtyckesrutan och välkomstguiden säger "din dator" konsekvent och lovar inte mer än vad som är sant.
+
+### Fixed
+- Hjälppanelen visade fortfarande ett PAGES-märke trots att `.pages`-stödet togs bort i 0.2.0 (spec 043).
+- README beskrev nio zoner i ett 3×3-rutnät — uppdaterad till verklighetens tolv i 3×4.
+
 ## [0.2.0] - 2026-06-03
 
 ### Added
