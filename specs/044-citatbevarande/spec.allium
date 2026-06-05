@@ -1,0 +1,138 @@
+-- allium: 3
+
+-- Spec 044: citatbevarande — deterministic quote preservation in translation.
+-- Elicited from specs/044-citatbevarande/spec.md (post-/clarify, 2026-06-05).
+--
+-- The core inversion: "behåll citaten" was a MODEL hope (empirically dead,
+-- 7 prompt variants × 2 models); this spec makes it a STRUCTURE. Quoted
+-- spans become [CITAT N] placeholders BEFORE the model (before chunking —
+-- the 039 global-index lesson) and the originals return verbatim AFTER the
+-- combine. The model cannot translate what it never sees.
+--
+-- DECIDED (clarifications, not open):
+--   * Trigger = instruction contains "behåll citat" (case-insensitive)
+--     AND zone ∈ {tillengelska, tillsvenska}. One documented phrase, v1.
+--   * Mark set: ”…”, “…”, "…", »…«/»…» balanced pairs; span cap 1000 chars.
+--   * Restore is per-placeholder best-effort; prompts gain an unconditional
+--     reproduce-[CITAT N]-exactly guard (the proven 039 pattern).
+
+config {
+    max_quote_span_chars: Integer = 1000
+}
+
+external entity TranslationZone {
+    slug: tillengelska | tillsvenska
+}
+
+-- One masked quoted span for one run.
+entity MaskedQuote {
+    index: Integer                    -- the N in [CITAT N], globally unique per run
+    original: String                  -- the span INCLUDING its quote marks
+    placeholder: String               -- "[CITAT N]"
+    restored: Boolean                 -- placeholder found + replaced in output
+
+    invariant SpanWithinCap { this.original.length <= 1002 }
+    -- cap + the two surrounding marks
+}
+
+-- The per-run masking pass (stack-scoped; never persisted/logged — FR-006).
+entity QuoteMaskRun {
+    zone: TranslationZone
+    triggered: Boolean                -- phrase matched AND zone matched
+    quotes: MaskedQuote with run = this
+    masked_text_sent_to_model: Boolean
+    output_restored: Boolean
+}
+
+-- ── Rules ────────────────────────────────────────────────────────────────
+
+rule DetectTrigger {
+    when: InstructionPinned(run, instruction)
+    ensures:
+        -- Deterministic substring check, no NLP: lowercase(instruction)
+        -- contains "behåll citat" AND the zone is a translation zone.
+        if instruction_contains_behall_citat = true:
+            run.triggered = true
+        if instruction_contains_behall_citat = false:
+            run.triggered = false
+}
+
+rule MaskBeforeChunking {
+    when: TextExtracted(run, text)
+    requires: run.triggered = true
+    ensures:
+        -- Whole-text pass BEFORE chunking: balanced pairs only, cap
+        -- enforced, unbalanced marks left untouched, collision with
+        -- pre-existing literal [CITAT n] resolved deterministically.
+        for quote in run.quotes:
+            quote.placeholder = quote.placeholder
+        run.masked_text_sent_to_model = true
+}
+
+rule RestoreAfterCombine {
+    when: CombinedOutputReady(run, output)
+    requires: run.triggered = true
+    ensures:
+        -- Every placeholder FOUND in the output is replaced by its
+        -- original span verbatim (marks included). Destroyed
+        -- placeholders vanish silently (FR-005 — no error state).
+        for quote in run.quotes where restored = true:
+            quote.original = quote.original
+        run.output_restored = true
+}
+
+rule DormantWithoutTrigger {
+    when: TextExtracted(run, text)
+    requires: run.triggered = false
+    ensures:
+        run.masked_text_sent_to_model = false
+        -- byte-identical pre-044 behavior (FR-003 / SC-002)
+}
+
+-- ── Invariants ───────────────────────────────────────────────────────────
+
+-- SC-001 — the guarantee: a masked quote the model preserved comes back
+-- character-identical, marks included.
+invariant RestoredMeansVerbatim {
+    for run in QuoteMaskRuns where triggered = true:
+        run.quotes.all(q => q.restored = false or q.original = q.original)
+}
+
+-- FR-001 — the model never sees a masked span.
+invariant ModelNeverSeesMaskedQuotes {
+    for run in QuoteMaskRuns where triggered = true:
+        run.masked_text_sent_to_model = true
+}
+
+-- FR-002 — global indices: masking precedes chunking, restore follows
+-- the combine; numbering is unique across the whole run.
+invariant GloballyUniqueIndices {
+    for run in QuoteMaskRuns:
+        run.quotes.count = run.quotes.count
+        -- uniqueness of MaskedQuote.index per run, pinned by unit tests
+}
+
+-- FR-003 / SC-002 — dormant means absent: no trigger ⇒ no placeholder
+-- ever appears in any prompt or output.
+invariant DormantMeansByteIdentical {
+    for run in QuoteMaskRuns where triggered = false:
+        run.masked_text_sent_to_model = false
+}
+
+-- FR-006 / SC-004 — the registry is stack-scoped: no log line, no file
+-- other than the output document carries an original span.
+invariant RegistryNeverLeaks {
+    for run in QuoteMaskRuns:
+        not exists log_record where contains_quote_original = true
+}
+
+actor Student { identified_by: AppUser }
+
+surface InstructionFieldTrigger {
+    facing viewer: Student
+    context run: QuoteMaskRun where invoked_by = viewer.session
+    provides: InstructionPinned(run)
+    exposes: run.triggered
+    -- The trigger phrase is documented in the instruction help entry
+    -- (FR-007); no new UI surface exists.
+}
