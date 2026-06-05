@@ -21,7 +21,7 @@ import { test, expect } from './support/fixtures';
 import { withCanned } from './support/canned-state';
 
 const BADGE = '[data-privacy-badge]';
-const CLAIM = 'Dina dokument bearbetas på din dator och lämnar den aldrig.';
+const CLAIM = 'Dina dokument bearbetas av lokala AI-modeller på din dator och lämnar den aldrig.';
 
 const snap = (state: string, failure: string | null = null) => ({
   state,

@@ -10,9 +10,14 @@
 //   - EXACTLY two network uses. A third entry here means Principle I
 //     changed; the failing length pin is the alarm, not a test to "fix".
 
-/** F1+F2 — the badge line (one sentence, the whole claim). */
+/** F1+F2 — the badge line (one sentence, the whole claim).
+ *  Amended 2026-06-05 (user directive from manual testing): name the
+ *  local AI models explicitly — Meja's "it must be fetching from the
+ *  internet" belief dies faster when the badge says WHO does the work.
+ *  Deliberately NOT "all logik sköts av AI" — parsing/file-writing/the
+ *  updater are not AI, and the 042 honesty rule forbids overclaiming. */
 export const PRIVACY_BADGE_TEXT =
-  'Dina dokument bearbetas på din dator och lämnar den aldrig.';
+  'Dina dokument bearbetas av lokala AI-modeller på din dator och lämnar den aldrig.';
 
 /** F2 — what never leaves the computer (the scope of the guarantee). */
 export const PRIVACY_NEVER_LEAVES = ['dokument', 'instruktioner', 'resultat'] as const;
