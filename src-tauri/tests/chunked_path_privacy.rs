@@ -12,6 +12,7 @@
 const CHUNKING_SRC: &str = include_str!("../src/zones/chunking.rs");
 const DISPATCH_SRC: &str = include_str!("../src/zones/sammanfatta.rs");
 const SCRUB_SRC: &str = include_str!("../src/zones/pii_scrub.rs");
+const QUOTE_MASK_SRC: &str = include_str!("../src/zones/quote_mask.rs");
 
 fn production_region(src: &str) -> &str {
     match src.find("#[cfg(test)]") {
@@ -43,6 +44,20 @@ fn pii_scrub_module_has_no_log_macros_at_all() {
             !prod.contains(needle),
             "pii_scrub.rs production code must not contain {needle} — \
              it handles raw PII values (Principle I / FR-007)"
+        );
+    }
+}
+
+// Spec 044 — the quote masker holds raw quoted document spans on the
+// stack; like pii_scrub it may contain no log macro at all.
+#[test]
+fn quote_mask_module_has_no_log_macros_at_all() {
+    let prod = production_region(QUOTE_MASK_SRC);
+    for needle in ["println!", "eprintln!", "print!", "eprint!", "dbg!"] {
+        assert!(
+            !prod.contains(needle),
+            "quote_mask.rs production code must not contain {needle} — \
+             it handles raw document quotes (Principle I)"
         );
     }
 }

@@ -57,6 +57,9 @@ pub mod pii_sweep;
 // Spec 039 — Anonymisera input-side deterministic structured-PII replacement.
 pub mod pii_scrub;
 
+// Spec 044 — deterministic quote preservation for the translation zones.
+pub mod quote_mask;
+
 // Spec 038 — structure-aware chunking for long documents.
 pub mod chunking;
 

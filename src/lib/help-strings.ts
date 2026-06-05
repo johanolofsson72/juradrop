@@ -73,7 +73,7 @@ export const ZONE_HELP_STRINGS = {
 // _BODY in src-tauri/src/help/zone_help.rs — edit all three together.
 export const INSTRUCTION_HELP = {
   title: 'Egna instruktioner',
-  body: 'Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig. Modellen följer den så gott den kan — enkla önskemål, som vad resultatet ska fokusera på, fungerar bäst.',
+  body: 'Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig. Modellen följer den så gott den kan — enkla önskemål, som vad resultatet ska fokusera på, fungerar bäst. Skriver du behåll citaten i en översättningszon bevaras citattecken-markerad text ordagrant — det garanterar appen, inte modellen.',
 } as const;
 
 // Spec 042 FR-006 — chrome-level privacy entry (the honest fine print).

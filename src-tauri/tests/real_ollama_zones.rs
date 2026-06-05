@@ -325,6 +325,57 @@ async fn manus_validation_real_model() {
         eprintln!("[manus] steg 4 (kontakter per person): OK");
     }
 
+    // ── Steg 2b (spec 044): Johans exakta fältfall — citatbevarande ─────
+    {
+        let app = mock_builder()
+            .plugin(tauri_plugin_shell::init())
+            .build(mock_context(noop_assets()))
+            .expect("build mock app");
+        let handle = app.handle().clone();
+        let dir = TempDir::new().expect("tempdir");
+        let source = dir.path().join("citat.txt");
+        std::fs::write(
+            &source,
+            "I byråns riktlinjer anges: \u{201d}Citerade lagrum återges alltid \
+             ordagrant på originalspråket.\u{201d} Vidare citeras köplagen: \
+             \u{201d}Skadestånd omfattar ersättning för utebliven vinst.\u{201d} \
+             Avtalet gäller i tolv månader från undertecknandet.",
+        )
+        .expect("write citat doc");
+
+        let client = Arc::new(OllamaClient::with_base_url(OLLAMA_URL.to_string()));
+        DropZone::new(ZoneId::TillEngelska)
+            .handle_drop(
+                handle,
+                client,
+                true,
+                MODEL,
+                vec![source.clone()],
+                Some("behåll citaten på svenska".to_string()),
+            )
+            .await;
+
+        let sidecar_path = dir.path().join("citat.tillengelska.txt");
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        while std::time::Instant::now() < deadline && !sidecar_path.exists() {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        assert!(sidecar_path.exists(), "steg 2b: no sidecar after 300s");
+        let text = std::fs::read_to_string(&sidecar_path).expect("read sidecar");
+        // SC-005 — DETERMINISTIC guarantee: both Swedish quotes verbatim
+        // in the English output (model preserved the markers; the app
+        // restored the originals — the model never saw the Swedish).
+        assert!(
+            text.contains("Citerade lagrum återges alltid"),
+            "steg 2b: quote 1 not preserved verbatim: {text:?}"
+        );
+        assert!(
+            text.contains("Skadestånd omfattar ersättning för utebliven vinst"),
+            "steg 2b: quote 2 not preserved verbatim: {text:?}"
+        );
+        eprintln!("[manus] steg 2b (citatbevarande, Johans fältfall): OK");
+    }
+
     // ── Steg 2 (omskrivet): instruction threading on a real run ─────────
     {
         let app = mock_builder()

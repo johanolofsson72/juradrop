@@ -237,6 +237,11 @@ impl ZoneId {
 
     /// Convenience for tests + the React side: does this zone produce
     /// a disclaimer paragraph?
+    /// Spec 044 — the zones where quote masking can trigger.
+    pub fn is_translation(self) -> bool {
+        matches!(self, ZoneId::TillEngelska | ZoneId::TillSvenska)
+    }
+
     pub fn has_disclaimer(self) -> bool {
         self.disclaimer_paragraph().is_some()
     }

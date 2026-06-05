@@ -26,6 +26,7 @@ use super::md_write::build_sidecar as build_md_sidecar;
 use super::output_format::OutputFormat;
 use super::pii_scrub;
 use super::pii_sweep;
+use super::quote_mask;
 use super::sidecar_path::{resolve_target_format, write_atomically};
 use super::snapshot::{JobOutcome, ZoneSnapshot, ZoneState};
 use super::txt_write::build_sidecar as build_txt_sidecar;
@@ -252,6 +253,28 @@ impl DropZone {
             None => extracted.raw.as_inner(),
         };
 
+        // Spec 044 — deterministic quote preservation: when the pinned
+        // instruction contains the documented trigger phrase and this is
+        // a translation zone, quoted spans become [CITAT N] placeholders
+        // BEFORE chunking (global indices — the 039 lesson) and the
+        // originals return verbatim after the combine. The span registry
+        // lives only on this stack frame (Principle I; quotes are
+        // document content). Dormant ⇒ byte-identical pre-044 behavior.
+        let quote_masked = if quote_mask::is_triggered(self.id, user_instruction.as_deref()) {
+            let outcome = quote_mask::mask_quotes(model_input);
+            if outcome.spans.is_empty() {
+                None
+            } else {
+                Some((Redacted::new(outcome.text), outcome.spans))
+            }
+        } else {
+            None
+        };
+        let model_input: &str = match &quote_masked {
+            Some((masked, _)) => masked.as_inner(),
+            None => model_input,
+        };
+
         // Step 2 (spec 038): build the chunk plan. Documents that fit one
         // model pass take exactly the pre-038 path (one framed generate);
         // longer documents run one pass per chunk with per-part Swedish
@@ -414,6 +437,14 @@ impl DropZone {
             }
         } else {
             response_text
+        };
+
+        // Spec 044 — restore the original quoted spans verbatim on the
+        // FULL combined output (after every model pass; per-placeholder
+        // best-effort — destroyed markers vanish, FR-005).
+        let response_text = match &quote_masked {
+            Some((_, spans)) => quote_mask::restore_quotes(&response_text, spans),
+            None => response_text,
         };
 
         // Step 4: build the output sidecar + write atomically. Both
