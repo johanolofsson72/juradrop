@@ -5,13 +5,13 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform: macOS](https://img.shields.io/badge/platform-macOS%2012%2B-lightgrey.svg)](#installation)
-[![Status](https://img.shields.io/badge/status-pre--MVP-orange.svg)](#status)
+[![Release](https://img.shields.io/github/v/release/johanolofsson72/juradrop?label=release)](https://github.com/johanolofsson72/juradrop/releases/latest)
 
----
+![JuraDrops huvudfönster: tolv dropzoner i ett 3×4-rutnät, mörkt läge](docs/screenshots/zone-grid-dark.png)
 
 ## Vad är JuraDrop?
 
-JuraDrop är en macOS-app för svenska juridikstudenter. Dra ett Word- eller PDF-dokument till en av tolv zoner i fönstret, så bearbetar en lokal AI (Ollama) dokumentet och sparar resultatet bredvid originalet.
+JuraDrop är en macOS-app för svenska juridikstudenter. Dra ett Word- eller PDF-dokument till en av tolv zoner i fönstret, så bearbetar en lokal AI-modell (Ollama) dokumentet och sparar resultatet bredvid originalet. Resultatfilen öppnas automatiskt när den är klar.
 
 **Tolv zoner:**
 
@@ -32,7 +32,13 @@ JuraDrop är en macOS-app för svenska juridikstudenter. Dra ett Word- eller PDF
 
 Varje zon har en `(?)`-ikon med en kort förklaring, och hjälp-ikonen uppe till höger öppnar en panel som listar alla zoner.
 
-**Egna instruktioner:** ovanför rutnätet finns ett fält där du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst — till exempel ”behåll citaten på svenska” på Till engelska. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig.
+**Egna instruktioner:** ovanför rutnätet finns ett fält där du kan skriva en instruktion som gäller nästa dokument du släpper, på vilken zon som helst — till exempel ”behåll citaten” på Till engelska. Skriver du just det bevaras citattecken-markerad text ordagrant: appen maskar citaten innan modellen ser texten och återställer dem efteråt. Instruktionen är valfri, skickas bara till AI-modellen på din dator och sparas aldrig.
+
+## Skärmdumpar
+
+| Välkomstguide (modellnedladdning) | Inställningspanel |
+|---|---|
+| ![Välkomstguiden laddar ner AI-modellen med progressbar](docs/screenshots/welcome-wizard-download.png) | ![Inställningspanelen med modellval, utseende och felsökningslogg](docs/screenshots/settings-panel.png) |
 
 ## Varför?
 
@@ -45,43 +51,47 @@ JuraDrop löser det med arkitektur, inte löften:
 - **Inget terminalstrul.** Ingen `brew install`, ingen `pip`, inget kommandoradsmys. Dra .app till Program-mappen och kör.
 - **Öppen källkod (MIT).** Alla kan läsa koden och bekräfta att löftet håller.
 
+## Så fungerar det
+
+Varje zon tar emot sex format: `.docx`, `.pdf`, `.txt`, `.md`, `.rtf` och `.odt`. Texten extraheras lokalt, skickas till modellen på `127.0.0.1:11434` med en zonspecifik svensk systemprompt, och resultatet sparas som `<originalnamn>.<zon>.<format>` bredvid originalet.
+
+Några detaljer som är bra att känna till:
+
+- **Resultatformatet följer indataformatet** där det går: `.txt` in ger `.txt` ut, `.md` in bevarar Markdown-strukturen. `.rtf` och `.odt` sparas alltid som `.docx`-sidofil, eftersom ingen ren Rust-skrivare finns för de formaten.
+- **Långa dokument bearbetas i delar.** En 100-sidig dom sammanfattas i sin helhet — zonen visar "Bearbetar del i av n…" och väver sedan ihop delarna.
+- **Anonymisera ersätter personnummer, telefonnummer och e-post med regler, inte AI.** Strukturerade personuppgifter byts ut deterministiskt innan modellen ens ser texten, så de kan inte läcka igenom. Modellen hanterar bara namn och friare adresstext, och en automatisk PII-koll flaggar eventuella rester i resultatet.
+- **Modellval i inställningarna:** Snabb, Smart eller Stor. Standardvalet är Smart (`gemma3:4b`). Snabb och Stor laddas ner direkt från panelen när du vill ha dem.
+- **Felen är ärliga och på svenska.** Krypterade PDF:er, bildbaserade PDF:er utan textlager och korrupta filer ger tydliga felmeddelanden i stället för att tyst misslyckas. Apple Pages-filer stöds inte (moderna Pages sparar i ett oläsbart format), och appen säger det rakt ut: `Pages-filer stöds inte — exportera till Word eller PDF först`.
+- **Kraschar AI-motorn startas den om automatiskt en gång.** Vid en andra krasch visas `AI-motorn svarar inte. Starta om JuraDrop.` — aldrig en stack trace.
+- Zoner vars resultat kräver extra granskning (Anonymisera, Förenkla, Generera och de tre studiemetod-zonerna) har en varningstext om AI-modellens begränsningar.
+
+Testsviten har dessutom en spärr som vägrar bygget om någon `sentry`/`plausible`/`posthog`/liknande dyker upp bland beroendena.
+
 ## Status
 
-Publik beta. `v0.1.0` är släppt som signerad + notariserad DMG och verifierad på riktig hårdvara; extern betatestning pågår. Den första testrundan ledde till en hel våg av förbättringar: bearbetning av långa dokument i flera delar (ingen text kapas längre), deterministisk ersättning av personnummer/telefon/e-post i Anonymisera, kontaktuppgifter grupperade per person, ett fält för egna instruktioner till nästa körning, och en synlig integritetsrad i fönstret. Tre studiemetod-zoner (Identifiera rättsfrågorna, Strukturera (IRAC), Förklara begreppen) gjorde rutnätet tolv zoner stort. Testtäckningen sträcker sig numera från Rust-enhetstester och Playwright-smoke hela vägen till en nativ XCUITest-svit som kör den riktiga appen. Se [`specs/INDEX.md`](specs/INDEX.md) för hela historiken.
+Publik beta. Senaste versionen är [v0.3.0](https://github.com/johanolofsson72/juradrop/releases/latest), signerad och notariserad. Extern betatestning pågår, och hela 0.3.0-versionen är driven av den första testrundans återkoppling — se [`CHANGELOG.md`](CHANGELOG.md) för vad varje version innehåller och [`specs/INDEX.md`](specs/INDEX.md) för spec-historiken.
 
-Huvudfönstret visar ett 3×4-rutnät av tolv tematiska dropzoner: **Sammanfatta**, **Till engelska**, **Till svenska**, **Punktlista**, **Anonymisera**, **Förenkla**, **Plocka ut kontaktuppgifter**, **Generera juridisk text**, **Källförteckning**, **Identifiera rättsfrågorna**, **Strukturera (IRAC)** och **Förklara begreppen**. Varje zon tar emot sex format: `.docx`, `.pdf`, `.txt`, `.md`, `.rtf` och `.odt`. Resultatfilen följer indataformatet där det går (`.txt` in → `.txt` ut, `.md` in → `.md` ut bevarar Markdown-strukturen). Långsvansformaten — `.rtf` och `.odt` — sparas alltid som `.docx`-sidofil (ingen ren Rust-skrivare finns). Apple Pages-filer stöds inte: moderna Pages (v5+) sparar texten i ett oläsbart `.iwa`-format, så JuraDrop säger det rakt ut (`Pages-filer stöds inte — exportera till Word eller PDF först`) i stället för att låtsas läsa filen. Appen extraherar texten lokalt, skickar den till modellen som väljs i inställningspanelen (Snabb / Smart / Stor — standardvalet är `gemma3:4b`) på `127.0.0.1:11434` med en zon-specifik svensk systemprompt, och sparar resultatet som `<originalnamn>.<zon>.<format>` bredvid originalet. Krypterade PDF:er, bildbaserade PDF:er utan textlager och korrupta långsvansfiler ger tydliga svenska felmeddelanden istället för att tyst misslyckas. Zoner vars resultat kräver extra granskning (Anonymisera, Förenkla, Generera och de tre studiemetod-zonerna) får en svensk varningstext om AI-modellens begränsningar. Om AI-sidekicken kraschar startas den om automatiskt en gång; vid en andra krasch visas svenska felet `AI-motorn svarar inte. Starta om JuraDrop.` istället för en stack trace. **Inget av dokumentinnehållet lämnar din dator** — den enda utgående trafiken är fortfarande modellnedladdningen från `ollama.com` (en gång) och Tauri-uppdateraren. Testsviten har dessutom en spärr som vägrar bygget om någon `sentry`/`plausible`/`posthog`/etc. dyker upp bland beroendena. Se [`specs/INDEX.md`](specs/INDEX.md) för spec-historiken.
-
-### Skärmdumpar
-
-> Bilderna nedan är platshållare som ersätts med riktiga skärmdumpar vid `v0.1.0`-taggen.
-
-| Zonrutnätet (mörkt läge) | Välkomstguide (modellnedladdning) | Inställningspanel |
-|---|---|---|
-| ![Zonrutnätet](docs/screenshots/zone-grid-dark.png) | ![Välkomstguide](docs/screenshots/welcome-wizard-download.png) | ![Inställningspanel](docs/screenshots/settings-panel.png) |
-
-Releasekedjan är automatiserad: en `git push --tags` på `vX.Y.Z` triggar GitHub Actions, som bygger en universal `.app`, signerar med Developer ID, notariserar via Apple och laddar upp en signerad DMG som ett utkast under [Releases](https://github.com/johanolofsson72/juradrop/releases). Utkastet publiceras manuellt efter en smoke-test på en ren Mac. Inbyggd Tauri-uppdaterare hämtar nya versioner med signaturverifiering.
+Releasekedjan är automatiserad: GitHub Actions bygger en universal `.app` (Apple Silicon + Intel), signerar med Developer ID, notariserar via Apple och laddar upp en signerad DMG under [Releases](https://github.com/johanolofsson72/juradrop/releases). Den inbyggda uppdateraren hämtar nya versioner med signaturverifiering.
 
 ## Installation
 
-> JuraDrop v0.1 är under utveckling. När första signerade DMG:n publicerats finns den under [Releases](https://github.com/johanolofsson72/juradrop/releases/latest).
-
-Installationsflöde när första utgåvan finns:
-
 1. Hämta `JuraDrop_x.y.z_universal.dmg` från [Releases](https://github.com/johanolofsson72/juradrop/releases/latest).
-2. Öppna DMG-filen genom att dubbelklicka — ingen Gatekeeper-varning eftersom appen är signerad och notariserad av Apple.
+2. Öppna DMG-filen genom att dubbelklicka — ingen Gatekeeper-varning, appen är signerad och notariserad av Apple.
 3. Dra `JuraDrop.app` till `Program`.
-4. Starta appen från Program. Vid första start laddas en AI-modell (~2 GB) ner från `ollama.com`.
+4. Starta appen. Vid första start laddas en AI-modell (~2 GB) ner från `ollama.com` — det är enda gången appen behöver internet för något annat än uppdateringskollen.
 5. Klart — dra ett dokument till en zon.
 
 ## Auto-updater
 
-JuraDrop letar efter nya versioner cirka var fjärde timme medan appen är öppen. När en uppdatering finns dyker en liten knapp upp uppe till höger — ingen modal som blockerar arbetet. Klicka för att se vad som är nytt och tryck **Installera nu** för att hämta. Signaturen verifieras lokalt innan något skrivs till disk. När nedladdningen är klar väljer du själv när omstarten ska ske; om en zon fortfarande jobbar väntar appen tills jobben är klara innan den startar om. Bekräftelseflödet kör enbart utgående trafik mot `api.github.com` (manifestet) och `objects.githubusercontent.com` (DMG-binären) — Principle I (allt dokumentinnehåll stannar lokalt) gäller fortfarande.
+JuraDrop letar efter nya versioner ungefär var fjärde timme medan appen är öppen. När en uppdatering finns dyker en liten knapp upp uppe till höger — ingen modal som blockerar arbetet. Klicka för att se vad som är nytt och tryck **Installera nu** för att hämta. Signaturen verifieras lokalt innan något skrivs till disk. När nedladdningen är klar väljer du själv när omstarten ska ske; om en zon fortfarande jobbar väntar appen tills jobben är klara.
 
-Om du inte vill bli störd just nu finns en × som döljer indikatorn tills nästa version dyker upp. En diskret tidsstämpel längst ner till höger visar när senaste sökningen gjordes, och en knapp där kör en manuell sökning om du föredrar det framför den automatiska kontrollen.
+Vill du inte bli störd just nu finns en × som döljer indikatorn tills nästa version dyker upp. En diskret tidsstämpel längst ner till höger visar när senaste sökningen gjordes, och en knapp där kör en manuell sökning om du föredrar det.
+
+Uppdateringskollen pratar bara med `api.github.com` (manifestet) och `objects.githubusercontent.com` (DMG-binären) — inget dokumentinnehåll är inblandat.
 
 ## Build from source
 
-For contributors and the curious. End-users should wait for a release rather than building from source.
+For contributors and the curious. End-users should grab a [release](https://github.com/johanolofsson72/juradrop/releases/latest) instead.
 
 ### Prerequisites
 
@@ -110,7 +120,7 @@ bash scripts/fetch-ollama.sh   # same prerequisite as `tauri dev`
 npm run tauri:build            # produces src-tauri/target/aarch64-apple-darwin/release/bundle/macos/JuraDrop.app
 ```
 
-Local production builds are unsigned by design — `npm run tauri:build` produces a `.app` that macOS Gatekeeper will block on double-click. Right-click → Open the first time to bypass when iterating locally. The signed + notarized DMG is produced by the GitHub Actions workflow that runs on `v*.*.*` tag pushes; it bundles `fetch-ollama.sh` into the pipeline so end users never need that step.
+Local production builds are unsigned by design — `npm run tauri:build` produces a `.app` that macOS Gatekeeper will block on double-click. Right-click → Open the first time to bypass when iterating locally. The signed + notarized universal DMG is produced by the GitHub Actions release workflow; it runs `fetch-ollama.sh` as part of the pipeline so end users never need that step.
 
 ### Verifying the toolchain
 
@@ -118,14 +128,20 @@ Local production builds are unsigned by design — `npm run tauri:build` produce
 npm test                                       # vitest (frontend)
 npm run lint                                   # eslint
 npm run typecheck                              # tsc --noEmit
-npm run test:e2e                               # playwright-smoke mot den riktiga frontenden (mockad Tauri-IPC)
+npm run test:e2e                               # playwright smoke against the real frontend (mocked Tauri IPC)
 cd src-tauri && cargo test                     # Rust unit tests
 cd src-tauri && cargo clippy -- -D warnings    # Rust lints
 cd src-tauri && cargo fmt -- --check           # Rust format check
-scripts/native-smoke.sh                        # native XCUITest mot riktiga .app:en (opt-in, kräver Xcode + GUI)
+scripts/native-smoke.sh                        # native XCUITest against the real .app (opt-in, needs Xcode + GUI)
 ```
 
 Every command should exit 0 on a clean checkout.
+
+The README screenshots in `docs/screenshots/` are generated from the real frontend — regenerate them after UI changes with:
+
+```bash
+README_SCREENSHOTS=1 npx playwright test tests/e2e/readme-screenshots.spec.ts
+```
 
 For signing and notarization configuration, see [`.claude/docs/deployment.md`](.claude/docs/deployment.md).
 
@@ -134,7 +150,7 @@ For signing and notarization configuration, see [`.claude/docs/deployment.md`](.
 - **Tauri 2.x** — Rust core + WKWebView UI
 - **React 18 + TypeScript + Tailwind + shadcn/ui** — frontend
 - **Ollama** (bundled as Tauri sidecar) — local LLM runtime
-- **Default model**: `gemma3:4b` or `llama3.2:3b` (~2–3 GB, downloaded on first launch)
+- **Default model**: `gemma3:4b` (Smart tier; Snabb is `llama3.2:1b`, Stor is `gemma3:12b`)
 
 See [`PROJECT-BRIEF.md`](PROJECT-BRIEF.md) for the full architecture and [`/.specify/memory/constitution.md`](.specify/memory/constitution.md) for the project's nine governing principles.
 
@@ -143,17 +159,18 @@ See [`PROJECT-BRIEF.md`](PROJECT-BRIEF.md) for the full architecture and [`/.spe
 The only network traffic JuraDrop makes:
 
 1. **App updater** — pulls a signed update manifest from `github.com/johanolofsson72/juradrop/releases`. No user content involved.
-2. **Initial model download** — pulls the chosen Ollama model from `ollama.com` on first launch or model change. No user content involved.
+2. **Model downloads** — pulls the chosen Ollama model from `ollama.com` on first launch or model change. No user content involved.
 
-That's it. No analytics, no crash reports that include document text, no cloud LLM fallback, no "anonymous usage statistics", no `phone-home-just-this-once`. Adding any new outbound network call requires a constitutional amendment, not a code review — see [Principle I of the constitution](.specify/memory/constitution.md).
+That's it. No analytics, no crash reports that include document text, no cloud LLM fallback, no "anonymous usage statistics", no `phone-home-just-this-once`. The WKWebView runs under a Content-Security-Policy that forbids all network egress except localhost Ollama, so the guarantee is structural, not a code-review promise. Adding any new outbound network call requires a constitutional amendment — see [Principle I of the constitution](.specify/memory/constitution.md).
 
-Dina dokument, egna instruktioner och resultat lämnar aldrig din dator — och appen säger det numera rakt ut: en rad under zonerna i huvudfönstret, en förklaring i välkomstguiden och en post i hjälppanelen upprepar samma fakta som ovan. AI-modellen bor på din dator; efter den första nedladdningen fungerar all bearbetning utan internet.
+Dina dokument, egna instruktioner och resultat lämnar aldrig din dator — och appen säger det rakt ut: en rad under zonerna i huvudfönstret, en förklaring i välkomstguiden och en post i hjälppanelen upprepar samma fakta som ovan. AI-modellen bor på din dator; efter den första nedladdningen fungerar all bearbetning utan internet.
 
 ## Documentation map
 
 | File | Purpose |
 |---|---|
 | [`README.md`](README.md) | You are here |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed in each release |
 | [`PROJECT-BRIEF.md`](PROJECT-BRIEF.md) | Architecture, target users, decisions, risks |
 | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Nine governing principles (privacy, zero-CLI, native feel, …) |
 | [`design-system/MASTER.md`](design-system/MASTER.md) | Colors, typography, motion, the twelve drop zones |
