@@ -113,6 +113,43 @@ final class NativeWindowSmokeTests: XCTestCase {
         )
     }
 
+    // ── test03 — crash regression (field report 2026-06-05): clicking the
+    // instruction field's clear (×) killed the app. The button unmounts
+    // mid-click (conditional render on hasText) — fine in Chromium,
+    // suspect on WKWebView. This drives the REAL WKWebView.
+    func test03_instructionClearDoesNotCrashTheApp() throws {
+        let app = try launchJuraDrop()
+        waitForWindow(app)
+
+        let field = app.textFields.firstMatch
+        XCTAssertTrue(
+            field.waitForExistence(timeout: Self.launchTimeout),
+            "instruction field not reachable"
+        )
+        field.click()
+        field.typeText("krasch-test av rensa-knappen")
+
+        let clear = app.buttons["Rensa instruktionen"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 10), "clear (×) not reachable")
+        clear.click()
+
+        // The app must SURVIVE the click: still running, window present,
+        // field back to empty and usable. Bounded crash-detection (H-7):
+        // wait(for:.notRunning) returns TRUE only if the app dies.
+        XCTAssertFalse(
+            app.wait(for: .notRunning, timeout: 3),
+            "the app DIED on clear-click"
+        )
+        XCTAssertTrue(app.windows.firstMatch.exists, "window vanished on clear-click")
+        XCTAssertTrue(field.exists, "field vanished after clear")
+        field.click()
+        field.typeText("lever fortfarande")
+        XCTAssertTrue(
+            app.buttons["Rensa instruktionen"].waitForExistence(timeout: 5),
+            "field unusable after clear-click"
+        )
+    }
+
     // ── test02 — H-5/H-6: Välj fil → native picker → sidecar on disk ─────
 
     func test02_pickToSidecar() throws {
