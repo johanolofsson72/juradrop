@@ -60,6 +60,9 @@ pub async fn run_zone_pipeline_checked(
     markers: &[&str],
     forbidden: &[&str],
 ) -> String {
+    // Tests must not hijack the developer's GUI nor invite Word's `~$`
+    // owner files next to temp sidecars (2026-06-05 finding).
+    std::env::set_var("JURADROP_SUPPRESS_OPEN", "1");
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -190,6 +193,12 @@ pub async fn run_zone_pipeline_checked(
 fn find_sidecar(dir: &Path, needle: &str) -> Option<PathBuf> {
     for entry in std::fs::read_dir(dir).ok()?.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
+        // Skip GUI-app artifacts that embed the document's name: Word `~$`
+        // owner files and AppleDouble `._` files both match a contains-
+        // needle and are never the sidecar (2026-06-05 finding).
+        if name.starts_with("~$") || name.starts_with("._") {
+            continue;
+        }
         if name.contains(needle) {
             return Some(entry.path());
         }
@@ -263,6 +272,7 @@ impl ChunkedSetup {
     /// Build the harness: temp .txt source with `doc_text`, sequenced
     /// responder, snapshot listener on the zone channel.
     pub async fn new(zone: ZoneId, doc_text: &str, templates: Vec<ResponseTemplate>) -> Self {
+        std::env::set_var("JURADROP_SUPPRESS_OPEN", "1");
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/api/generate"))

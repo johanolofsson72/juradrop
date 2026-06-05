@@ -2,7 +2,7 @@
   "_comment": "Spec 013 FR-021 — cross-language drift fixture for the help system. Source of truth shared by the Rust ZONE_HELP_STRINGS const (src-tauri/src/help/zone_help.rs) and the TS mirror (src/lib/help-strings.ts). Budgets: short <= 80 chars, long <= 300 chars. Swedish, humanizer-reviewed. The _instruction_help entry (spec 041) is chrome-level, not a zone — underscore-prefixed so the per-zone iterations skip it; dedicated drift assertions cover it on both sides.",
   "_instruction_help": {
     "title": "Egna instruktioner",
-    "body": "Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig."
+    "body": "Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig. Modellen följer den så gott den kan — enkla önskemål, som vad resultatet ska fokusera på, fungerar bäst."
   },
   "_privacy_help": {
     "title": "Dina dokument stannar på din dator",

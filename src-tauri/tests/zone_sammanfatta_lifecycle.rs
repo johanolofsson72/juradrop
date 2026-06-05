@@ -50,6 +50,7 @@ fn write_fixture_docx(dir: &std::path::Path, text: &str) -> PathBuf {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn drop_docx_writes_sidecar_and_leaves_source_byte_identical() {
+    std::env::set_var("JURADROP_SUPPRESS_OPEN", "1");
     // 1. Wiremock the /api/generate endpoint with a Swedish-looking
     //    response. This keeps the test deterministic and avoids
     //    needing a real Ollama running.
@@ -138,6 +139,7 @@ async fn drop_docx_writes_sidecar_and_leaves_source_byte_identical() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn disabled_zone_rejects_drop_without_calling_model() {
+    std::env::set_var("JURADROP_SUPPRESS_OPEN", "1");
     // No wiremock - the model MUST NOT be called when disabled.
     let app = mock_builder()
         .plugin(tauri_plugin_shell::init())
@@ -177,6 +179,7 @@ async fn disabled_zone_rejects_drop_without_calling_model() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn non_docx_drop_emits_invalid_format_and_does_not_call_model() {
+    std::env::set_var("JURADROP_SUPPRESS_OPEN", "1");
     let app = mock_builder()
         .plugin(tauri_plugin_shell::init())
         .build(mock_context(noop_assets()))
@@ -217,6 +220,7 @@ async fn non_docx_drop_emits_invalid_format_and_does_not_call_model() {
 /// suffix derived from the exotic stem.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn drop_with_exotic_chars_in_path_produces_correctly_named_sidecar() {
+    std::env::set_var("JURADROP_SUPPRESS_OPEN", "1");
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -316,6 +320,7 @@ async fn drop_with_exotic_chars_in_path_produces_correctly_named_sidecar() {
 /// drop a partial sidecar after a model failure.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dispatch_failure_leaves_no_sidecar_on_disk() {
+    std::env::set_var("JURADROP_SUPPRESS_OPEN", "1");
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/api/generate"))
@@ -388,6 +393,7 @@ async fn dispatch_failure_leaves_no_sidecar_on_disk() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multi_file_drop_emits_multiple_files_failure() {
+    std::env::set_var("JURADROP_SUPPRESS_OPEN", "1");
     let app = mock_builder()
         .plugin(tauri_plugin_shell::init())
         .build(mock_context(noop_assets()))

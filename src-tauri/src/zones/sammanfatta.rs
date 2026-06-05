@@ -456,8 +456,28 @@ impl DropZone {
 
         // Step 5: open via OS default handler (best-effort — open
         // failure does not flip success to error per FR-007).
-        if let Err(e) = open::that_detached(&target) {
-            eprintln!("[juradrop] OS open failed (file saved): {e}");
+        // Field report 2026-06-05: `that_detached` detaches the launcher
+        // from the session, which on macOS can open the document WITHOUT
+        // activating the target app (window lands behind JuraDrop — the
+        // user perceives "nothing opened"). `that` runs /usr/bin/open
+        // attached, which activates normally; we are already on a
+        // background task so the brief block is harmless.
+        //
+        // Debug-only suppression seam: test harnesses set
+        // JURADROP_SUPPRESS_OPEN so hundreds of pipeline tests don't
+        // hijack the developer's GUI with document windows — and don't
+        // tempt Word into writing `~$` owner files next to temp sidecars
+        // (the 2026-06-05 validation-suite failure: a 162-byte owner
+        // file matched the test's sidecar needle and never parsed).
+        // Release builds never read the var.
+        #[cfg(debug_assertions)]
+        let suppress_open = std::env::var("JURADROP_SUPPRESS_OPEN").is_ok();
+        #[cfg(not(debug_assertions))]
+        let suppress_open = false;
+        if !suppress_open {
+            if let Err(e) = open::that(&target) {
+                eprintln!("[juradrop] OS open failed (file saved): {e}");
+            }
         }
 
         // Step 6: success snapshot + auto-clear.

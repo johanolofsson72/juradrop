@@ -477,3 +477,40 @@ mod tests {
         assert!(raw.contains("AI-anonymisering är inte hundra procent"));
     }
 }
+
+#[cfg(test)]
+mod pack_validity_probe {
+    use super::*;
+    use crate::zones::docx_extract::extract_text_from_bytes;
+    use std::path::PathBuf;
+
+    // 2026-06-05 manus-validation probe: REAL Punktlista/Anonymisera runs
+    // intermittently produced a tiny non-zip sidecar (162 bytes, a length-
+    // prefixed first-paragraph string). Hunt the triggering content shape.
+    #[test]
+    fn pack_various_shapes_always_yields_valid_zip() {
+        let src = PathBuf::from("/tmp/probe.docx");
+        let shapes: Vec<String> = vec![
+            "- punkt ett\n- punkt två".into(),
+            format!("- {}", "x".repeat(1900)),
+            "- åäö ÅÄÖ é ü\n- & < > \" '\n- emoji 📜 ⚖️".into(),
+            (0..200).map(|i| format!("- punkt nummer {i} med lite text")).collect::<Vec<_>>().join("\n"),
+            "## Rubrik\n- under rubrik\nvanligt stycke\n- mer punkt".into(),
+            "Ronneby Motorbåtsklubb\n\n- Styrelsen beslutade att godkänna budgeten\n- Mötet avslutades".into(),
+            "- \n- tom punkt ovan\n-utan mellanslag\n - inledande blank".into(),
+        ];
+        for (i, body) in shapes.iter().enumerate() {
+            let bytes =
+                build_summary_doc(crate::zones::ZoneId::Punktlista, &src, body, false, false)
+                    .unwrap_or_else(|e| panic!("shape {i}: pack failed: {e:?}"));
+            assert!(
+                bytes.len() > 1000 && bytes.starts_with(b"PK\x03\x04"),
+                "shape {i}: NOT a zip ({} bytes, head {:?})",
+                bytes.len(),
+                &bytes[..bytes.len().min(24)]
+            );
+            extract_text_from_bytes(&bytes)
+                .unwrap_or_else(|e| panic!("shape {i}: round-trip parse failed: {e:?}"));
+        }
+    }
+}

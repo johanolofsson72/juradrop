@@ -64,6 +64,7 @@ struct RunResult {
 
 /// One full zone pipeline against its own mock; returns the sidecar text.
 async fn run_one(zone: ZoneId, fixture_name: &'static str) -> RunResult {
+    std::env::set_var("JURADROP_SUPPRESS_OPEN", "1");
     let marker = format!("[[ZONE:{}]]", zone.slug());
     let response = format!("Resultat {marker} för zonen.");
 
@@ -117,11 +118,10 @@ async fn run_one(zone: ZoneId, fixture_name: &'static str) -> RunResult {
     // which is the spec-017 flake that otherwise panicked at "sidecar parses".
     let mut text = None;
     while std::time::Instant::now() < deadline {
-        if let Some(found) = std::fs::read_dir(dir.path())
-            .unwrap()
-            .flatten()
-            .find(|e| e.file_name().to_string_lossy().contains(&needle))
-        {
+        if let Some(found) = std::fs::read_dir(dir.path()).unwrap().flatten().find(|e| {
+            let n = e.file_name().to_string_lossy().to_string();
+            !n.starts_with("~$") && !n.starts_with("._") && n.contains(&needle)
+        }) {
             if let Ok(bytes) = std::fs::read(found.path()) {
                 if let Ok(extracted) = extract_text_from_bytes(&bytes) {
                     text = Some(extracted.raw.as_inner().to_string());

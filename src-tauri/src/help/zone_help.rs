@@ -116,7 +116,7 @@ pub const ZONE_HELP_STRINGS: [(ZoneId, ZoneHelp); 12] = [
 /// `INSTRUCTION_HELP` in `src/lib/help-strings.ts` — edit all three
 /// together. Swedish, humanizer-reviewed.
 pub const INSTRUCTION_HELP_TITLE: &str = "Egna instruktioner";
-pub const INSTRUCTION_HELP_BODY: &str = "Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig.";
+pub const INSTRUCTION_HELP_BODY: &str = "Du kan skriva egna instruktioner som gäller nästa dokument du släpper, på vilken zon som helst. Instruktionen är valfri. Den skickas bara till AI-modellen på din dator och sparas aldrig. Modellen följer den så gott den kan — enkla önskemål, som vad resultatet ska fokusera på, fungerar bäst.";
 
 /// Spec 042 FR-006 — chrome-level privacy entry (the honest fine print:
 /// what never leaves + the only two network uses). Mirrored as

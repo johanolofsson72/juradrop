@@ -22,6 +22,7 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_smoke_seam_routes_new_client_to_mock() {
+    std::env::set_var("JURADROP_SUPPRESS_OPEN", "1");
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/api/generate"))

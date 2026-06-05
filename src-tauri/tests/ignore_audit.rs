@@ -44,11 +44,14 @@ fn every_ignored_test_has_a_hardware_reason() {
         "SC-004 violated — un-justified #[ignore] attributes:\n{}",
         offenders.join("\n")
     );
-    // Sanity: exactly two hardware-bound tests remain, both // HARDWARE:
-    // justified — `sidecar_roundtrip` (spec 003/013) and `real_ollama_zones`
-    // (spec 018). If this drifts, re-run the audit and update the count.
+    // Sanity: exactly three hardware-bound tests remain, all // HARDWARE:
+    // justified — `sidecar_roundtrip` (spec 003/013), `real_ollama_zones::
+    // all_zones_real_inference_smoke` (spec 018), and `real_ollama_zones::
+    // manus_validation_real_model` (2026-06-05 manus validation: real-model
+    // twins of TESTMANUS steps 1–4). If this drifts, re-run the audit and
+    // update the count.
     assert_eq!(
-        ignore_count, 2,
-        "expected exactly 2 #[ignore]'d tests (sidecar_roundtrip + real_ollama_zones), found {ignore_count}"
+        ignore_count, 3,
+        "expected exactly 3 #[ignore]'d tests (sidecar_roundtrip + 2× real_ollama_zones), found {ignore_count}"
     );
 }
