@@ -1,8 +1,11 @@
 // Spec 013 / FR-019 + FR-020 — functional coverage for the HelpPanel.
 //
 // FUNCTIONAL COVERAGE INVENTORY (this file):
-//  1. Panel renders all 9 zones with title + short + long.
-//  2. Panel renders format badges (Generera = TXT/MD; others = 7).
+//  1. Panel renders all zones (ZONE_ORDER) with title + short + long.
+//  2. Panel renders format badges (Generera = TXT/MD; others = the
+//     six-format set — spec 043 purged the PAGES badge that outlived
+//     spec 028's .pages removal, and THIS file's old assertion that
+//     actively pinned the bug).
 //  3. Esc closes the panel.
 //  4. Close-X button closes the panel.
 //  5. Scrim click closes the panel.
@@ -22,7 +25,7 @@ afterEach(() => {
 });
 
 describe('HelpPanel', () => {
-  it('renders all 9 zones with title, short and long help', () => {
+  it('renders every zone with title, short and long help', () => {
     render(<HelpPanel visibility="open" onClose={() => {}} />);
     for (const id of ZONE_ORDER) {
       expect(screen.getByText(ZONE_IDENTITIES[id].title)).toBeInTheDocument();
@@ -31,7 +34,7 @@ describe('HelpPanel', () => {
     }
   });
 
-  it('renders 9 zone list items', () => {
+  it('renders one list item per zone', () => {
     render(<HelpPanel visibility="open" onClose={() => {}} />);
     const panel = screen.getByRole('dialog');
     expect(within(panel).getAllByRole('listitem')).toHaveLength(ZONE_ORDER.length);
@@ -46,8 +49,18 @@ describe('HelpPanel', () => {
     expect(within(generera).queryByText('DOCX')).toBeNull();
 
     const sammanfatta = items[ZONE_ORDER.indexOf('sammanfatta')]!;
-    expect(within(sammanfatta).getByText('DOCX')).toBeInTheDocument();
-    expect(within(sammanfatta).getByText('PAGES')).toBeInTheDocument();
+    for (const fmt of ['DOCX', 'PDF', 'TXT', 'MD', 'RTF', 'ODT']) {
+      expect(within(sammanfatta).getByText(fmt)).toBeInTheDocument();
+    }
+  });
+
+  // Spec 043 FR-002 / SC-001 — the PAGES badge outlived spec 028's
+  // .pages removal because the OLD version of this very test asserted
+  // its presence. This pin makes a second silent survival impossible:
+  // no badge anywhere in the panel may say PAGES.
+  it('no format badge anywhere says PAGES (spec 028 purge, spec 043 pin)', () => {
+    render(<HelpPanel visibility="open" onClose={() => {}} />);
+    expect(screen.queryByText('PAGES')).toBeNull();
   });
 
   it('closes on Escape', () => {

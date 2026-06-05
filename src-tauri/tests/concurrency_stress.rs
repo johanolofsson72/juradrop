@@ -103,7 +103,14 @@ async fn run_one(zone: ZoneId, fixture_name: &'static str) -> RunResult {
 
     let suffix = zone.sidecar_suffix();
     let needle = format!(".{suffix}.");
-    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    // Spec 043 — 60s, up from 20s: this deadline is a HANG-GUARD, not a
+    // performance assertion. Twelve zone pipelines run in parallel inside
+    // this test while `cargo test` runs every other test binary alongside
+    // it; 20s was exceeded by pure scheduler starvation on ~3 of 8 full-
+    // suite runs (always passing in isolation — the spec-017 flake). The
+    // test's real assertions (cross-zone isolation, marker contamination,
+    // source integrity) are unchanged; a genuine hang still fails.
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     // Poll until a sidecar both EXISTS and fully PARSES. Accepting it only once
     // it parses tolerates a transient read-during-write race under heavy parallel
     // load — the file can be found while a non-atomic flush is still in flight,
@@ -124,7 +131,7 @@ async fn run_one(zone: ZoneId, fixture_name: &'static str) -> RunResult {
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let text = text.unwrap_or_else(|| panic!("{zone:?}: no parseable sidecar appeared in 20s"));
+    let text = text.unwrap_or_else(|| panic!("{zone:?}: no parseable sidecar appeared in 60s"));
 
     // Compare source SHA while the file still exists (before `dir` drops).
     let source_unchanged = sha_before == sha256_of(&source);

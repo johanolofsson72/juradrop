@@ -25,8 +25,10 @@ interface Props {
 }
 
 // FR-020 — accepted-format badges. Generera takes only instruction files;
-// every other zone takes the full spec-009 seven-format set.
-const ALL_FORMATS = ['DOCX', 'PDF', 'TXT', 'MD', 'RTF', 'PAGES', 'ODT'];
+// every other zone takes the six-format set (spec 028 removed .pages —
+// modern Pages stores text in undecodable .iwa; spec 043 purged the badge
+// that outlived the removal). Pinned PAGES-free by HelpPanel.test.tsx.
+const ALL_FORMATS = ['DOCX', 'PDF', 'TXT', 'MD', 'RTF', 'ODT'];
 const GENERERA_FORMATS = ['TXT', 'MD'];
 
 function formatsFor(zone: ZoneId): readonly string[] {
