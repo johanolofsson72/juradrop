@@ -123,13 +123,33 @@ pub(crate) static RE_POSTNUMMER: LazyLock<Regex> =
 //     Box 1234) and city names are NOT caught — model's job.
 // Spec 046 — pub(crate): the pii_scrub REPLACER reuses this exact pattern so
 // detect-and-replace can never disagree with detect-and-warn.
+//
+// Spec 047 — the street body is extracted into STREET_BODY so RE_ADRESS
+// (street-only) and RE_ADRESS_FULL (whole line) share one source.
+const STREET_BODY: &str = r"[A-ZÅÄÖ][a-zåäöA-ZÅÄÖ]*(?:gatan|gata|vägen|väg|gränden|gränd|stigen|stig|torget|torg|allén|allé|backen|backe|liden|lid|kajen|kaj|stranden|strand|brinken|brink|hamnen|hamn|esplanaden|esplanad|promenaden|promenad|gången|gång)\s+\d{1,3}(?:[A-Za-zÅÄÖåäö]|\s[A-ZÅÄÖ])?";
+
 // expect on a compile-time-constant literal regex — infallible, test-covered.
 #[allow(clippy::expect_used)]
 pub(crate) static RE_ADRESS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"\b[A-ZÅÄÖ][a-zåäöA-ZÅÄÖ]*(?:gatan|gata|vägen|väg|gränden|gränd|stigen|stig|torget|torg|allén|allé|backen|backe|liden|lid|kajen|kaj|stranden|strand|brinken|brink|hamnen|hamn|esplanaden|esplanad|promenaden|promenad|gången|gång)\s+\d{1,3}(?:[A-Za-zÅÄÖåäö]|\s[A-ZÅÄÖ])?\b",
-    )
-    .expect("adress regex")
+    Regex::new(&(String::from(r"\b") + STREET_BODY + r"\b")).expect("adress regex")
+});
+
+// Spec 047 — whole-line address: street + optional comma + postnummer + city,
+// collapsed to ONE [Adress N]. The postnummer here may be SPACED, NBSP, OR
+// UNSPACED — the street-before/city-after context disambiguates the 5-digit form
+// (e.g. "Lökgatan 1, 32456 Stockholm"), unlike standalone RE_POSTNUMMER which
+// stays spaced-only because a bare 5-digit run is indistinguishable from an
+// amount. City = one capitalized word (a multi-word city keeps only its first
+// word — low-risk fragment, documented). This is a SCRUB-ONLY superset: the
+// leftmost-longest sweep prefers this longer span over the partial street +
+// postnummer matches; the sweep keeps RE_ADRESS for residual-street detection.
+// expect on a compile-time-constant literal regex — infallible, test-covered.
+#[allow(clippy::expect_used)]
+pub(crate) static RE_ADRESS_FULL: LazyLock<Regex> = LazyLock::new(|| {
+    let pat = String::from(r"\b")
+        + STREET_BODY
+        + r"\s*,?\s+[1-9]\d{2}[\x{00A0} ]?\d{2}\s+[A-ZÅÄÖ][a-zåäö]+\b";
+    Regex::new(&pat).expect("adress full regex")
 });
 
 // Placeholder spans the model is SUPPOSED to emit — masked before counting

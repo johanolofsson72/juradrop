@@ -169,34 +169,124 @@ async fn other_zones_receive_raw_unscrubbed_input() {
 // ===== Spec 045 — postnummer (T007 / SC-001) ==============================
 
 #[tokio::test]
-async fn anonymisera_prompt_scrubs_canonical_postnummer() {
-    let doc = format!("Svarande bor på Storgatan 5, {POSTNR_A} Stockholm. Talan väcks.");
+async fn anonymisera_prompt_scrubs_standalone_postnummer() {
+    // Spec 047: a postnummer INSIDE an address line is folded into [Adress N]
+    // (see the whole-line tests). This proves a STANDALONE postnummer (no street
+    // before it) is still replaced with [Postnr N] before the model.
+    let doc = format!("Svarande når oss via postnr {POSTNR_A}, utan gatuadress.");
     let setup = ChunkedSetup::new(
         ZoneId::Anonymisera,
         &doc,
         vec![ok_generate(
-            "Svarande bor på [Adress 1], [Postnr 1] Stockholm. Talan väcks.",
+            "Svarande når oss via postnr [Postnr 1], utan gatuadress.",
         )],
     )
     .await;
     setup.drop_file().await;
     let sidecar = setup.wait_settled(SETTLE).await.expect("sidecar written");
 
-    // INPUT-side proof: the canonical postnummer is replaced before the model.
+    // INPUT-side proof: the raw postnummer never reaches the model.
     let bodies = setup.generate_bodies().await;
     let prompt = bodies[0]["prompt"].as_str().expect("prompt");
-    assert!(prompt.contains("[Postnr 1]"), "prompt: {prompt}");
     assert!(
         !prompt.contains(POSTNR_A),
-        "raw postnummer reached the model"
+        "raw postnummer reached the model: {prompt}"
     );
-
     // OUTPUT side: the placeholder passes the sweep unflagged — no banner.
     assert!(sidecar.contains("[Postnr 1]"));
     assert!(
         !sidecar.contains("Automatisk kontroll hittade"),
         "scrubbed postnummer must not trigger the banner"
     );
+}
+
+// ===== Spec 047 — whole-line address collapse ============================
+
+#[tokio::test]
+async fn anonymisera_collapses_whole_address_line() {
+    // The exact second-live-test shape: a full party address line.
+    let doc = format!("KÄRANDE bor på {STREET_A}, {POSTNR_A} Stockholm. Talan väcks.");
+    let setup = ChunkedSetup::new(
+        ZoneId::Anonymisera,
+        &doc,
+        vec![ok_generate("KÄRANDE bor på [Adress 1]. Talan väcks.")],
+    )
+    .await;
+    setup.drop_file().await;
+    let sidecar = setup.wait_settled(SETTLE).await.expect("sidecar written");
+
+    let bodies = setup.generate_bodies().await;
+    let prompt = bodies[0]["prompt"].as_str().expect("prompt");
+    // The WHOLE line collapsed to [Adress 1] before the model — street, raw
+    // postnummer and city are all gone from the document portion of the prompt.
+    assert!(
+        !prompt.contains(STREET_A),
+        "raw street reached the model: {prompt}"
+    );
+    assert!(
+        !prompt.contains(POSTNR_A),
+        "raw postnummer reached the model"
+    );
+    assert!(
+        !prompt.contains("Stockholm. Talan"),
+        "city left in cleartext: {prompt}"
+    );
+    assert!(!sidecar.contains("Automatisk kontroll hittade"));
+}
+
+#[tokio::test]
+async fn multi_chunk_whole_line_keeps_global_index() {
+    let line = format!("{STREET_A}, {POSTNR_A} Stockholm");
+    let mut doc = long_doc_with_sentinels(30_000, &["MITT-AVSNITT", "SLUT-AVSNITT"]);
+    doc.insert_str(0, &format!("Bor på {line}. "));
+    doc.push_str(&format!(" Äger {line} likaså."));
+
+    let plan = split_into_chunks(&doc);
+    assert!(plan.chunks.len() >= 2, "fixture must be multi-chunk");
+    let n = plan.chunks.len();
+    let templates = (0..n).map(|i| ok_generate(&format!("Del {i}."))).collect();
+    let setup = ChunkedSetup::new(ZoneId::Anonymisera, &doc, templates).await;
+    setup.drop_file().await;
+    setup.wait_settled(SETTLE).await.expect("sidecar written");
+
+    let bodies = setup.generate_bodies().await;
+    let prompts: Vec<&str> = bodies
+        .iter()
+        .map(|b| b["prompt"].as_str().expect("prompt"))
+        .collect();
+    for p in &prompts {
+        assert!(!p.contains(STREET_A), "raw street leaked");
+        assert!(!p.contains(POSTNR_A), "raw postnummer leaked");
+    }
+    // The same full line in the first and last chunk → same [Adress N] index.
+    assert!(prompts[0].contains("[Adress 1]"));
+    assert!(
+        prompts[n - 1].contains("[Adress 1]"),
+        "last chunk must reuse the same index for the same address line"
+    );
+}
+
+#[tokio::test]
+async fn other_zone_gets_raw_whole_address_line() {
+    let doc = format!("Bolaget på {STREET_A}, {POSTNR_A} Stockholm, sammanfattas.");
+    let setup = ChunkedSetup::new(
+        ZoneId::Sammanfatta,
+        &doc,
+        vec![ok_generate("En sammanfattning.")],
+    )
+    .await;
+    setup.drop_file().await;
+    setup.wait_settled(SETTLE).await.expect("sidecar written");
+
+    let bodies = setup.generate_bodies().await;
+    let prompt = bodies[0]["prompt"].as_str().expect("prompt");
+    // No scrub outside Anonymisera — the raw line reaches Sammanfatta intact.
+    assert!(
+        prompt.contains(STREET_A),
+        "raw street expected for Sammanfatta"
+    );
+    assert!(prompt.contains(POSTNR_A));
+    assert!(!prompt.contains("[Adress"));
 }
 
 // ===== Spec 045 — global postnummer indices across chunks (SC-003) ========

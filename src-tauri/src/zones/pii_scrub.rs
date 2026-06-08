@@ -23,7 +23,9 @@
 
 use regex::Regex;
 
-use super::pii_sweep::{RE_ADRESS, RE_EMAIL, RE_PERSONNUMMER, RE_PHONE, RE_POSTNUMMER};
+use super::pii_sweep::{
+    RE_ADRESS, RE_ADRESS_FULL, RE_EMAIL, RE_PERSONNUMMER, RE_PHONE, RE_POSTNUMMER,
+};
 
 /// Scrubbed text + per-category counts of DISTINCT values replaced.
 /// Counts are content-free (safe for tests/diagnostics); the matched
@@ -88,6 +90,11 @@ pub fn scrub_structured_pii(text: &str) -> ScrubOutcome {
         (&*RE_PHONE, Category::Telefon),
         (&*RE_PERSONNUMMER, Category::Personnr),
         (&*RE_POSTNUMMER, Category::Postnr),
+        // Spec 047 — the whole-line address (street+postnummer+city) is offered
+        // BEFORE the street-only RE_ADRESS; both feed Category::Adress, and the
+        // leftmost-longest sweep keeps the longer full-line span, collapsing the
+        // line to one [Adress N] and discarding the street/postnummer sub-spans.
+        (&*RE_ADRESS_FULL, Category::Adress),
         (&*RE_ADRESS, Category::Adress),
     ] {
         let re: &Regex = re;
@@ -279,13 +286,13 @@ mod tests {
 
     #[test]
     fn replaces_canonical_postnummer_with_indexed_placeholder() {
-        // Spec 046 update: the street is now ALSO scrubbed (RE_ADRESS), so the
-        // full line becomes [Adress 1], [Postnr 1] — the postnummer guarantee
-        // (the point of this test) is unchanged.
-        let out = scrub_structured_pii("Storgatan 5, 114 35 Stockholm");
-        assert_eq!(out.text, "[Adress 1], [Postnr 1] Stockholm");
+        // Spec 047 update: a postnummer INSIDE an address line is now folded
+        // into [Adress N] (see whole-line tests). This pins the STANDALONE
+        // postnummer guarantee — no street before it, so it stays [Postnr N].
+        let out = scrub_structured_pii("Brevet skickades till 114 35 utan gata.");
+        assert_eq!(out.text, "Brevet skickades till [Postnr 1] utan gata.");
         assert_eq!(out.postnummer, 1);
-        assert_eq!(out.adress, 1);
+        assert_eq!(out.adress, 0);
         assert!(scan_residual_pii(&out.text).is_clean());
     }
 
@@ -396,8 +403,11 @@ mod tests {
 
     #[test]
     fn all_five_categories_replaced_and_clean() {
-        let input = "Anna 19850312-1234, 070-123 45 67, anna@exempel.se, \
-                     Storgatan 5, 114 35 Lund.";
+        // Spec 047: street and postnummer are kept in SEPARATE positions so the
+        // whole-line collapse does not fold the postnummer into [Adress N] —
+        // this test proves all five categories can co-exist as placeholders.
+        let input = "Anna 19850312-1234 på 070-123 45 67, anna@exempel.se. \
+                     Kontoret: Storgatan 5. Postnr 114 35 separat.";
         let out = scrub_structured_pii(input);
         for marker in [
             "[Personnr 1]",
@@ -480,5 +490,103 @@ mod tests {
         let out = scrub_structured_pii("Telefon: 031-22 33 44");
         assert_eq!(out.text, "Telefon: [Telefon 1]", "{}", out.text);
         assert!(!out.text.contains("44"));
+    }
+
+    // ── Spec 047 — whole-line address collapse ───────────────────────────
+
+    #[test]
+    fn whole_line_address_collapses_to_one_placeholder() {
+        // SC-001 — street + postnummer + city → ONE [Adress N]; no separate
+        // [Postnr], no leftover city.
+        let out = scrub_structured_pii("Svaranden bor på Storgatan 5, 114 35 Stockholm idag.");
+        assert_eq!(out.text, "Svaranden bor på [Adress 1] idag.");
+        assert_eq!(out.adress, 1);
+        assert_eq!(out.postnummer, 0, "postnummer folded into the address line");
+        assert!(scan_residual_pii(&out.text).is_clean());
+    }
+
+    #[test]
+    fn whole_line_catches_unspaced_postnummer_in_context() {
+        // SC-001 — the unspaced 5-digit form is caught HERE (street before,
+        // city after disambiguate it), unlike a standalone bare run.
+        let out = scrub_structured_pii("Lökgatan 1, 32456 Stockholm");
+        assert_eq!(out.text, "[Adress 1]", "{}", out.text);
+        assert_eq!(out.adress, 1);
+    }
+
+    #[test]
+    fn whole_line_nbsp_and_commaless_forms() {
+        let nbsp = scrub_structured_pii("Lillgatan 12B, 412\u{00A0}96 Göteborg");
+        assert_eq!(nbsp.text, "[Adress 1]", "{}", nbsp.text);
+        let commaless = scrub_structured_pii("Vasagatan 1 111 20 Stockholm");
+        assert_eq!(commaless.text, "[Adress 1]", "{}", commaless.text);
+    }
+
+    #[test]
+    fn whole_line_same_address_same_index() {
+        let out = scrub_structured_pii(
+            "Bor på Storgatan 5, 114 35 Stockholm. Äger Storgatan 5, 114 35 Stockholm.",
+        );
+        assert_eq!(out.text.matches("[Adress 1]").count(), 2, "{}", out.text);
+        assert_eq!(out.adress, 1, "one DISTINCT address line");
+    }
+
+    #[test]
+    fn field_doc_four_address_lines_become_four_placeholders() {
+        // SC-001 — the exact live-test shape: four party address lines.
+        let input = "Storgatan 5, 114 35 Stockholm. \
+                     Lillgatan 12B, 412\u{00A0}96 Göteborg. \
+                     Vasagatan 1, 111 20 Stockholm. \
+                     Hamngatan 8, 211 22 Malmö.";
+        let out = scrub_structured_pii(input);
+        for n in 1..=4 {
+            assert!(
+                out.text.contains(&format!("[Adress {n}]")),
+                "missing [Adress {n}]: {}",
+                out.text
+            );
+        }
+        assert_eq!(out.adress, 4);
+        // Zero raw streets, cities, or postnummer survive.
+        for raw in [
+            "Storgatan",
+            "Göteborg",
+            "Malmö",
+            "Stockholm",
+            "114 35",
+            "412",
+        ] {
+            assert!(!out.text.contains(raw), "raw {raw:?} leaked: {}", out.text);
+        }
+        assert!(scan_residual_pii(&out.text).is_clean());
+    }
+
+    #[test]
+    fn whole_line_utf8_city_adjacency() {
+        let out = scrub_structured_pii("ärendet Köpmangatan 3, 211 22 Malmö åter");
+        assert_eq!(out.text, "ärendet [Adress 1] åter", "{}", out.text);
+    }
+
+    #[test]
+    fn partials_and_standalones_survive_whole_line_addition() {
+        // SC-002 — street-only still [Adress N]; standalone postnummer still
+        // [Postnr N]; amounts/case-numbers byte-identical.
+        let street_only = scrub_structured_pii("Kontoret ligger på Storgatan 5 (vån 2).");
+        assert!(
+            street_only.text.contains("[Adress 1]"),
+            "{}",
+            street_only.text
+        );
+        assert_eq!(street_only.postnummer, 0);
+
+        let standalone = scrub_structured_pii("postnr 114 35 ensamt");
+        assert_eq!(standalone.text, "postnr [Postnr 1] ensamt");
+        assert_eq!(standalone.adress, 0);
+
+        for input in ["15 000 kr", "mål nr T 4521-25", "referens 11435"] {
+            let out = scrub_structured_pii(input);
+            assert_eq!(out.text, input, "altered: {input:?} -> {}", out.text);
+            assert_eq!((out.adress, out.postnummer), (0, 0));
+        }
     }
 }

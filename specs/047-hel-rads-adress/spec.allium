@@ -1,0 +1,139 @@
+-- allium: 3
+
+-- Spec 047: Hel-rads-adress — whole-line address collapse + bracket fix.
+-- Elicited 2026-06-08 from specs/047-hel-rads-adress/spec.md (post-clarify).
+-- Provenance: second live test — 046 scrubbed the street but left a fragmented
+-- "Adress 1, [Postnr 1] Stockholm" and the model stripped [Adress 1]→Adress 1
+-- (clashing free-text instruction). This collapses the whole line to one
+-- [Adress N] and removes the clashing instruction.
+
+enum PiiCategory { personnummer | telefon | epost | postnummer | adress }
+
+external entity Zone { id: String }
+external entity ExtractedDocument { text: String }
+
+entity Replacement {
+    registry: PlaceholderRegistry
+    category: PiiCategory
+    matched_value: String
+    index: Integer
+    placeholder: String
+
+    invariant BracketedFormat {
+        this.is_bracketed_sweep_maskable = true
+    }
+}
+
+entity PlaceholderRegistry {
+    document: ExtractedDocument
+    replacements: Replacement with registry = this
+
+    invariant SameValueSameIndex {
+        for r in replacements:
+            not exists other in replacements
+                where other.matched_value = r.matched_value
+                and other.category = r.category
+                and other.index != r.index
+    }
+    invariant AddressPatternsShareOneIndexSeries {
+        -- FR-004: whole-line and street-only matches both use Category.adress
+        this.adress_index_series_is_single = true
+    }
+    invariant NeverPersisted {
+        this.persisted = false
+        this.logged = false
+    }
+}
+
+entity ScrubResult {
+    registry: PlaceholderRegistry
+    scrubbed_text: String
+
+    invariant WholeLineCollapsesToOnePlaceholder {
+        -- SC-001/FR-001/FR-003: a complete street+postnummer+city line becomes
+        -- exactly one [Adress N]; the sub-spans are discarded by leftmost-longest
+        this.full_address_line_is_single_placeholder = true
+    }
+    invariant PartialsAndStandalonesUnchanged {
+        -- SC-002: street-without-city → [Adress N]; standalone postnummer →
+        -- [Postnr N]; amounts/case-numbers byte-identical
+        this.partial_and_standalone_behaviour_preserved = true
+    }
+    invariant Utf8Safe {
+        this.scrubbed_text_valid_utf8 = true
+    }
+}
+
+-- ── Rules ────────────────────────────────────────────────────────────────
+
+rule CollapseWholeAddressLine {
+    when: AnonymiseraDispatch(document)
+    ensures:
+        -- FR-001/FR-002/FR-005: street + (optional comma) + spaced-OR-unspaced
+        -- postnummer + city → one [Adress N], whole text before chunking; the
+        -- unspaced 5-digit form is accepted only in this street/city context
+        let registry = PlaceholderRegistry.created(document: document)
+        let result = ScrubResult.created(registry: registry)
+        ChunkPlanBuiltFrom(result)
+}
+
+rule LeftmostLongestPrefersFullLine {
+    when: AddressScrub(text)
+    ensures:
+        -- FR-003: when a full line and its street/postnummer sub-spans both
+        -- match, the longest (full line) wins; partials outside a full line
+        -- keep their own placeholders
+        FullLineWinsOverSubSpans()
+        PartialsOutsideFullLinePreserved()
+}
+
+rule StandalonePostnummerStaysSpacedOnly {
+    when: PostnummerScrub(text)
+    ensures:
+        -- FR-002: RE_POSTNUMMER (standalone) remains spaced-only; a bare
+        -- unspaced 5-digit run is NOT scrubbed outside an address line
+        UnspacedStandaloneFiveDigitPreserved()
+}
+
+rule PromptDropsFreeTextAddressInstruction {
+    when: AnonymiseraModelPass(chunk)
+    ensures:
+        -- FR-006: no free-text "Adress 1/2" instruction; [Adress N] stays in
+        -- the preserve list, so the model keeps the brackets (no stripping)
+        PromptHasNoFreeTextAddressInstruction()
+        PromptStillPreservesAddressPlaceholder()
+}
+
+rule OtherZonesUntouched {
+    when: NonAnonymiseraDispatch(document, zone)
+    requires: zone.id != `anonymisera`
+    ensures:
+        ChunkPlanBuiltFrom(document)
+}
+
+-- ── Global invariants ────────────────────────────────────────────────────
+
+invariant PrivacyIndependentOfPlaceholderRendering {
+    -- FR-010: the raw address is removed before the model regardless of how the
+    -- placeholder is finally rendered — bracket stripping was cosmetic, not a leak
+    for result in ScrubResults:
+        result.raw_address_removed_pre_model = true
+}
+
+invariant AnonymiseraOnly {
+    for registry in PlaceholderRegistries:
+        registry.zone_id = `anonymisera`
+}
+
+-- ── Out of scope / accepted limitations ──────────────────────────────────
+
+deferred Replacement.multi_word_city
+-- Location hint: RE_ADRESS_FULL city group. A multi-word city ("Upplands
+-- Väsby") keeps only its first word in the span; the trailing word is left as a
+-- low-risk fragment (no reliable pattern). Accepted.
+
+deferred Replacement.suffixless_street_no_fallback
+-- Location hint: prompts/anonymisera.rs. With the free-text instruction removed,
+-- streets without a known suffix (Polhem 3, Box 1234) get no model fallback;
+-- they rely on the disclaimer. Accepted per the user decision (the regex is more
+-- reliable than the 4b model, and the instruction was the bracket-strip cause).

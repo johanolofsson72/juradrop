@@ -14,11 +14,19 @@
 //
 // Spec 046: the dominant Swedish street-address form (Capital + street-type
 // suffix + house number) is now pre-replaced too (→ [Adress N]) because the 4b
-// model ignored the free-text instruction in the live test. The bracketed
-// [Adress N] is preserve-verbatim; the free-text "Adress 1/2" instruction STAYS
-// as the fallback for street forms the regex cannot catch (no suffix, PO boxes).
+// model ignored the free-text instruction in the live test.
+//
+// Spec 047: the WHOLE address line (street + postnummer + city) is now collapsed
+// to one [Adress N] deterministically (RE_ADRESS_FULL), so the free-text
+// "Ersätt varje adress med Adress 1" instruction is REMOVED — it competed with
+// the [Adress N] placeholder and made the model strip the brackets
+// ([Adress 1] → Adress 1, the 2026-06-08 live test). With no competing
+// instruction the model preserves [Adress N] verbatim like the other
+// placeholders. Streets the regex cannot catch (no known suffix, PO boxes) now
+// rely on the disclaimer rather than an unreliable model fallback (user
+// decision: the regex is more trustworthy than the 4b model anyway).
 
-pub const ANONYMISERA_SYSTEM_PROMPT: &str = "Du anonymiserar ett svenskt juridiskt dokument. Ersätt varje personnamn med \"Person A\", \"Person B\", och så vidare i förekomstordning. Ersätt varje organisation med \"Företag X\", \"Företag Y\", och så vidare. Ersätt varje adress som inte redan är en platshållare med \"Adress 1\", \"Adress 2\". Använd samma placeholder för samma identitet genom hela dokumentet — om Anna Andersson förekommer fem gånger ska hon vara \"Person A\" alla fem gångerna. Texten innehåller redan färdiga platshållare i hakparenteser, till exempel [Personnr 1], [Telefon 2], [Postnr 1], [Adress 1] och [E-post 1] — de är redan anonymiserade och ska stå kvar exakt som de är skrivna. Bevara meningsstrukturen i övrigt. Skriv bara den anonymiserade texten, inga inledande kommentarer.";
+pub const ANONYMISERA_SYSTEM_PROMPT: &str = "Du anonymiserar ett svenskt juridiskt dokument. Ersätt varje personnamn med \"Person A\", \"Person B\", och så vidare i förekomstordning. Ersätt varje organisation med \"Företag X\", \"Företag Y\", och så vidare. Använd samma placeholder för samma identitet genom hela dokumentet — om Anna Andersson förekommer fem gånger ska hon vara \"Person A\" alla fem gångerna. Texten innehåller redan färdiga platshållare i hakparenteser, till exempel [Personnr 1], [Telefon 2], [Postnr 1], [Adress 1] och [E-post 1] — de är redan anonymiserade och ska stå kvar exakt som de är skrivna. Bevara meningsstrukturen i övrigt. Skriv bara den anonymiserade texten, inga inledande kommentarer.";
 
 #[cfg(test)]
 mod tests {
@@ -43,13 +51,19 @@ mod tests {
     }
 
     #[test]
-    fn prompt_keeps_free_text_address_fallback() {
-        // Spec 046 FR-007 — streets the RE_ADRESS regex cannot catch (no known
-        // suffix, PO boxes) still need a model-side handler, so the free-text
-        // "Adress 1/2" instruction must remain.
+    fn prompt_has_no_free_text_address_instruction() {
+        // Spec 047 FR-006 — the free-text "Adress 1/2" instruction is REMOVED
+        // (it competed with [Adress N] and made the model strip the brackets);
+        // the placeholder [Adress 1] is preserved verbatim instead. The prompt
+        // must therefore contain the bracketed form but NOT the quoted free-text
+        // form ("Adress 1").
         assert!(
-            ANONYMISERA_SYSTEM_PROMPT.contains("\"Adress 1\""),
-            "the free-text address fallback instruction must remain"
+            ANONYMISERA_SYSTEM_PROMPT.contains("[Adress 1]"),
+            "the [Adress N] placeholder must remain in the preserve list"
+        );
+        assert!(
+            !ANONYMISERA_SYSTEM_PROMPT.contains("\"Adress 1\""),
+            "the competing free-text address instruction must be gone"
         );
     }
 }
