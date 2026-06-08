@@ -22,6 +22,9 @@ const EMAIL: &str = "david.dahl@dahl.exempel.se";
 // Spec 045 — canonical spaced postnummer.
 const POSTNR_A: &str = "114 35";
 const POSTNR_B: &str = "902 47";
+// Spec 046 — Swedish street addresses.
+const STREET_A: &str = "Storgatan 5";
+const STREET_B: &str = "Hamngatan 8";
 
 // ===== T006 — US1/SC-001: structured PII never reaches the model ==========
 
@@ -262,4 +265,97 @@ async fn other_zones_receive_raw_postnummer() {
         "raw postnummer expected for Sammanfatta"
     );
     assert!(!prompt.contains("[Postnr"));
+}
+
+// ===== Spec 046 — gatuadress + phone-tail fix (the live-test doc) =========
+
+#[tokio::test]
+async fn anonymisera_scrubs_street_addresses_and_full_phone() {
+    // The exact field-failure shape from the 2026-06-08 live test.
+    let doc = format!(
+        "KÄRANDE bor på {STREET_A}, {POSTNR_A} Stockholm, tel 070-123 45 67. \
+         SVARANDE bor på {STREET_B}, {POSTNR_B} Malmö."
+    );
+    let setup = ChunkedSetup::new(
+        ZoneId::Anonymisera,
+        &doc,
+        vec![ok_generate(
+            "KÄRANDE bor på [Adress 1], [Postnr 1] Stockholm, tel [Telefon 1]. \
+             SVARANDE bor på [Adress 2], [Postnr 2] Malmö.",
+        )],
+    )
+    .await;
+    setup.drop_file().await;
+    let sidecar = setup.wait_settled(SETTLE).await.expect("sidecar written");
+
+    let bodies = setup.generate_bodies().await;
+    let prompt = bodies[0]["prompt"].as_str().expect("prompt");
+    // Streets replaced before the model — zero raw street strings reach it.
+    assert!(prompt.contains("[Adress 1]"), "prompt: {prompt}");
+    assert!(prompt.contains("[Adress 2]"));
+    assert!(!prompt.contains(STREET_A), "raw street reached the model");
+    assert!(!prompt.contains(STREET_B));
+    // Phone captured in full — no "[Telefon 1] 67" tail in the prompt.
+    assert!(prompt.contains("[Telefon 1]"));
+    assert!(!prompt.contains("45 67"), "phone tail leaked: {prompt}");
+    // Clean placeholders → no warning banner.
+    assert!(!sidecar.contains("Automatisk kontroll hittade"));
+}
+
+#[tokio::test]
+async fn multi_chunk_scrub_keeps_global_street_indices() {
+    let mut doc = long_doc_with_sentinels(30_000, &["MITT-AVSNITT", "SLUT-AVSNITT"]);
+    doc.insert_str(0, &format!("Adressen {STREET_A} först. "));
+    let mid = doc.len() / 2;
+    doc.insert_str(mid, &format!(" Annan: {STREET_B}. "));
+    doc.push_str(&format!(" Åter {STREET_A} sist."));
+
+    let plan = split_into_chunks(&doc);
+    assert!(plan.chunks.len() >= 2, "fixture must be multi-chunk");
+
+    let n = plan.chunks.len();
+    let templates = (0..n)
+        .map(|i| ok_generate(&format!("Anonymiserad del {i}.")))
+        .collect();
+    let setup = ChunkedSetup::new(ZoneId::Anonymisera, &doc, templates).await;
+    setup.drop_file().await;
+    setup.wait_settled(SETTLE).await.expect("sidecar written");
+
+    let bodies = setup.generate_bodies().await;
+    let prompts: Vec<&str> = bodies
+        .iter()
+        .map(|b| b["prompt"].as_str().expect("prompt"))
+        .collect();
+    for p in &prompts {
+        assert!(!p.contains(STREET_A) && !p.contains(STREET_B));
+    }
+    assert!(prompts[0].contains("[Adress 1]"), "first chunk");
+    assert!(
+        prompts[n - 1].contains("[Adress 1]"),
+        "last chunk reuses the same index for the same street"
+    );
+    assert!(prompts.iter().any(|p| p.contains("[Adress 2]")));
+}
+
+#[tokio::test]
+async fn other_zones_receive_raw_street_and_phone() {
+    let doc = format!("Bolaget på {STREET_A}, tel 070-123 45 67, sammanfattas.");
+    let setup = ChunkedSetup::new(
+        ZoneId::Sammanfatta,
+        &doc,
+        vec![ok_generate("En sammanfattning.")],
+    )
+    .await;
+    setup.drop_file().await;
+    setup.wait_settled(SETTLE).await.expect("sidecar written");
+
+    let bodies = setup.generate_bodies().await;
+    let prompt = bodies[0]["prompt"].as_str().expect("prompt");
+    // No scrub outside Anonymisera — the raw street and full phone reach Sammanfatta.
+    assert!(
+        prompt.contains(STREET_A),
+        "raw street expected for Sammanfatta"
+    );
+    assert!(prompt.contains("070-123 45 67"));
+    assert!(!prompt.contains("[Adress") && !prompt.contains("[Telefon"));
 }

@@ -23,7 +23,7 @@
 
 use regex::Regex;
 
-use super::pii_sweep::{RE_EMAIL, RE_PERSONNUMMER, RE_PHONE, RE_POSTNUMMER};
+use super::pii_sweep::{RE_ADRESS, RE_EMAIL, RE_PERSONNUMMER, RE_PHONE, RE_POSTNUMMER};
 
 /// Scrubbed text + per-category counts of DISTINCT values replaced.
 /// Counts are content-free (safe for tests/diagnostics); the matched
@@ -35,6 +35,7 @@ pub struct ScrubOutcome {
     pub telefon: usize,
     pub epost: usize,
     pub postnummer: usize,
+    pub adress: usize,
 }
 
 /// Category of one candidate match. Tie-break priority for identical spans
@@ -52,6 +53,11 @@ enum Category {
     // prefix) nor Personnr (10–12 contiguous digits; the separator breaks the
     // run). The tiebreak slot is therefore defensive only.
     Postnr = 3,
+    // Spec 046 — a street address (RE_ADRESS) is a Capital+suffix word + house
+    // number; it shares no span with the digit-only categories (the address
+    // match ends at the house number, before any comma/postnummer). Tiebreak
+    // slot defensive only.
+    Adress = 4,
 }
 
 impl Category {
@@ -61,6 +67,7 @@ impl Category {
             Category::Telefon => "Telefon",
             Category::Personnr => "Personnr",
             Category::Postnr => "Postnr",
+            Category::Adress => "Adress",
         }
     }
 }
@@ -81,6 +88,7 @@ pub fn scrub_structured_pii(text: &str) -> ScrubOutcome {
         (&*RE_PHONE, Category::Telefon),
         (&*RE_PERSONNUMMER, Category::Personnr),
         (&*RE_POSTNUMMER, Category::Postnr),
+        (&*RE_ADRESS, Category::Adress),
     ] {
         let re: &Regex = re;
         for m in re.find_iter(text) {
@@ -107,7 +115,8 @@ pub fn scrub_structured_pii(text: &str) -> ScrubOutcome {
 
     // 3. Per-category first-occurrence registries (FR-002: same value →
     //    same index). Values live only in this stack frame (FR-007).
-    let mut registries: [Vec<&str>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    let mut registries: [Vec<&str>; 5] =
+        [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
     for (_, value, cat) in &kept {
         let reg = &mut registries[*cat as usize];
         if !reg.iter().any(|v| v == value) {
@@ -134,6 +143,7 @@ pub fn scrub_structured_pii(text: &str) -> ScrubOutcome {
         telefon: registries[Category::Telefon as usize].len(),
         epost: registries[Category::Epost as usize].len(),
         postnummer: registries[Category::Postnr as usize].len(),
+        adress: registries[Category::Adress as usize].len(),
     }
 }
 
@@ -269,9 +279,13 @@ mod tests {
 
     #[test]
     fn replaces_canonical_postnummer_with_indexed_placeholder() {
+        // Spec 046 update: the street is now ALSO scrubbed (RE_ADRESS), so the
+        // full line becomes [Adress 1], [Postnr 1] — the postnummer guarantee
+        // (the point of this test) is unchanged.
         let out = scrub_structured_pii("Storgatan 5, 114 35 Stockholm");
-        assert_eq!(out.text, "Storgatan 5, [Postnr 1] Stockholm");
+        assert_eq!(out.text, "[Adress 1], [Postnr 1] Stockholm");
         assert_eq!(out.postnummer, 1);
+        assert_eq!(out.adress, 1);
         assert!(scan_residual_pii(&out.text).is_clean());
     }
 
@@ -351,5 +365,120 @@ mod tests {
         let twice = scrub_structured_pii(&out.text);
         assert_eq!(twice.text, out.text);
         assert_eq!(twice.postnummer, 0);
+    }
+
+    // ── Spec 046 — gatuadress ────────────────────────────────────────────
+
+    #[test]
+    fn replaces_canonical_street_addresses() {
+        let out = scrub_structured_pii("Svaranden bor på Storgatan 5 i stan.");
+        assert_eq!(out.text, "Svaranden bor på [Adress 1] i stan.");
+        assert_eq!(out.adress, 1);
+        assert!(scan_residual_pii(&out.text).is_clean());
+    }
+
+    #[test]
+    fn replaces_street_with_house_letter_forms() {
+        // 12B (no space) and 3 A (spaced letter) both captured in full.
+        let a = scrub_structured_pii("Lillgatan 12B");
+        assert_eq!(a.text, "[Adress 1]", "{}", a.text);
+        let b = scrub_structured_pii("Köpmangatan 3 A");
+        assert_eq!(b.text, "[Adress 1]", "{}", b.text);
+    }
+
+    #[test]
+    fn same_street_same_index_distinct_sequential() {
+        let out = scrub_structured_pii("Storgatan 5 ... Storgatan 5 ... Hamngatan 8");
+        assert_eq!(out.text.matches("[Adress 1]").count(), 2, "{}", out.text);
+        assert_eq!(out.text.matches("[Adress 2]").count(), 1);
+        assert_eq!(out.adress, 2);
+    }
+
+    #[test]
+    fn all_five_categories_replaced_and_clean() {
+        let input = "Anna 19850312-1234, 070-123 45 67, anna@exempel.se, \
+                     Storgatan 5, 114 35 Lund.";
+        let out = scrub_structured_pii(input);
+        for marker in [
+            "[Personnr 1]",
+            "[Telefon 1]",
+            "[E-post 1]",
+            "[Adress 1]",
+            "[Postnr 1]",
+        ] {
+            assert!(out.text.contains(marker), "missing {marker}: {}", out.text);
+        }
+        assert_eq!(
+            (
+                out.personnummer,
+                out.telefon,
+                out.epost,
+                out.postnummer,
+                out.adress
+            ),
+            (1, 1, 1, 1, 1)
+        );
+        assert!(scan_residual_pii(&out.text).is_clean());
+    }
+
+    #[test]
+    fn street_scrub_precision_leaves_non_addresses() {
+        // SC-002 / FR-003 — capital + included-suffix + house number is the
+        // only triad that moves; everything else is byte-identical.
+        for input in [
+            "vi ses på plan 3 imorgon", // excluded suffix (= floor), lowercase
+            "Plan 3 i huset",           // excluded suffix, capitalized
+            "Storgatan är avstängd",    // street word, NO house number
+            "vägen 3 meter bort",       // lowercase, not a proper street
+            "kör på motorled 4",        // 'led' excluded
+            "en fin park 5 träd",       // 'park' excluded
+            "möte på Plats 7",          // 'plats' excluded
+        ] {
+            let out = scrub_structured_pii(input);
+            assert_eq!(out.adress, 0, "false positive in {input:?}: {}", out.text);
+            assert_eq!(out.text, input, "non-address token altered: {input:?}");
+        }
+    }
+
+    #[test]
+    fn street_match_does_not_grab_following_word() {
+        // The optional trailing letter must not swallow the first letter of the
+        // next word; only "Storgatan 5" moves, "och Lillgatan" (no number) stays.
+        let out = scrub_structured_pii("Storgatan 5 och Lillgatan vidare");
+        assert_eq!(out.text, "[Adress 1] och Lillgatan vidare", "{}", out.text);
+        assert_eq!(out.adress, 1);
+    }
+
+    #[test]
+    fn street_utf8_adjacency_and_idempotence() {
+        // FR-012 — Swedish characters adjacent to the match survive intact.
+        let out = scrub_structured_pii("ångrenseröd Köpmangatan 3 åäö");
+        assert_eq!(out.text, "ångrenseröd [Adress 1] åäö");
+        let twice = scrub_structured_pii(&out.text);
+        assert_eq!(twice.text, out.text);
+        assert_eq!(twice.adress, 0);
+    }
+
+    // ── Spec 046 — phone-tail fix ────────────────────────────────────────
+
+    #[test]
+    fn phone_with_third_group_captured_in_full() {
+        // FR-009 / SC-004 — `0NN-NNN NN NN` no longer leaves a 2-digit tail.
+        let out = scrub_structured_pii("Ring 070-123 45 67 dagtid.");
+        assert_eq!(out.text, "Ring [Telefon 1] dagtid.", "{}", out.text);
+        assert_eq!(out.telefon, 1);
+        // The whole number is gone — no stray "67".
+        assert!(!out.text.contains("67"), "phone tail leaked: {}", out.text);
+    }
+
+    #[test]
+    fn existing_phone_forms_unchanged_by_widening() {
+        // Two-group and +46 forms must still scrub fully (no regression).
+        assert_eq!(scrub_structured_pii("08-555 12 34").text, "[Telefon 1]");
+        assert_eq!(scrub_structured_pii("+46 70 123 45 67").text, "[Telefon 1]");
+        // The 031 field number from the live test, captured in full.
+        let out = scrub_structured_pii("Telefon: 031-22 33 44");
+        assert_eq!(out.text, "Telefon: [Telefon 1]", "{}", out.text);
+        assert!(!out.text.contains("44"));
     }
 }

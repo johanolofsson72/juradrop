@@ -27,11 +27,12 @@ pub struct PiiFindings {
     pub email: usize,
     pub phone: usize,
     pub postnummer: usize,
+    pub adress: usize,
 }
 
 impl PiiFindings {
     pub fn total(&self) -> usize {
-        self.personnummer + self.email + self.phone + self.postnummer
+        self.personnummer + self.email + self.phone + self.postnummer + self.adress
     }
 
     pub fn is_clean(&self) -> bool {
@@ -60,6 +61,11 @@ pub(crate) static RE_EMAIL: LazyLock<Regex> =
 // Telefonnummer: Swedish national (0 + 1–3 digit area + 5–8 digits, with
 // optional single space/dash separators) OR +46 international form. The
 // `(?x)` verbose flag keeps the alternation readable.
+// Spec 046: the national branch gained an OPTIONAL third trailing group so a
+// `0NN-NNN NN NN` number (e.g. `070-123 45 67`, three pairs after the area) is
+// captured in full. Pre-046 the branch had only two trailing groups, so that
+// form left a 2-digit tail ("[Telefon 1] 67") — surfaced by the 2026-06-08
+// live test. Two-group forms (`08-555 12 34`) and the +46 branch are unchanged.
 // expect on a compile-time-constant literal regex — infallible, test-covered.
 #[allow(clippy::expect_used)]
 pub(crate) static RE_PHONE: LazyLock<Regex> = LazyLock::new(|| {
@@ -67,7 +73,7 @@ pub(crate) static RE_PHONE: LazyLock<Regex> = LazyLock::new(|| {
         r"(?x)
         (?: \+46 [\s-]? \d (?:[\s-]?\d){7,9} )      # +46 ...
         |
-        (?: \b 0 \d{1,3} [\s-]? \d{2,4} [\s-]? \d{2,4} \b )  # 0NN-NN NN NN
+        (?: \b 0 \d{1,3} [\s-]? \d{2,4} [\s-]? \d{2,4} (?:[\s-]? \d{2,4})? \b )  # 0NN-NN NN NN[ NN]
         ",
     )
     .expect("phone regex")
@@ -93,6 +99,39 @@ pub(crate) static RE_PHONE: LazyLock<Regex> = LazyLock::new(|| {
 pub(crate) static RE_POSTNUMMER: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b[1-9]\d{2}[\x{00A0} ]\d{2}\b").expect("postnummer regex"));
 
+// Gatuadress (Swedish street address), spec 046: the live test (2026-06-08)
+// proved gemma3:4b ignores the prompt's "Ersätt varje adress" instruction and
+// leaves streets in cleartext — so the dominant Swedish street form is now
+// scrubbed deterministically, the same medicine as 039/045. Shape:
+//   Capital initial + letters + a KNOWN street-type suffix + house number.
+// Rationale for each gate:
+//   - `[A-ZÅÄÖ]` initial: Swedish street names are proper nouns — the capital
+//     drops `plan 3` / `vägen 3 meter` (lowercase, not addresses).
+//   - included suffixes only (longest-first within families: `gatan` before
+//     `gata`); EXCLUDED as too ambiguous: plan (= våning), led (= motorled),
+//     ring, park, plats — they collide with non-address senses, so they stay
+//     the model's job + the static disclaimer.
+//   - required `\s+\d{1,3}` house number: a bare street word ("Storgatan är
+//     avstängd") is the street-as-topic, not an address — not redacted.
+//   - optional trailing apartment letter — ATTACHED any-case (`12B`) OR a
+//     SPACED uppercase letter (`3 A`). A spaced LOWERCASE letter is rejected so
+//     a lone Swedish word after the number ("Storgatan 5 i stan" → "i") is not
+//     eaten; the closing `\b` also stops grabbing a following capitalized word
+//     ("Storgatan 5 Stockholm" → "Storgatan 5"). Multi-word streets ("Sankt
+//     Eriksgatan 5") capture the street+number span — the leading word stays
+//     harmlessly (documented edge). Streets without a known suffix (Polhem 3,
+//     Box 1234) and city names are NOT caught — model's job.
+// Spec 046 — pub(crate): the pii_scrub REPLACER reuses this exact pattern so
+// detect-and-replace can never disagree with detect-and-warn.
+// expect on a compile-time-constant literal regex — infallible, test-covered.
+#[allow(clippy::expect_used)]
+pub(crate) static RE_ADRESS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\b[A-ZÅÄÖ][a-zåäöA-ZÅÄÖ]*(?:gatan|gata|vägen|väg|gränden|gränd|stigen|stig|torget|torg|allén|allé|backen|backe|liden|lid|kajen|kaj|stranden|strand|brinken|brink|hamnen|hamn|esplanaden|esplanad|promenaden|promenad|gången|gång)\s+\d{1,3}(?:[A-Za-zÅÄÖåäö]|\s[A-ZÅÄÖ])?\b",
+    )
+    .expect("adress regex")
+});
+
 // Placeholder spans the model is SUPPOSED to emit — masked before counting
 // so `[Personnr 1]` never reads as a personnummer, etc.
 // expect on a compile-time-constant literal regex — infallible, test-covered.
@@ -111,6 +150,7 @@ pub fn scan_residual_pii(text: &str) -> PiiFindings {
         email: RE_EMAIL.find_iter(&masked).count(),
         phone: RE_PHONE.find_iter(&masked).count(),
         postnummer: RE_POSTNUMMER.find_iter(&masked).count(),
+        adress: RE_ADRESS.find_iter(&masked).count(),
     }
 }
 
@@ -141,6 +181,11 @@ pub fn warning_paragraph(f: &PiiFindings) -> Option<String> {
     if f.postnummer > 0 {
         // "postnummer" is identical in Swedish singular/plural.
         parts.push(format!("{} postnummer", f.postnummer));
+    }
+    if f.adress > 0 {
+        // Spec 046 — "adress" inflects: 1 adress / 2 adresser.
+        let noun = if f.adress == 1 { "adress" } else { "adresser" };
+        parts.push(format!("{} {noun}", f.adress));
     }
     let base = format!(
         "⚠️ Automatisk kontroll hittade möjlig kvarvarande information: {}. Granska och ta bort manuellt.",
@@ -242,6 +287,7 @@ mod tests {
             email: 0,
             phone: 2,
             postnummer: 0,
+            adress: 0,
         };
         let w = warning_paragraph(&f).expect("warning expected");
         assert!(w.contains("1 personnummer"));
@@ -258,6 +304,7 @@ mod tests {
             email: 0,
             phone: 0,
             postnummer: 0,
+            adress: 0,
         };
         let w = warning_paragraph(&f).unwrap();
         // Single-item list: no list conjunction — the item is immediately
@@ -314,6 +361,7 @@ mod tests {
             email: 0,
             phone: 0,
             postnummer: 1,
+            adress: 0,
         };
         let w = warning_paragraph(&f).expect("warning expected");
         assert!(w.contains("1 postnummer"));
@@ -331,6 +379,7 @@ mod tests {
             email: 0,
             phone: 0,
             postnummer: 0,
+            adress: 0,
         };
         let w = warning_paragraph(&f).expect("warning expected");
         assert!(!w.contains("postnummer"), "no postnummer fragment expected");
@@ -347,11 +396,60 @@ mod tests {
             email: 0,
             phone: 2,
             postnummer: 1,
+            adress: 0,
         };
         let w = warning_paragraph(&f).expect("warning expected");
         assert!(w.contains("2 telefonnummer"));
         assert!(w.contains("1 postnummer"));
         assert!(w.contains(" och "), "Swedish list join expected");
         assert!(w.contains("adressraden"), "anchor present with postnummer");
+    }
+
+    // ── Spec 046 — gatuadress + phone widening ───────────────────────────
+
+    #[test]
+    fn detects_canonical_street_address() {
+        assert_eq!(scan_residual_pii("Storgatan 5").adress, 1);
+        assert_eq!(scan_residual_pii("Lillgatan 12B och Hamngatan 8").adress, 2);
+    }
+
+    #[test]
+    fn non_address_shapes_are_not_streets() {
+        assert_eq!(scan_residual_pii("plan 3").adress, 0);
+        assert_eq!(scan_residual_pii("Plan 3").adress, 0); // excluded suffix
+        assert_eq!(scan_residual_pii("Storgatan är avstängd").adress, 0); // no number
+        assert_eq!(scan_residual_pii("vägen 3 meter").adress, 0); // lowercase
+    }
+
+    #[test]
+    fn adress_placeholder_is_not_residue() {
+        let f = scan_residual_pii("Klienten bor på [Adress 1], [Postnr 1].");
+        assert!(f.is_clean(), "[Adress N] must not count, got {f:?}");
+    }
+
+    #[test]
+    fn widened_phone_counts_full_number_once() {
+        // Spec 046 — `070-123 45 67` is ONE match now (no leftover fragment).
+        assert_eq!(scan_residual_pii("070-123 45 67").phone, 1);
+        assert_eq!(scan_residual_pii("08-555 12 34").phone, 1);
+    }
+
+    #[test]
+    fn warning_inflects_adress_plural() {
+        // Spec 046 — 1 adress / 2 adresser (unlike the invariant nouns).
+        let one = warning_paragraph(&PiiFindings {
+            adress: 1,
+            ..Default::default()
+        })
+        .expect("warning");
+        assert!(one.contains("1 adress"), "{one}");
+        assert!(!one.contains("1 adresser"), "singular must not pluralize");
+
+        let many = warning_paragraph(&PiiFindings {
+            adress: 2,
+            ..Default::default()
+        })
+        .expect("warning");
+        assert!(many.contains("2 adresser"), "{many}");
     }
 }

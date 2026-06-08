@@ -1,0 +1,172 @@
+-- allium: 3
+
+-- Spec 046: Gatuadress anonymisering — deterministic street-address scrub (+ phone-tail fix).
+-- Elicited 2026-06-08 from specs/046-gatuadress-anonymisering/spec.md (post-clarify).
+-- Live-test provenance: postnummer-adresser-kantfall.docx on real gemma3:4b —
+-- postnummer scrubbed perfectly, street addresses left in cleartext (the model
+-- ignored "Adress 1"), and the 045 anchor could not fire because the postnummer
+-- signal was already scrubbed. Adds a fifth deterministic category (Adress) and
+-- fixes the pre-existing RE_PHONE three-group ceiling.
+
+-- The 045 categories plus the new street-address category.
+enum PiiCategory { personnummer | telefon | epost | postnummer | adress }
+
+external entity Zone {
+    id: String
+}
+
+external entity ExtractedDocument {
+    text: String
+}
+
+entity Replacement {
+    registry: PlaceholderRegistry
+    category: PiiCategory
+    matched_value: String      -- in-memory only, never persisted/logged
+    index: Integer
+    placeholder: String        -- "[Adress N]" for the new category
+
+    invariant BracketedFormat {
+        -- "[Adress N]" is added to the sweep's placeholder mask (FR-008)
+        this.is_bracketed_sweep_maskable = true
+    }
+}
+
+entity PlaceholderRegistry {
+    document: ExtractedDocument
+    replacements: Replacement with registry = this
+
+    invariant SameValueSameIndex {
+        for r in replacements:
+            not exists other in replacements
+                where other.matched_value = r.matched_value
+                and other.category = r.category
+                and other.index != r.index
+    }
+    invariant SequentialFirstOccurrence {
+        this.indices_dense_per_category = true
+    }
+    invariant NeverPersisted {
+        this.persisted = false
+        this.logged = false
+    }
+}
+
+entity ScrubResult {
+    registry: PlaceholderRegistry
+    scrubbed_text: String
+    count_adress: Integer
+
+    invariant NoMatchedStreetResidue {
+        -- SC-001: zero raw street strings that match RE_ADRESS remain
+        this.scrubbed_text_matches_adress_pattern = false
+    }
+    invariant NonAddressWordsByteIdentical {
+        -- SC-002/FR-003: excluded suffixes (plan/led/ring/park/plats), bare
+        -- street words without a house number, and lowercase occurrences are
+        -- left byte-identical — only Capital+suffix+number triads move
+        this.non_address_tokens_unchanged = true
+    }
+    invariant Utf8Safe {
+        this.scrubbed_text_valid_utf8 = true
+    }
+    invariant PhoneCapturedInFull {
+        -- FR-009/SC-004: a 0NN-NNN NN NN number leaves no trailing digit group
+        this.phone_match_leaves_no_tail = true
+    }
+}
+
+entity SweepFindings {
+    output_text: String
+    residual_adress: Integer
+
+    invariant AdressPlaceholderNotResidue {
+        -- [Adress N] is masked before counting (FR-008)
+        this.adress_placeholder_masked = true
+    }
+}
+
+-- ── Rules ────────────────────────────────────────────────────────────────
+
+rule ScrubStreetBeforeChunking {
+    when: AnonymiseraDispatch(document)
+    ensures:
+        -- FR-001/FR-005: capitalized known-suffix street + house number → [Adress N]
+        -- in the WHOLE extracted text before the chunk plan (global indices),
+        -- alongside the 045 postnummer + 039 PII categories
+        let registry = PlaceholderRegistry.created(document: document)
+        let result = ScrubResult.created(registry: registry)
+        ChunkPlanBuiltFrom(result)
+}
+
+rule StreetScrubPrecise {
+    when: StreetScrub(text)
+    ensures:
+        -- FR-002/FR-003: only Capital + included-suffix + required house number
+        -- matches; excluded suffixes (plan/led/ring/park/plats), no-number street
+        -- words, and lowercase forms are preserved
+        OnlyCapitalSuffixNumberTriadReplaced()
+        ExcludedSuffixAndNoNumberAndLowercasePreserved()
+}
+
+rule PhoneCapturesThirdGroup {
+    when: PhoneScrub(text)
+    ensures:
+        -- FR-009: 0NN-NNN NN NN captured in full; 08-555 12 34 and +46-forms
+        -- unchanged (single pattern source — scrub and sweep agree)
+        FullNationalNumberReplaced()
+        TwoGroupAndInternationalFormsUnchanged()
+}
+
+rule OtherZonesUntouched {
+    when: NonAnonymiseraDispatch(document, zone)
+    requires: zone.id != `anonymisera`
+    ensures:
+        -- FR-010/SC-005: byte-identical input for every other zone
+        ChunkPlanBuiltFrom(document)
+}
+
+rule PromptPreservesAddressPlaceholder {
+    when: AnonymiseraModelPass(chunk)
+    ensures:
+        -- FR-007: preserve-verbatim list names [Adress N]; the free-text
+        -- "Adress 1/2" instruction stays as the fallback for unmatched streets
+        PromptListsAddressPlaceholder()
+        PromptKeepsFreeTextAddressFallback()
+}
+
+rule SweepCountsResidualStreets {
+    when: AnonymiseraCombinedOutputReady(output)
+    ensures:
+        -- FR-006: the sweep (same RE_ADRESS source) counts residual streets and
+        -- includes them in the warning (humanizer-reviewed copy, FR-013)
+        let findings = SweepFindings.created(output_text: output)
+        if findings.residual_adress > 0:
+            WarningReportsResidualStreets(findings)
+}
+
+-- ── Global invariants ────────────────────────────────────────────────────
+
+invariant DetectAndReplaceAgreeOnStreet {
+    -- FR-006: scrub and sweep share one RE_ADRESS, so replaced == warned-about
+    for result in ScrubResults:
+        result.adress_pattern_is_single_source = true
+}
+
+invariant AnonymiseraOnly {
+    for registry in PlaceholderRegistries:
+        registry.zone_id = `anonymisera`
+}
+
+-- ── Out of scope / accepted limitations ──────────────────────────────────
+
+deferred Replacement.suffixless_street
+-- Location hint: pii_scrub/pii_sweep RE_ADRESS. Streets without a known type
+-- suffix (Polhem 3, Box 1234) and bare city names are NOT caught — they stay
+-- the model's job + the static disclaimer, the same stance 045 takes for
+-- unspaced postnummer and free-text addresses.
+
+deferred Replacement.ambiguous_suffixes
+-- Location hint: RE_ADRESS suffix set. plan/led/ring/park/plats are excluded
+-- because they collide with floor/route/other senses ("plan 3" = floor 3);
+-- accepting the miss is safer than corrupting non-address legal text.
