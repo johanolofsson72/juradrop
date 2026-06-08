@@ -6,6 +6,24 @@ Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/), och p
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-08
+
+Anonymiseringen blev mycket vassare den här rundan — driven av testaren Mejas
+fråga ("borde inte adresser och postnummer också anonymiseras?") och två skarpa
+testkörningar.
+
+### Added
+- **Postnummer anonymiseras** (spec 045): ett postnummer som "114 35" byts mot [Postnr 1] redan innan AI-modellen ser texten — även den variant Word sparar med hårt mellanslag. Står ett postnummer kvar i resultatet får du en varning om att hela adressraden bör granskas.
+- **Gatuadresser anonymiseras** (spec 046): "Storgatan 5" och "Lillgatan 12B" byts mot [Adress 1] i appen i stället för att lita på att AI-modellen kommer ihåg att göra det — det gjorde den inte.
+- **Hela adressrader blir en platshållare** (spec 047): "Lökgatan 1, 32456 Stockholm" blir [Adress 1] — gata, postnummer och ort i ett svep, även postnummer skrivet utan mellanslag.
+
+### Fixed
+- Telefonnummer kapades ibland på mitten ("070-123 45 67" blev "[Telefon 1] 67"). Nu fångas hela numret.
+- Adressplatshållaren behåller sina hakparenteser i resultatet, precis som de andra platshållarna.
+
+### Privacy
+- Postnummer, gatuadresser och hela adressrader byts ut på din dator innan något skickas till den lokala AI-modellen. Ingen ny nätverkstrafik.
+
 ## [0.3.0] - 2026-06-05
 
 Hela versionen är driven av den första externa betatestrundan — varje punkt
@@ -85,6 +103,8 @@ Första publika beta-utgåva.
 ### Security
 - Privacy-by-architecture: inga molntjänster för AI-inferens, ingen telemetri, ingen analys av dokumentinnehåll. Den enda utgående trafiken är (1) Tauri-uppdaterarens manifest-koll mot GitHub Releases och (2) första nedladdningen av Ollama-modellen från `ollama.com`. Båda innehåller noll användarinnehåll.
 
-[Unreleased]: https://github.com/johanolofsson72/juradrop/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/johanolofsson72/juradrop/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/johanolofsson72/juradrop/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/johanolofsson72/juradrop/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/johanolofsson72/juradrop/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/johanolofsson72/juradrop/releases/tag/v0.1.0
