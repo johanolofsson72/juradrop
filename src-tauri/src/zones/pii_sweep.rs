@@ -26,11 +26,12 @@ pub struct PiiFindings {
     pub personnummer: usize,
     pub email: usize,
     pub phone: usize,
+    pub postnummer: usize,
 }
 
 impl PiiFindings {
     pub fn total(&self) -> usize {
-        self.personnummer + self.email + self.phone
+        self.personnummer + self.email + self.phone + self.postnummer
     }
 
     pub fn is_clean(&self) -> bool {
@@ -72,12 +73,33 @@ pub(crate) static RE_PHONE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("phone regex")
 });
 
+// Postnummer (Swedish postcode), spec 045: the canonical SPACED grouping only —
+// first digit 1–9, two digits, exactly one separator (ASCII space OR U+00A0
+// non-breaking space, the latter common in Word .docx exports), two digits,
+// word-boundaried. Rationale for each constraint:
+//   - `[1-9]` first digit: real postnummer span 10000–98499 and never lead with
+//     0, AND a leading-0 spaced 5-digit form (`012 34`) matches RE_PHONE — keeping
+//     0 out of this pattern means scrub and phone never fight over the same span.
+//   - single space|NBSP only: the spaced grouping `NNN NN` is distinctive in
+//     Swedish text (amounts group `NN NNN` from the right), so this rarely
+//     collides; unspaced `NNNNN` is intentionally NOT matched (indistinguishable
+//     from an amount/reference — left to the model + the static disclaimer, the
+//     same stance taken for free-text street addresses above).
+//   - `\b` both ends: never matches inside a longer digit run.
+// Spec 045 — pub(crate): the pii_scrub REPLACER reuses this exact pattern so
+// detect-and-replace can never disagree with detect-and-warn.
+// expect on a compile-time-constant literal regex — infallible, test-covered.
+#[allow(clippy::expect_used)]
+pub(crate) static RE_POSTNUMMER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b[1-9]\d{2}[\x{00A0} ]\d{2}\b").expect("postnummer regex"));
+
 // Placeholder spans the model is SUPPOSED to emit — masked before counting
 // so `[Personnr 1]` never reads as a personnummer, etc.
 // expect on a compile-time-constant literal regex — infallible, test-covered.
 #[allow(clippy::expect_used)]
 static RE_PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\[(?:Person|Personnr|Adress|Telefon|E-post)[^\]]*\]").expect("placeholder regex")
+    Regex::new(r"\[(?:Person|Personnr|Adress|Telefon|E-post|Postnr)[^\]]*\]")
+        .expect("placeholder regex")
 });
 
 /// Scan the OUTPUT `text` for residual PII the anonymiser missed.
@@ -88,6 +110,7 @@ pub fn scan_residual_pii(text: &str) -> PiiFindings {
         personnummer: RE_PERSONNUMMER.find_iter(&masked).count(),
         email: RE_EMAIL.find_iter(&masked).count(),
         phone: RE_PHONE.find_iter(&masked).count(),
+        postnummer: RE_POSTNUMMER.find_iter(&masked).count(),
     }
 }
 
@@ -115,10 +138,25 @@ pub fn warning_paragraph(f: &PiiFindings) -> Option<String> {
         // "telefonnummer" is identical in Swedish singular/plural.
         parts.push(format!("{} telefonnummer", f.phone));
     }
-    Some(format!(
+    if f.postnummer > 0 {
+        // "postnummer" is identical in Swedish singular/plural.
+        parts.push(format!("{} postnummer", f.postnummer));
+    }
+    let base = format!(
         "⚠️ Automatisk kontroll hittade möjlig kvarvarande information: {}. Granska och ta bort manuellt.",
         join_swedish(&parts)
-    ))
+    );
+    // Spec 045 — address anchor: a surviving postnummer is the cheapest honest
+    // signal that a whole street address may have slipped through (addresses
+    // themselves have no reliable pattern). Point the student at the address
+    // line rather than just the five digits. Humanizer-reviewed (FR-012).
+    if f.postnummer > 0 {
+        Some(format!(
+            "{base} Ett postnummer betyder oftast att en hel adress står kvar. Ta bort hela adressraden, inte bara siffrorna."
+        ))
+    } else {
+        Some(base)
+    }
 }
 
 /// Join with commas + a final "och" (Swedish list style): "a, b och c".
@@ -203,6 +241,7 @@ mod tests {
             personnummer: 1,
             email: 0,
             phone: 2,
+            postnummer: 0,
         };
         let w = warning_paragraph(&f).expect("warning expected");
         assert!(w.contains("1 personnummer"));
@@ -218,11 +257,101 @@ mod tests {
             personnummer: 1,
             email: 0,
             phone: 0,
+            postnummer: 0,
         };
         let w = warning_paragraph(&f).unwrap();
         // Single-item list: no list conjunction — the item is immediately
         // followed by the sentence period. (The fixed suffix "Granska och
         // ta bort" legitimately contains "och", so assert on the list span.)
         assert!(w.contains("information: 1 personnummer. Granska"));
+    }
+
+    // ── Spec 045 — postnummer ────────────────────────────────────────────
+
+    #[test]
+    fn detects_canonical_spaced_postnummer() {
+        assert_eq!(scan_residual_pii("114 35").postnummer, 1);
+        assert_eq!(
+            scan_residual_pii("Storgatan 5, 114 35 Stockholm").postnummer,
+            1
+        );
+        // Two distinct postnummer.
+        assert_eq!(scan_residual_pii("114 35 och 902 47").postnummer, 2);
+    }
+
+    #[test]
+    fn detects_nbsp_separated_postnummer() {
+        // Word .docx exports commonly use a non-breaking space (U+00A0).
+        assert_eq!(scan_residual_pii("114\u{00A0}35").postnummer, 1);
+    }
+
+    #[test]
+    fn non_postnummer_shapes_are_not_postnummer() {
+        // Unspaced 5-digit run — intentionally out of scope (model's job).
+        assert_eq!(scan_residual_pii("11435").postnummer, 0);
+        // Leading 0 spaced form belongs to the phone pattern, not postnummer.
+        assert_eq!(scan_residual_pii("012 34").postnummer, 0);
+        // Amount grouped NN NNN (from the right) — the opposite grouping.
+        assert_eq!(scan_residual_pii("15 000 kr").postnummer, 0);
+        // Case number with a dash.
+        assert_eq!(scan_residual_pii("mål nr T 4521-25").postnummer, 0);
+        // Double space is not the canonical single-separator form.
+        assert_eq!(scan_residual_pii("114  35").postnummer, 0);
+        // Never matches inside a longer digit run.
+        assert_eq!(scan_residual_pii("27114 35").postnummer, 0);
+    }
+
+    #[test]
+    fn postnummer_placeholder_is_not_residue() {
+        let f = scan_residual_pii("Klienten bor på [Adress 1], [Postnr 1].");
+        assert!(f.is_clean(), "[Postnr N] must not count, got {f:?}");
+    }
+
+    #[test]
+    fn warning_reports_postnummer_with_address_anchor() {
+        let f = PiiFindings {
+            personnummer: 0,
+            email: 0,
+            phone: 0,
+            postnummer: 1,
+        };
+        let w = warning_paragraph(&f).expect("warning expected");
+        assert!(w.contains("1 postnummer"));
+        // The address-anchor sentence must be present.
+        assert!(
+            w.contains("adressraden"),
+            "address-anchor sentence expected: {w}"
+        );
+    }
+
+    #[test]
+    fn warning_omits_address_anchor_when_no_postnummer() {
+        let f = PiiFindings {
+            personnummer: 1,
+            email: 0,
+            phone: 0,
+            postnummer: 0,
+        };
+        let w = warning_paragraph(&f).expect("warning expected");
+        assert!(!w.contains("postnummer"), "no postnummer fragment expected");
+        assert!(
+            !w.contains("adressraden"),
+            "no address-anchor sentence when postnummer == 0"
+        );
+    }
+
+    #[test]
+    fn warning_lists_postnummer_in_multi_category_join() {
+        let f = PiiFindings {
+            personnummer: 0,
+            email: 0,
+            phone: 2,
+            postnummer: 1,
+        };
+        let w = warning_paragraph(&f).expect("warning expected");
+        assert!(w.contains("2 telefonnummer"));
+        assert!(w.contains("1 postnummer"));
+        assert!(w.contains(" och "), "Swedish list join expected");
+        assert!(w.contains("adressraden"), "anchor present with postnummer");
     }
 }

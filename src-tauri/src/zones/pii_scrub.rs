@@ -23,7 +23,7 @@
 
 use regex::Regex;
 
-use super::pii_sweep::{RE_EMAIL, RE_PERSONNUMMER, RE_PHONE};
+use super::pii_sweep::{RE_EMAIL, RE_PERSONNUMMER, RE_PHONE, RE_POSTNUMMER};
 
 /// Scrubbed text + per-category counts of DISTINCT values replaced.
 /// Counts are content-free (safe for tests/diagnostics); the matched
@@ -34,6 +34,7 @@ pub struct ScrubOutcome {
     pub personnummer: usize,
     pub telefon: usize,
     pub epost: usize,
+    pub postnummer: usize,
 }
 
 /// Category of one candidate match. Tie-break priority for identical spans
@@ -46,6 +47,11 @@ enum Category {
     Epost = 0,
     Telefon = 1,
     Personnr = 2,
+    // Spec 045 — the canonical spaced postnummer (RE_POSTNUMMER) requires a
+    // 1–9 first digit, so it can never share a span with Telefon (needs a 0
+    // prefix) nor Personnr (10–12 contiguous digits; the separator breaks the
+    // run). The tiebreak slot is therefore defensive only.
+    Postnr = 3,
 }
 
 impl Category {
@@ -54,6 +60,7 @@ impl Category {
             Category::Epost => "E-post",
             Category::Telefon => "Telefon",
             Category::Personnr => "Personnr",
+            Category::Postnr => "Postnr",
         }
     }
 }
@@ -73,6 +80,7 @@ pub fn scrub_structured_pii(text: &str) -> ScrubOutcome {
         (&*RE_EMAIL, Category::Epost),
         (&*RE_PHONE, Category::Telefon),
         (&*RE_PERSONNUMMER, Category::Personnr),
+        (&*RE_POSTNUMMER, Category::Postnr),
     ] {
         let re: &Regex = re;
         for m in re.find_iter(text) {
@@ -99,7 +107,7 @@ pub fn scrub_structured_pii(text: &str) -> ScrubOutcome {
 
     // 3. Per-category first-occurrence registries (FR-002: same value →
     //    same index). Values live only in this stack frame (FR-007).
-    let mut registries: [Vec<&str>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+    let mut registries: [Vec<&str>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
     for (_, value, cat) in &kept {
         let reg = &mut registries[*cat as usize];
         if !reg.iter().any(|v| v == value) {
@@ -125,6 +133,7 @@ pub fn scrub_structured_pii(text: &str) -> ScrubOutcome {
         personnummer: registries[Category::Personnr as usize].len(),
         telefon: registries[Category::Telefon as usize].len(),
         epost: registries[Category::Epost as usize].len(),
+        postnummer: registries[Category::Postnr as usize].len(),
     }
 }
 
@@ -254,5 +263,93 @@ mod tests {
         let input = "--- DOKUMENT SLUTAR ---070-123 45 67";
         let out = scrub_structured_pii(input);
         assert!(!out.text.contains("070-123 45 67"), "{}", out.text);
+    }
+
+    // ── Spec 045 — postnummer ────────────────────────────────────────────
+
+    #[test]
+    fn replaces_canonical_postnummer_with_indexed_placeholder() {
+        let out = scrub_structured_pii("Storgatan 5, 114 35 Stockholm");
+        assert_eq!(out.text, "Storgatan 5, [Postnr 1] Stockholm");
+        assert_eq!(out.postnummer, 1);
+        assert!(scan_residual_pii(&out.text).is_clean());
+    }
+
+    #[test]
+    fn replaces_nbsp_separated_postnummer() {
+        // Word .docx exports commonly encode the separator as U+00A0.
+        let out = scrub_structured_pii("postort 114\u{00A0}35 Stockholm");
+        assert_eq!(out.text, "postort [Postnr 1] Stockholm");
+        assert_eq!(out.postnummer, 1);
+    }
+
+    #[test]
+    fn same_postnummer_same_index_distinct_sequential() {
+        let out = scrub_structured_pii("114 35 ... 114 35 ... 902 47");
+        assert_eq!(out.text.matches("[Postnr 1]").count(), 2, "{}", out.text);
+        assert_eq!(out.text.matches("[Postnr 2]").count(), 1);
+        assert_eq!(out.postnummer, 2, "two DISTINCT postnummer");
+    }
+
+    #[test]
+    fn all_four_categories_replaced_and_clean() {
+        let input = "Anna 19850312-1234, 070-123 45 67, anna@exempel.se, 114 35 Lund.";
+        let out = scrub_structured_pii(input);
+        assert!(out.text.contains("[Personnr 1]"), "{}", out.text);
+        assert!(out.text.contains("[Telefon 1]"), "{}", out.text);
+        assert!(out.text.contains("[E-post 1]"), "{}", out.text);
+        assert!(out.text.contains("[Postnr 1]"), "{}", out.text);
+        assert_eq!(
+            (out.personnummer, out.telefon, out.epost, out.postnummer),
+            (1, 1, 1, 1)
+        );
+        // DetectAndReplaceAgree extends to postnummer.
+        assert!(scan_residual_pii(&out.text).is_clean());
+    }
+
+    #[test]
+    fn non_postnummer_numbers_are_left_byte_identical() {
+        // SC-002 / FR-004 — precision: amounts, case numbers, year ranges,
+        // unspaced 5-digit runs and double spaces are NOT postnummer AND no
+        // scrubber claims them, so the text is byte-identical.
+        for input in [
+            "ersättning 15 000 kr",    // amount grouped NN NNN
+            "mål nr T 4521-25",        // case number with dash
+            "perioden 2015–2020",      // en-dash year range
+            "referens 11435 i akten",  // unspaced 5-digit
+            "koden 114  35 (dubbelt)", // double space — not canonical
+        ] {
+            let out = scrub_structured_pii(input);
+            assert_eq!(
+                out.postnummer, 0,
+                "false positive in {input:?}: {}",
+                out.text
+            );
+            assert_eq!(out.text, input, "non-postnummer token altered: {input:?}");
+        }
+    }
+
+    #[test]
+    fn leading_zero_spaced_form_is_phone_not_postnummer() {
+        // FR-004 — the 0-band is reserved to RE_PHONE; postnummer must NOT
+        // claim a leading-0 spaced form (it would otherwise fight the phone
+        // pattern over the same span). Postnr count stays 0; no [Postnr] marker.
+        let out = scrub_structured_pii("ring 012 34 56 78 ikväll");
+        assert_eq!(
+            out.postnummer, 0,
+            "postnummer must not claim a 0-prefixed form"
+        );
+        assert!(!out.text.contains("[Postnr"), "{}", out.text);
+    }
+
+    #[test]
+    fn postnummer_utf8_adjacency_and_idempotence() {
+        // FR-011 — Swedish characters adjacent to the match survive intact.
+        let out = scrub_structured_pii("ångrenseröd 114 35 åäö");
+        assert_eq!(out.text, "ångrenseröd [Postnr 1] åäö");
+        // Scrubbing scrubbed text is a no-op for [Postnr N].
+        let twice = scrub_structured_pii(&out.text);
+        assert_eq!(twice.text, out.text);
+        assert_eq!(twice.postnummer, 0);
     }
 }

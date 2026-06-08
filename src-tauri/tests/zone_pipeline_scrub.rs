@@ -19,6 +19,9 @@ const PNR: &str = "19850312-1234";
 const PHONE_A: &str = "070-123 45 67";
 const PHONE_B: &str = "08-555 12 34";
 const EMAIL: &str = "david.dahl@dahl.exempel.se";
+// Spec 045 — canonical spaced postnummer.
+const POSTNR_A: &str = "114 35";
+const POSTNR_B: &str = "902 47";
 
 // ===== T006 — US1/SC-001: structured PII never reaches the model ==========
 
@@ -158,4 +161,105 @@ async fn other_zones_receive_raw_unscrubbed_input() {
     assert!(prompt.contains(PHONE_A));
     assert!(prompt.contains(EMAIL));
     assert!(!prompt.contains("[Personnr"));
+}
+
+// ===== Spec 045 — postnummer (T007 / SC-001) ==============================
+
+#[tokio::test]
+async fn anonymisera_prompt_scrubs_canonical_postnummer() {
+    let doc = format!("Svarande bor på Storgatan 5, {POSTNR_A} Stockholm. Talan väcks.");
+    let setup = ChunkedSetup::new(
+        ZoneId::Anonymisera,
+        &doc,
+        vec![ok_generate(
+            "Svarande bor på [Adress 1], [Postnr 1] Stockholm. Talan väcks.",
+        )],
+    )
+    .await;
+    setup.drop_file().await;
+    let sidecar = setup.wait_settled(SETTLE).await.expect("sidecar written");
+
+    // INPUT-side proof: the canonical postnummer is replaced before the model.
+    let bodies = setup.generate_bodies().await;
+    let prompt = bodies[0]["prompt"].as_str().expect("prompt");
+    assert!(prompt.contains("[Postnr 1]"), "prompt: {prompt}");
+    assert!(
+        !prompt.contains(POSTNR_A),
+        "raw postnummer reached the model"
+    );
+
+    // OUTPUT side: the placeholder passes the sweep unflagged — no banner.
+    assert!(sidecar.contains("[Postnr 1]"));
+    assert!(
+        !sidecar.contains("Automatisk kontroll hittade"),
+        "scrubbed postnummer must not trigger the banner"
+    );
+}
+
+// ===== Spec 045 — global postnummer indices across chunks (SC-003) ========
+
+#[tokio::test]
+async fn multi_chunk_scrub_keeps_global_postnummer_indices() {
+    // Same postnummer at the start AND end (boundary positions); a distinct
+    // one in the middle — proves the registry is global, not per-chunk.
+    let mut doc = long_doc_with_sentinels(30_000, &["MITT-AVSNITT", "SLUT-AVSNITT"]);
+    doc.insert_str(0, &format!("Postort {POSTNR_A} först. "));
+    let mid = doc.len() / 2;
+    doc.insert_str(mid, &format!(" Annan ort: {POSTNR_B}. "));
+    doc.push_str(&format!(" Postort {POSTNR_A} igen sist."));
+
+    let plan = split_into_chunks(&doc);
+    assert!(plan.chunks.len() >= 2, "fixture must be multi-chunk");
+
+    let n = plan.chunks.len();
+    let templates = (0..n)
+        .map(|i| ok_generate(&format!("Anonymiserad del {i}.")))
+        .collect();
+    let setup = ChunkedSetup::new(ZoneId::Anonymisera, &doc, templates).await;
+    setup.drop_file().await;
+    setup.wait_settled(SETTLE).await.expect("sidecar written");
+
+    let bodies = setup.generate_bodies().await;
+    let prompts: Vec<&str> = bodies
+        .iter()
+        .map(|b| b["prompt"].as_str().expect("prompt"))
+        .collect();
+
+    for p in &prompts {
+        assert!(!p.contains(POSTNR_A) && !p.contains(POSTNR_B));
+    }
+    // POSTNR_A first → [Postnr 1] in BOTH first and last chunk; POSTNR_B → [Postnr 2].
+    assert!(prompts[0].contains("[Postnr 1]"), "first chunk");
+    assert!(
+        prompts[n - 1].contains("[Postnr 1]"),
+        "last chunk reuses the same index for the same postnummer"
+    );
+    assert!(
+        prompts.iter().any(|p| p.contains("[Postnr 2]")),
+        "distinct postnummer gets the next index"
+    );
+}
+
+// ===== Spec 045 — other zones get the raw postnummer (SC-005/FR-009) =======
+
+#[tokio::test]
+async fn other_zones_receive_raw_postnummer() {
+    let doc = format!("Bolaget AB, {POSTNR_A} Stockholm, sammanfattas här.");
+    let setup = ChunkedSetup::new(
+        ZoneId::Sammanfatta,
+        &doc,
+        vec![ok_generate("En sammanfattning.")],
+    )
+    .await;
+    setup.drop_file().await;
+    setup.wait_settled(SETTLE).await.expect("sidecar written");
+
+    let bodies = setup.generate_bodies().await;
+    let prompt = bodies[0]["prompt"].as_str().expect("prompt");
+    // The postnummer scrub is Anonymisera-only — Sammanfatta sees the raw value.
+    assert!(
+        prompt.contains(POSTNR_A),
+        "raw postnummer expected for Sammanfatta"
+    );
+    assert!(!prompt.contains("[Postnr"));
 }
