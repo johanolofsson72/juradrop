@@ -63,7 +63,7 @@ rtf-parser = "0.4"
 # Spec 009 — pure-Rust XML pull-parser. MIT-licensed, no external
 # binaries, no network. Used for the .pages legacy XML and .odt
 # content.xml walkers.
-quick-xml = "0.36"
+quick-xml = "0.39"
 # Spec 014 — deterministic PII-residue sweep on Anonymisera output.
 # Already transitive (via several deps); promoted to direct. Pure local
 # string matching, no network, no new outbound surface (Principle I).
