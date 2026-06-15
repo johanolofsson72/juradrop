@@ -50,5 +50,14 @@ ORIENTATION=$(printf '%s' "$PAYLOAD" \
 [ -n "$ORIENTATION" ] || exit 0
 echo "$ORIENTATION" | grep -qE '^[[:space:]]*CLEAN[[:space:]]*$' && exit 0
 
-jq -nc --arg o "$ORIENTATION" \
-  '{additionalContext: ("Local-LLM orientation (where you left off):\n" + $o)}'
+# Ground-truth facts shipped ALONGSIDE the summary so a wrong 14B paraphrase
+# cannot seed a wrong mental model. The summary is advisory; the raw git
+# state below is authoritative, and specs/INDEX.md (read by the spec-register
+# orientation hook) is the real "what to work on next".
+RAW_FACTS=$(printf 'Branch: %s\nLast 5 commits:\n%s\nUncommitted:\n%s' \
+  "$BRANCH" \
+  "$(printf '%s' "$GIT_LOG" | head -5)" \
+  "$(if [ -n "$GIT_STATUS" ]; then printf '%s' "$GIT_STATUS"; else printf '(clean working tree)'; fi)")
+
+jq -nc --arg o "$ORIENTATION" --arg r "$RAW_FACTS" \
+  '{additionalContext: ("Local-LLM orientation — ADVISORY ONLY. A small local model paraphrased the git state below; it can be wrong. VERIFY against the GROUND TRUTH before acting on any \"LIKELY NEXT\", and for what to actually work on, trust specs/INDEX.md (the spec register) over this summary.\n\nSummary (advisory):\n" + $o + "\n\n--- GROUND TRUTH (authoritative — trust over the summary) ---\n" + $r)}'

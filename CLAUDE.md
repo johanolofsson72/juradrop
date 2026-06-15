@@ -2,15 +2,19 @@
 
 ## Critical rules (READ FIRST)
 
-- **ALWAYS** read the code first — base ALL conclusions on evidence from the codebase, not assumptions.
-- **ALWAYS** verify with `npm test` (vitest), `cd src-tauri && cargo test` (Rust), and the Playwright smoke suite before claiming anything is "done".
-- **ALWAYS** run the full pipeline (`/speckit-specify` → `/speckit-clarify` → `/allium:elicit` (full/light tracks) → `/speckit-plan` → `/speckit-tasks` → `/speckit-analyze` → `/speckit-implement` → browser tests → `/tla`) for any non-trivial feature, refactor, or fix. The pipeline is ONE task — never stop between phases to ask permission. See `.claude/rules/feature-pipeline.md`. This is a **BLOCKING REQUIREMENT**.
-- **ALWAYS** uphold Principle I (Privacy by Architecture) from `.specify/memory/constitution.md`: no cloud LLM calls, no telemetry of user content, no outbound traffic beyond the updater + initial Ollama model pull. If a feature proposal would add a new outbound network call, REJECT it — do not implement it. This is a **BLOCKING REQUIREMENT**.
-- **ALWAYS** use the Edit tool for surgical changes — never copy entire files.
-- **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, React components, Tailwind classes, layout). Reference `design-system/MASTER.md` for color, typography, and motion rules. This is a **BLOCKING REQUIREMENT**.
-- **ALWAYS** run user-facing Swedish copy through the `humanizer` skill via the Skill tool BEFORE shipping (drop zone labels, error messages, settings copy, README). The text must read like a Swedish person wrote it. This is a **BLOCKING REQUIREMENT**.
-- **ALWAYS** follow existing patterns in the codebase — look at similar components first.
-- **ALWAYS** test **100% of implemented functions** in vitest + the Playwright smoke pipeline. Inventory every function before writing tests. Functional coverage first, destructive tests second.
+Rules tagged **(BLOCKING)** are backed by hooks — hard gates, not suggestions. The rest are strong defaults. (Markers are scarce on purpose: when everything is "ALWAYS", nothing is.)
+
+- Read the code first — base conclusions on evidence, never assumptions. Read relevant files BEFORE answering about the codebase; never guess.
+- Use the Edit tool for surgical changes — never copy whole files.
+- Verify with `npm test` (vitest), `cd src-tauri && cargo test` (Rust), and the Playwright smoke suite before claiming anything is "done".
+- Follow existing patterns — look at similar components first.
+- **(BLOCKING)** Uphold Principle I (Privacy by Architecture) from `.specify/memory/constitution.md`: no cloud LLM calls, no telemetry of user content, no outbound traffic beyond the updater + initial Ollama model pull. A feature that would add a new outbound network call is REJECTED — do not implement it.
+- **(BLOCKING)** Non-trivial feature/refactor/fix → run the full pipeline as **one task** (`specify → clarify → elicit → plan → tasks → analyze → implement → tests → tla`); no permission stops between phases. `clarify` runs on all tracks (auto-pick); `elicit` on full/light only. Trivial-fix bypass needs an explicit one-sentence classification. See `.claude/rules/feature-pipeline.md`.
+- **(BLOCKING)** Before feature work, consult the spec register `specs/INDEX.md`; work the next unchecked spec end-to-end (pipeline → commit → push → tick), then stop with the status summary. See `.claude/rules/spec-register.md`.
+- **(BLOCKING)** Keep the scenario map `specs/SCENARIOS.md` current — a diagram-led, surveyable exploded view (Mermaid use-case diagram + per-feature user-flow flowchart + SC-id ledger). A gap or drift → **start a scenario interview**, never invent the missing cases silently. See `.claude/rules/scenarios.md`.
+- **(BLOCKING)** Invoke the `frontend-design` skill BEFORE writing any UI code (HTML, CSS, React components, Tailwind classes, layout). Reference `design-system/MASTER.md` for color, typography, and motion rules.
+- **(BLOCKING)** Run user-facing Swedish copy through the `humanizer` skill before shipping (drop zone labels, error messages, settings copy, README). The text must read like a Swedish person wrote it.
+- **(BLOCKING)** Testing — every behaviour-changing feature gets **unit + integration + E2E** (integration is where AI code most often breaks), **PBT** for wide-input logic, **visual-regression** baselines for UI, and a functional test for **every** implemented function. The destructive suite is **sized per interactive function from its input domain** (toggle ~3 → multi-step/auth ~20-30+), NOT a flat quota. The **mutation kill rate** (Stryker, nightly/on-demand, ~80% on critical modules) is the gate — test count is not. See `.claude/docs/testing.md` + `.claude/rules/scenarios.md`.
 
 ## Execution mode
 
@@ -127,13 +131,13 @@ GitHub Actions on `macos-latest` runners using `tauri-action`. On tag push (`v*.
 
 NEVER say something is "implemented" or "done" until:
 
-1. **Vitest unit tests** pass (`npm test`).
-2. **Rust unit tests** pass (`cd src-tauri && cargo test`).
-3. For UI features: **functional coverage tests** in vitest + at least one Playwright smoke test that drives the actual built app.
-4. For UI features: **destructive tests** following `.claude/docs/spec-testing-checklist.md` (8+ scenarios across 6 attack categories).
-5. For state-machine features: **TLA+ formal verification** has been run (`/tla`).
-6. **Visually verified** in `npm run tauri dev` — drag a real file onto the zone and confirm output.
-7. The code is assessed as **100% functional**.
+1. This spec's scenarios are in `specs/SCENARIOS.md` AND marked `✓ validated` — each one observed *actually working at runtime* (real behaviour, not a stub), with all four states proven: success, a specific visible **error** message (never silent), empty, loading. Validate prerequisite scenarios first; a broken prerequisite is a hard stop. See `.claude/rules/scenarios.md`.
+2. **Vitest unit + integration tests** pass (`npm test`) — both layers, not just one. Integration is where AI code most often fails (units pass, the seams don't). **PBT** added for wide-input logic (parsers, anonymizers, chunkers).
+3. **Rust unit tests** pass (`cd src-tauri && cargo test`).
+4. For UI features: **functional coverage** for EVERY implemented function (1 test each) in vitest, PLUS a **destructive suite per interactive function sized to its input domain** (toggle ~3 → multi-step/drop-zone ~20-30+, not a flat quota), PLUS **visual-regression** baselines for the key states, PLUS at least one Playwright smoke test that drives the actual built app.
+5. **Mutation kill rate** on the changed critical module(s) meets target (Stryker / `cargo mutants`, ~80%, nightly/on-demand — NOT per-push CI). This is the gate that proves the tests bite; a green suite that kills no mutants is not done.
+6. For state-machine features: **TLA+ formal verification** has been run (`/tla`) — race conditions, state-machine gaps, missing invariants (full/light tracks; auto-triggered after tests).
+7. **Visually verified** in `npm run tauri dev` — drag a real file onto the zone and confirm output. The code is assessed as **fully functional**.
 
 If tests cannot be run (missing infrastructure), clearly inform about this.
 
@@ -181,6 +185,8 @@ Read these files WHEN you need them — do not load everything upfront:
 - **Skills, SKILL.md format, Agent Skills standard** → `.claude/docs/skills.md`
 - **Tests (vitest, Playwright)** → `.claude/docs/testing.md`
 - **Spec testing checklist (functional + destructive)** → `.claude/docs/spec-testing-checklist.md`
+- **Scenario map (living use-case map, validation gate)** → `.claude/rules/scenarios.md` + `specs/SCENARIOS.md`
+- **Design references (decompile a brand/vibe into design-system primitives)** → `.claude/rules/design-references.md` + `.claude/docs/design-reference-library.md`
 - **Feature pipeline (end-to-end execution)** → `.claude/rules/feature-pipeline.md`
 - **Constitution (principles, hard constraints)** → `.specify/memory/constitution.md`
 - **Design system (colors, typography, motion)** → `design-system/MASTER.md`

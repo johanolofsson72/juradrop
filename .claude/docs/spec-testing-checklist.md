@@ -2,6 +2,8 @@
 
 This checklist MUST be completed for every spec/feature that involves **interactive UI** (forms, user input, state-mutating buttons, multi-step flows, authentication, file uploads, search/filter). Does NOT apply to static pages, landing pages, content display, styling/CSS, i18n/translations, or read-only dashboards. Read `.claude/docs/testing.md` for full details on each attack category.
 
+> **Scenarios come from the living scenario map.** The functional inventory below is derived from the `happy` rows of `specs/SCENARIOS.md`, and the destructive suite from its `edge` / `adversarial` / `error` / `offline` rows (see `.claude/rules/scenarios.md`). If a function or destructive case here has no matching `SC-id`, the scenario was never mapped — add it (or run the scenario interview) before writing the test.
+
 ## When to use
 
 - Writing a new spec (`spec.md`, `spec-*.md`)
@@ -32,8 +34,10 @@ Every function above MUST have at least one browser test that verifies it works 
 
 ### Phase N: Destructive Browser Tests
 
+> **The destructive suite is sized PER interactive UI function, not per spec.** Each function in the inventory above gets its own destructive suite spanning the relevant attack categories — but the *size* of that suite is derived from the function's input domain, not from a flat constant. Per function, the count is `(one test per invalid equivalence class) + (3-value boundary-value analysis per bounded field) + (applicable cross-cutting attack scenarios)`. A status toggle lands around 2-3; a 12-field wizard lands at 20-30+ (see the floor table below). The block below is the template for ONE function — repeat it for every interactive function and prune/expand each category to fit that function's domain. A single number covering the whole spec is NOT compliant; neither is padding a toggle to a quota nor stopping a wizard short.
+
 ```markdown
-## Phase N: Destructive Browser Tests
+## Phase N: Destructive Browser Tests — Function: [Function 1] (repeat this whole block per interactive function)
 
 ### Category 1: Invalid Input (Garbage In)
 - [ ] T0XX: Empty required fields — submit form with all required fields empty, verify validation errors
@@ -80,15 +84,31 @@ If the spec involves offline functionality, service workers, or data synchroniza
 - [ ] T0XX: Multi-device — same record edited on two devices, verify UUID-based conflict handling
 ```
 
-## Minimum requirements
+## Sizing the destructive suite (per interactive function, input-domain-derived)
 
-| Feature type              | Min destructive tests | Required categories |
-|---------------------------|----------------------|---------------------|
-| Simple form               | 8                    | 1, 2, 4, 5         |
-| Multi-step flow           | 10                   | 1, 2, 3, 4, 5      |
-| Auth-related              | 10                   | 1, 2, 3, 4, 6      |
-| Offline/sync              | 15                   | 1-7 (all)           |
-| Dashboard/data display    | 8                    | 2, 4, 5, 6          |
+**The size is decided PER interactive UI function, NOT per spec — but it is derived from each function's input domain, not stapled on as a constant.** For every function in the inventory, the destructive count is:
+
+```
+(one test per invalid equivalence class)
+  + (3-value boundary-value analysis per bounded field — value + both neighbours)
+  + (applicable cross-cutting attack scenarios — order/race/skip-step/auth/a11y that apply regardless of field count)
+```
+
+A status toggle has ~1 invalid class and no bounded fields, so it lands low; an email + password + date form multiplies partitions and boundaries across three fields, so it lands high. The table below is a **floor and a guide — a sanity check, not a gate.** Its only job is to fight the well-documented positive-test bias (developers under-write negatives). The "Required categories" column still tells you which attack categories apply to each shape — that part is load-bearing.
+
+| Function shape (per interactive function) | Destructive floor (guide, not gate) | Required categories |
+|---|---|---|
+| Trivial interactive — toggle, single non-input button, pure navigation | **~2-3** (mostly order/race + a11y; almost no input partitions) | 2, 5, 6 |
+| Simple form — 1-3 input fields | **~6-10** (a handful of invalid partitions + boundaries) | 1, 2, 4, 5 |
+| Moderate form / filterable dashboard — 4-8 fields | **~12-20** (partitions multiply across fields) | 1, 2, 4, 5, 6 |
+| Multi-step flow / auth / money / state machine | **~20-30+** (add skip-step, order, race on top of per-field partitions) | 1, 2, 3, 4, 5, 6 |
+| Offline/sync | the matching tier above **+** the offline/sync category | tier's categories + 7 |
+
+Do not pad a toggle to hit a number, and do not stop a wizard at the simple-form floor. The old flat "8" survives only as roughly the simple-form case — it was never a universal constant.
+
+### The real gate is mutation kill rate, not the count
+
+The destructive count is a **floor to fight positive-test bias** — it proves the negative tests *exist*. It is NOT the definition of done. The actual quality gate is the **mutation kill rate** (Stryker.NET, run nightly / on-demand per `github-actions.md`, target **~80% on critical modules** — auth, money, state machines, parsers). A function can have 30 green destructive tests and still let a flipped `>`/`<` through; the count says tests exist, the mutation score says they *bite*. A spec that hits its count but whose tests don't kill mutants is NOT done.
 
 ## Validation
 
@@ -98,8 +118,8 @@ A spec is NOT complete unless:
 2. Every function in the inventory has at least one browser test
 3. A dedicated "Destructive Browser Tests" phase exists AFTER functional coverage
 4. Each test has a unique task ID (T0XX)
-5. Minimum destructive test count met per feature type
-6. All relevant attack categories covered
+5. The destructive suite **per interactive function** is sized to its input domain (equivalence partitions + boundaries + applicable categories), not a flat quota — sized individually per function, NOT a single number for the whole spec
+6. All relevant attack categories covered per function
 7. Tests describe what they verify, not just what they do
 
-**The functional coverage check is the most important item.** A spec with 8 destructive tests but only 3 out of 12 functions tested is NOT complete.
+**The functional coverage check is the most important item.** A spec with a destructive suite but only 3 out of 12 functions tested is NOT complete — and a single destructive block covering the whole spec is itself non-compliant: each interactive function gets its own suite, sized to its own input domain. And remember the count is only the floor: the actual gate is the mutation kill rate (~80% on critical modules) — a spec that hits its counts but whose tests don't kill mutants is NOT done.

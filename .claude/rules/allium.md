@@ -15,20 +15,23 @@ Allium is the preferred specification language for this project. It sits between
 ## The pipeline
 
 ```
+0. Scenario map (SCENARIOS.md)       → every use case, exploded (gap/drift → interview)
 1. Spec written (markdown)           → what the developer wants
-2. /clarify                          → fills gaps in the markdown spec via structured questions
+2. /speckit-clarify                          → fills gaps in the markdown spec via structured questions
                                        (auto-pick recommended via settings.json hook; all tracks)
 3. /allium:elicit                    → sharpens clarified spec into .allium (refuses vague requirements)
 4. Implementation                    → code written
-5. Destructive browser tests         → 8+ scenarios, 6 attack categories
+5. Tests                             → unit + integration + PBT (wide input); E2E functional +
+                                       risk-tiered destructive (sized per UI function) + visual regression;
+                                       mutation kill rate is the gate, not the count
 6. /tla (runs /allium:distill first) → drift detection + formal verification
 ```
 
-`/clarify` runs BEFORE `/allium:elicit` so the `.allium` file is built from the clarified spec, not the original underspecified one. Running them the other way around causes the `.allium` to drift from `spec.md` the moment `/clarify` amends it.
+`/speckit-clarify` runs BEFORE `/allium:elicit` so the `.allium` file is built from the clarified spec, not the original underspecified one. Running them the other way around causes the `.allium` to drift from `spec.md` the moment `/speckit-clarify` amends it.
 
 ## When writing specs (AUTOMATIC for behavior-changing specs)
 
-When the spec is on the **full** or **light** pipeline track (see `specs.md` → Spec triage), run `/clarify` IMMEDIATELY after the spec is written, THEN `/allium:elicit`. The PostToolUse `allium-hook.sh` enforces the `.allium` step for speckit paths. Do NOT proceed to implementation without the `.allium` file.
+When the spec is on the **full** or **light** pipeline track (see `specs.md` → Spec triage), run `/speckit-clarify` IMMEDIATELY after the spec is written, THEN `/allium:elicit`. The PostToolUse `allium-hook.sh` enforces the `.allium` step for speckit paths. Do NOT proceed to implementation without the `.allium` file.
 
 The `.allium` file MUST be saved in the same directory as the spec file.
 

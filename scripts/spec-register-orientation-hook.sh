@@ -26,7 +26,7 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
     [ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$DIR"
   fi
   if [ -z "$LANG_MARKER" ]; then
-    for marker in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile build.gradle build.gradle.kts pom.xml; do
+    for marker in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile build.gradle build.gradle.kts pom.xml pubspec.yaml; do
       if [ -f "$DIR/$marker" ]; then LANG_MARKER="$marker"; [ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$DIR"; break; fi
     done
   fi

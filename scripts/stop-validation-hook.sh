@@ -16,10 +16,11 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 cd "$REPO_ROOT" || exit 0
 
 # Check for UI file changes in working tree (staged + unstaged)
-UI_CHANGED=$(git diff --name-only HEAD 2>/dev/null | grep -iE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml)$' | grep -vE '(node_modules|/dist/|/build/|/\.next/|/wwwroot/.*\.min\.|/bin/|/obj/)' | head -20)
+# Includes native mobile UI: .tsx/.jsx (React Native) and .dart (Flutter widgets).
+UI_CHANGED=$(git diff --name-only HEAD 2>/dev/null | grep -iE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml|dart)$' | grep -vE '(node_modules|/dist/|/build/|/\.next/|/wwwroot/.*\.min\.|/bin/|/obj/|\.g\.dart$|\.freezed\.dart$)' | head -20)
 
 # Also check untracked UI files
-UI_UNTRACKED=$(git ls-files --others --exclude-standard 2>/dev/null | grep -iE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml)$' | grep -vE '(node_modules|/dist/|/build/|/\.next/)' | head -20)
+UI_UNTRACKED=$(git ls-files --others --exclude-standard 2>/dev/null | grep -iE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml|dart)$' | grep -vE '(node_modules|/dist/|/build/|/\.next/|\.g\.dart$|\.freezed\.dart$)' | head -20)
 
 ALL_UI="${UI_CHANGED}${UI_UNTRACKED}"
 
@@ -60,15 +61,16 @@ Before this session can end, you MUST complete ALL of the following:
 
 (1) SPEC COMPLIANCE — Open the feature spec. Enumerate every implemented
     function in its FUNCTIONAL COVERAGE section. Confirm each function has
-    a passing browser test AND that the assertion verifies real behavior
-    (not just that the page rendered). Fix any gaps NOW.
+    a passing UI/E2E test (browser / Maestro / Patrol / widget) AND that the
+    assertion verifies real behavior (not just that the screen rendered).
+    Fix any gaps NOW.
 
 (2) DESIGN COMPLIANCE — Invoke the frontend-design skill via the Skill tool.
     Validate the UI against its recommendations: typography scale, spacing
-    rhythm, color palette, component polish, accessibility (WCAG AA),
-    responsive behavior, distinctive design (no generic AI aesthetic).
-    Also compare against existing system design — same primitives, same
-    patterns. Fix violations NOW.
+    rhythm, color palette, component polish, accessibility (WCAG AA / mobile
+    a11y), responsive / safe-area behavior, distinctive design (no generic
+    AI aesthetic). Also compare against existing system design — same
+    primitives, same patterns. Fix violations NOW.
 
 (3) When BOTH validations pass, record the marker:
        mkdir -p .claude/validation && touch .claude/validation/last-validated

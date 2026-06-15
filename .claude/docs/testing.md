@@ -23,6 +23,18 @@ If a test only verifies that "the page loads" or "the form submits with valid da
 - Tests should be isolated and reproducible.
 - Naming: `MethodName_Scenario_ExpectedResult` (e.g., `GetUser_WithValidId_ReturnsUser`).
 
+## Test layers — every feature gets ALL of them (not just E2E)
+
+A feature is not covered by destructive E2E tests alone. The mix follows the architecture (pyramid for backend/domain logic, more integration weight for service-heavy code — there's no universal ratio, the shape follows the code), but every behaviour-changing feature carries all three layers:
+
+| Layer | Tool (.NET) | Covers | Rule of thumb |
+|---|---|---|---|
+| **Unit** | xUnit (+ Moq), FsCheck/CsCheck for wide-input logic | Pure functions, domain rules, validators, mappers, calculations — fast, no I/O | The broad base. Every non-trivial function with a decision in it. |
+| **Integration** | xUnit + `WebApplicationFactory` / Testcontainers | API endpoints against a real (test) DB, EF Core queries, middleware, auth, transactions, the wiring between units | **Mandatory** — AI-written code passes unit tests but fails at the seams (this is where the real bugs concentrate). |
+| **E2E (destructive)** | Playwright | Full user journeys + the destructive suite below + visual regression | Critical journeys + adversarial input. Thin but vicious. |
+
+Unit + integration are **always required**, not optional extras on top of E2E. Integration tests are the layer AI code most often fails (units pass, the seams don't) — never skip them. Keep the full suite fast enough to run locally in one go (if it creeps past ~5 min you have too many high-level tests — push coverage down the pyramid).
+
 ## .NET projects
 
 - Use **xUnit** as test framework.
@@ -88,6 +100,17 @@ Count inventory items. Count functional tests. If tests < items, you are NOT don
 
 **What counts as a function:** Any user-visible behavior — UI interactions, navigation, data operations (CRUD, filter, sort, search, paginate, export), state changes (loading, error, empty, success), responsive behavior.
 
+## Every interactive function must prove all four states at runtime (MANDATORY)
+
+Functional coverage is not "the happy path renders". For every interactive/async function, a test must observe **all four states actually working** — a missing one is a failed validation, not a cosmetic gap (see `.claude/rules/scenarios.md` → post-implementation validation):
+
+1. **Success** — the action actually happens (submit creates the record; clicking the map fires the pin/sheet/action). Assert the real outcome, not that a function was called.
+2. **Error** — a **specific, visible** message. Never silent, never blank, never a raw stack trace. A failed login MUST say *why*. "There must never be a missing error message" is the canonical case.
+3. **Empty** — zero results renders a real empty state, not a blank void.
+4. **Loading** — feedback during async, and it resolves (no infinite spinner).
+
+And validate the **real behaviour**: a test that asserts on a stub, never invokes the function, or only checks "page loaded" gives false confidence (high coverage, zero bite — the mutation gate is the backstop). Validate critical-path/prerequisite functions FIRST — if login or the primary interaction is broken, everything behind it is untestable, so fix the prerequisite before fanning out to deeper scenarios.
+
 ## Destructive browser tests (MANDATORY)
 
 Every spec/feature involving **interactive UI** MUST include destructive Playwright tests AFTER functional coverage is complete. These tests should actively try to break the application.
@@ -95,6 +118,26 @@ Every spec/feature involving **interactive UI** MUST include destructive Playwri
 **Interactive UI** = forms, user input, buttons that mutate state, multi-step flows, authentication, file uploads, modals with user actions, search/filter, drag-and-drop, real-time updates. Static pages, landing pages, content display, styling/CSS, i18n/translations, layout changes, and read-only dashboards do NOT require destructive tests.
 
 Destructive tests without functional coverage are worthless — you're stress-testing a building where half the rooms were never inspected.
+
+### How many destructive tests? Derive the count from the input domain — do NOT staple a constant to every function
+
+There is no magic number. A flat "N per function" over-tests a toggle and under-tests a 12-field wizard — the count must scale with how much surface each function actually exposes. Derive it the way ISTQB does, per function:
+
+1. **Equivalence partitioning** — one destructive test per *invalid* input class. A status toggle has ~1 invalid class; an email+password+date form has many.
+2. **Boundary value analysis** — ISTQB 3-value BVA: for each boundary, test the value plus both neighbours (so ~2-3 boundary tests per bounded field).
+3. **Cross-cutting attack scenarios** — the order/race/skip-step/auth/accessibility categories below that apply *regardless* of input count (double-submit, back-button, direct-URL, tab-order…).
+
+Sum those three and you get a count that fits the function. As a sanity-check floor (the real reason a minimum exists at all is to fight the well-documented *positive-test bias* — developers naturally under-write negatives; the one solid empirical figure is Infosys' ~29%-of-tests-but-71%-of-defects result):
+
+| Function shape | Destructive floor (guide, not gate) |
+|---|---|
+| Trivial interactive — toggle, single non-input button, pure navigation | **2-3** (mostly order/race + a11y; almost no input partitions) |
+| Simple form — 1-3 input fields | **~6-10** (a handful of invalid partitions + boundaries) |
+| Moderate form / filterable dashboard — 4-8 fields | **~12-20** (partitions multiply across fields) |
+| Multi-step flow / auth / money / state machine | **~20-30+** (add skip-step, order, race on top of per-field partitions) |
+| Offline/sync | the relevant tier **+** the offline/sync category |
+
+The old flat "8" survives only as roughly the *simple-form* case — it was never a universal constant. **The count is a floor and a guide. It is NOT the definition of done.** The actual quality gate is the mutation kill rate (see below): a function can have 30 destructive tests that all pass and still let a flipped `>`/`<` through. Count proves tests *exist*; mutation score proves they *bite*.
 
 ### Attack categories — every UI spec should cover ALL relevant categories
 
@@ -162,20 +205,56 @@ Every spec involving UI should have tests in this order:
 
 1. **Functional inventory** — list ALL implemented functions in a comment block
 2. **Functional tests** (1 per function, MINIMUM) — verify each function works end-to-end
-3. **Invalid input** (3-5 tests) — garbage, empty fields, extreme values
-4. **Wrong order** (2-3 tests) — double-click, back button, URL jumping
-5. **Boundary values** (2-3 tests) — max length, edge cases
-6. **Security** (1-2 tests) — XSS, injection, unauthorized access
+3. Then, **for EACH interactive function**, a destructive suite sized to that function's input domain (see "How many destructive tests?" above), spanning the relevant attack categories:
+   - **Invalid input** — one test per invalid equivalence class (garbage, empty, extreme, injection)
+   - **Boundary values** — 3-value BVA per bounded field (value + both neighbours)
+   - **Wrong order / race** — double-click, back button, URL jumping, rapid re-submit
+   - **Skip steps / security** — XSS, injection, unauthorized access, DOM tampering
+   - **Accessibility** — tab order, Enter-to-submit, Escape-closes-modal
 
-Minimum **1 functional test per implemented function** + **8 destructive tests** per spec. If a feature has forms, multi-step flows, or authentication — more destructive tests.
+The minimum is **1 functional test per implemented function** plus a per-function destructive floor scaled to its shape (trivial ~3 → multi-step/auth ~20-30+). Don't pad a toggle to hit a quota and don't stop a wizard at 8.
+
+## Property-based tests (RECOMMENDED — the rung between example tests and TLA+)
+
+For logic with a wide input space, hand-picked example tests sample a few points and miss the rest. Property-based testing (PBT) asserts an *invariant* and lets the framework generate hundreds of inputs (including the nasty boundaries it shrinks toward). It's the broadly-adopted "semi-formal" middle ground — lighter than TLA+, far stronger than a dozen `[Theory]` rows — and combined PBT + example testing measurably out-detects either alone.
+
+- **.NET:** **FsCheck** (`FsCheck.Xunit`, callable from C#) or **CsCheck** (C#-native, less ceremony). Wire into the existing xUnit project.
+- Best ROI on: parsers / serializers (round-trip: `parse(render(x)) == x`), money & date math, sorting/dedup/merge, any pure function with algebraic invariants, and stateful models (CsCheck/FsCheck command-based testing).
+- **Recommended, not blocking.** Inventing a meaningful property is real work — apply PBT where the input space is wide and the invariant is clear; skip it where example tests already pin the behaviour.
+
+## Visual regression tests (REQUIRED for UI — AI writes code, not pixels)
+
+Functional and destructive tests pass while the page still looks broken: AI reasons over code tokens, not rendered output, so it ships wrong spacing, dead design tokens, and collapsed responsive layouts that no `getByRole` assertion catches. Screenshot baselines close that gap and Playwright does it natively — no new infra, **local-only** (respects `github-actions.md` CI-minimalism).
+
+```csharp
+// Baseline the key states of each screen (default, empty, error, loaded, dark mode, mobile width)
+await Expect(Page).ToHaveScreenshotAsync("dashboard-default.png");
+await Page.SetViewportSizeAsync(375, 812);
+await Expect(Page).ToHaveScreenshotAsync("dashboard-mobile.png");
+```
+
+- Capture the *states that matter* (empty / loading / error / loaded, plus dark mode and one mobile width), not every pixel of every page.
+- First run writes baselines (`--update-snapshots`); commit them. Later runs diff against them and fail on drift.
+- Update baselines **deliberately** when a design change is intended — a baseline update is a reviewable diff, never an automatic overwrite.
+- For component-level isolation (fewer false positives on churny output) a Storybook + Chromatic setup is the heavier alternative; default to Playwright screenshots first.
+
+## Mutation testing (THE quality gate — replaces "count the tests" as proof of done)
+
+Line coverage proves a line *executed*; it says nothing about whether a test would *notice* if that line were wrong. Mutation testing injects deliberate bugs (flip `>` to `>=`, `&&` to `||`, delete a statement) and checks your tests kill them. The kill rate is the only metric that measures whether tests actually bite — Google, Meta, and AWS all converge on this over coverage %.
+
+- **.NET:** **Stryker.NET** — `dotnet tool install -g dotnet-stryker`, run `dotnet stryker`.
+- **NEVER in CI per push** (see `github-actions.md` — it's minutes-expensive and was a budget incident). Run it **nightly or on-demand**, and incrementally (changed files) on a branch.
+- **Thresholds:** `break: 60, low: 60, high: 80`. Target **~80% kill on critical modules** (auth, money, state machines, parsers). Don't chase 100% — the last 20% buys fragile tests for vanishing return.
+- Flaky tests poison the score (a flaky test "survives" mutants at random) — stabilize flakiness first.
 
 ## Verification order
 
 Before anything is declared "done":
 
 1. `dotnet build` — no compilation errors
-2. `dotnet test` — all unit tests pass
-3. `dotnet test --filter "Category=UI"` — all E2E tests pass (including destructive tests)
+2. `dotnet test` — all unit tests pass (incl. any property-based tests)
+3. `dotnet test --filter "Category=UI"` — all E2E tests pass (functional + destructive + visual-regression)
+4. `dotnet stryker` on the changed critical module(s) — **nightly/on-demand, never in per-push CI** — kill rate ≥ target (80% on critical modules). This is the gate that proves the tests above actually catch bugs.
 
 ## Native window smoke (spec 037 — macOS XCUITest, OPT-IN ONLY)
 

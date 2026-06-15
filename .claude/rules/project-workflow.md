@@ -80,7 +80,7 @@ This rule is **narrow**. It governs PR ceremony — opening pull requests, branc
 
 In particular, a `PRs=no` / solo / direct-push setting does **not** authorize skipping:
 
-- `/clarify`, `/allium:elicit`, `/plan`, `/tasks`, `/speckit.analyze`, `/tla`, or any other phase in `.claude/rules/feature-pipeline.md`. The pipeline is independent of PR ceremony.
+- `/speckit-clarify`, `/allium:elicit`, `/speckit-plan`, `/speckit-tasks`, `/speckit-analyze`, `/tla`, or any other phase in `.claude/rules/feature-pipeline.md`. The pipeline is independent of PR ceremony.
 - `before_specify`, `after_specify`, `pre-commit`, `post-commit`, or any other hook that is not specifically a PR-creation hook. If a hook fires and you don't understand why, read its source — do not wave it away with "solo direct-push".
 - Browser tests (Playwright), unit tests, TLA+ verification, or any other validation step required by `CLAUDE.md`.
 - Linting, formatting, type-checking, or any other automated quality gate that runs on commit.

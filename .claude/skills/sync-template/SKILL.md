@@ -77,6 +77,8 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `allium.md`
 - `specs.md`
 - `tests.md`
+- `scenarios.md`
+- `design-references.md`
 - `continuous-execution.md`
 - `validation-followup.md`
 - `feature-pipeline.md`
@@ -84,6 +86,7 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `project-workflow.md`
 - `sqlite.md`
 - `spot-resilience.md`
+- `github-actions.md`
 
 **Docs (`.claude/docs/`):**
 - `skills.md`
@@ -96,6 +99,7 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `deployment.md`
 - `stress-testing.md`
 - `spec-testing-checklist.md`
+- `design-reference-library.md`
 - `project-template.md`
 - `graphify.md`
 - `local-llm.md`
@@ -114,6 +118,7 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `scripts/spec-register-guard-hook.sh`
 - `scripts/spec-register-orientation-hook.sh`
 - `scripts/spec-md-coverage-reminder-hook.sh` (deterministic replacement for the legacy `type:"prompt"` spec-completeness hook; never blocks, suppresses reminder on carved-out test slices)
+- `scripts/scenario-map-reminder-hook.sh` (advisory; fires the scenario interview when a spec gains interactive behaviour but `specs/SCENARIOS.md` lacks rows for it)
 - `scripts/local-llm-call.sh` (telemetry funnel + auto-detect)
 - `scripts/local-llm-detect.sh`
 - `scripts/local-llm-stats.sh` (per-hook ROI reporter)

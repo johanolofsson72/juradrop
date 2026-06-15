@@ -2,6 +2,8 @@
 
 Stress testing is **MANDATORY** before every deploy — manual or via GitHub Actions. No exceptions. If the system can't handle the load, it doesn't ship.
 
+> **Web vs mobile.** The k6 + Lighthouse sections below are for **web/.NET backends and frontends** — load-testing an API and measuring web vitals in a browser. A native mobile app has no server to hammer and no browser to Lighthouse; its performance budget is on-device (frame rate, startup, memory). For React Native / Expo and Flutter, use the **Native app performance** section near the end of this doc instead. A mobile project still stress-tests any backend it talks to with k6 (that backend lives on live4 and ships via `deployment.md`).
+
 ## When to run
 
 - Before every production deploy (manual or CI/CD)
@@ -183,6 +185,40 @@ After stress testing, generate a report in this format:
 ### Recommendation
 **READY TO DEPLOY** / **NOT READY** (with blocking issues)
 ```
+
+## Native app performance (React Native / Expo · Flutter)
+
+A mobile app does not get "stress tested" with concurrent virtual users — it gets profiled on a real device for the things that make an app feel cheap: dropped frames, slow cold start, and runaway memory. Run these on a **release/profile build on a physical mid-tier device**, not a flagship simulator (the simulator hides jank).
+
+### What to measure
+
+| Metric | Budget | Why |
+|---|---|---|
+| **Frame rate (scroll/animation)** | sustained 60fps; **0 frames > 16ms** on a hot path | jank is the #1 "feels cheap" signal — lists, maps, transitions |
+| **Cold start** (process start → first interactive screen) | < 2.5s mid-tier device | first impression; store ranking signal |
+| **Warm start** (background → foreground) | < 1s | lifecycle resume must feel instant |
+| **JS thread / UI thread** | never blocked > 100ms | a blocked thread = frozen taps |
+| **Memory (steady state + after heavy nav)** | no unbounded growth; no OOM on a 3GB device | leaks crash low-end devices first |
+| **Bundle / app size** | track per release, justify increases | download abandonment, store limits |
+| **Large list scroll** | 10k rows, no jank, no OOM | the FlatList/FlashList/`ListView.builder` stress case |
+
+### Tools
+
+**React Native / Expo**
+- **React Native DevTools** — the default debugger since RN 0.76, with the **Performance Panel** (JS-thread profiling, flame charts) since RN 0.83. This is the modern profiler. *(Flipper was deprecated in RN 0.74 and Meta wound down OSS Flipper in late 2024 — do NOT use it.)*
+- In-app **Perf Monitor** (`Dev Menu → Show Perf Monitor`) for a live JS/UI fps readout, plus the **Hermes Sampling Profiler** (flame graphs over the Chrome DevTools protocol) and the **React DevTools Profiler** for re-render analysis.
+- **`react-native-performance`** for marking startup/interaction timings programmatically — surfaced via **Rozenite** (the RN DevTools plugin host), not the dead Flipper plugin.
+- **Reassure** for render-performance *regression* tests in CI-adjacent runs (catches a component that got 3× slower).
+
+**Flutter**
+- `flutter run --profile` + **DevTools → Performance** timeline; watch for red "jank" frames in the timeline.
+- `flutter run --profile --trace-startup` writes `start_up_info.json` (engine init → first frame → first useful frame).
+- DevTools **Memory** view for leak/retention; **CPU profiler** for hot functions.
+- An `integration_test` driven with `IntegrationTestWidgetsFlutterBinding` + `traceAction` produces a `timeline_summary` with `missed_frames` counts — assert on it.
+
+### Pass/fail
+
+A mobile build is NOT ready to ship if: scroll on the heaviest screen drops frames, cold start exceeds 2.5s on a mid-tier device, memory grows without bound across repeated navigation, or a 10k-item list janks/OOMs. Record the numbers in the report (same format as below — substitute the native metrics for the web vitals rows).
 
 ## CI/CD integration
 

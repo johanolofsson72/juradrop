@@ -55,7 +55,7 @@ specify init --here --force --integration claude
 
 This creates/resets the `.specify/` directory structure with templates, scripts, and Claude integration.
 
-> **NOTE**: The `--ai` flag is deprecated since speckit v0.7.x. Always use `--integration claude` instead.
+> **NOTE**: The `--ai` flag was **removed in spec-kit v0.10.0** (deprecated in the v0.9.x line) — it no longer exists. Always use `--integration claude` instead.
 
 **Step 4 — Restore constitution backup:**
 
@@ -120,8 +120,13 @@ for f in \
   .claude/rules/validation-followup.md \
   .claude/rules/feature-pipeline.md \
   .claude/rules/spec-register.md \
+  .claude/rules/github-actions.md \
+  .claude/rules/scenarios.md \
+  .claude/rules/design-references.md \
+  .claude/docs/design-reference-library.md \
   scripts/allium-hook.sh \
   scripts/tla-hook.sh \
+  scripts/scenario-map-reminder-hook.sh \
   scripts/sync-graphify-wiring.py \
   scripts/sync-core-hooks.py \
   scripts/graphify-bootstrap.sh; do
@@ -129,7 +134,7 @@ for f in \
 done
 python3 -m json.tool .claude/settings.json >/dev/null 2>&1 || { echo "[INVALID] settings.json is not valid JSON"; fail=1; }
 # Core-hook wiring gate: any core hook whose script is on disk MUST be wired (catches the prose-merge gap)
-for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-md-coverage-reminder-hook continuous-execution-hook; do
+for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook; do
   if [ -f "scripts/$s.sh" ] && ! grep -q "$s.sh" .claude/settings.json; then echo "[UNWIRED] core hook $s present on disk but not wired — run sync-core-hooks.py"; fail=1; fi
 done
 # Graphify is only enforced on eligible (>=30 source-file) projects; the bootstrap self-gates below threshold.
@@ -398,9 +403,11 @@ This category MUST be informed by Phase 0 context absorption. If `.claude/docs/d
     - On-prem / self-hosted
     - Other
 
-    If Noisy Cricket is chosen, confirm: the deploy pipeline is GitHub Actions → build & test → stress test → Docker build → SCP to manager → push to private registry → `docker stack deploy`. The wizard should note that NFS directories and GitHub Secrets need to be set up (reference `.claude/docs/deployment.md` pattern).
+    If Noisy Cricket is chosen, confirm: the deploy pipeline is ONE GitHub Actions workflow (`workflow_dispatch` with `confirm_deploy: "deploy"`) → build & test → stress test → Docker build → SCP to manager → push to private registry → `docker stack deploy`. The wizard should note that NFS directories and GitHub Secrets need to be set up (reference `.claude/docs/deployment.md` pattern).
 
 34. **CI/CD**: Pipeline tool? (GitHub Actions ★ recommended for Noisy Cricket, GitLab CI, Azure DevOps)
+
+    **CI minimalism is non-negotiable on solo projects** (per `.claude/rules/github-actions.md`): the Actions budget is a shared 3000-minute/month free tier, and all tests run locally before deploy per the Definition of Done. GitHub Actions gets the manually-triggered deploy workflow and nothing else — no CodeQL, no scheduled scans, no push-triggered test workflows, no per-spec CI. Do NOT generate extra workflows during inception, and make sure the generated CLAUDE.md's CI/CD section states this policy.
 35. **Environments**: Which environments? (local + prod for MVP ★, or local + dev + staging + prod)
 36. **Containerization**: Docker ★ (required for Noisy Cricket), Docker Compose for local dev?
 37. **Domain & DNS**: Domain name? Subdomain on live4.se ★ (e.g., `projectname.live4.se`), or custom domain? SSL via Let's Encrypt (automatic with Nginx Proxy Manager).
@@ -563,6 +570,20 @@ If `CLAUDE.md` already exists, use the Edit tool to surgically update the `<!-- 
 
 If `CLAUDE.md` doesn't exist, create a FULL CLAUDE.md following the established pattern from the user's other projects. Use the hireflow CLAUDE.md as the reference template — it is the most up-to-date version. The structure MUST include ALL of these sections:
 
+> **STACK-AWARE TESTING (READ THIS BEFORE FILLING THE TEMPLATE BELOW).** The template below is written for a web/.NET project where "tests" = Playwright browser tests + `dotnet test`. If the frontend answer (Q13) or the native-mobile answer (Q22) makes this a **native mobile** project — **React Native / Expo OR Flutter** — a browser does not exist, so Playwright/browser-test wording is wrong and will produce a project that can never satisfy its own Definition of Done. In that case, everywhere the template says "browser tests / Playwright" you MUST substitute the native equivalents for the chosen framework:
+> - **React Native / Expo:** Maestro flows (E2E) + React Native Testing Library (component) on the `jest-expo` runner. Commands: `npx tsc --noEmit`, `npm test`, `maestro test .maestro/`.
+> - **Flutter:** `flutter test` (unit + widget) + `integration_test` + **Patrol** (native E2E: permissions, deep links, lifecycle). Commands: `flutter analyze`, `flutter test`, `flutter test integration_test/` / `patrol test`.
+> - **Neither uses** Playwright or `dotnet test`.
+> - **Reference docs:** point the testing rows at `.claude/docs/testing.md` and `.claude/docs/spec-testing-checklist.md` as usual, but ensure those files hold the **mobile** content (the wizard's Phase -1 sync installs `testing-mobile.md` → `testing.md` for native projects per sync-prompt Step 7c; the mobile doc carries both a React Native and a Flutter section).
+> - **`/tla`** still applies for non-trivial state machines; it is runtime-agnostic.
+>
+> Decide web-vs-mobile ONCE here, then fill the whole template consistently. Do not emit a mobile project that still says "Playwright" anywhere.
+>
+> **Reconcile the testing docs (mobile projects only).** Phase -1's sync ran BEFORE the interview revealed the stack, so it may have installed the web `testing.md` by default. If this is a native mobile project (React Native / Expo OR Flutter) and `.claude/docs/testing.md` still contains web/Playwright content (grep it for `dotnet`/`Playwright`/`browser`), perform the Step 7c mobile swap now:
+> 1. `curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/.claude/docs/testing-mobile.md` → write to `.claude/docs/testing.md`
+> 2. `curl -sL …/spec-testing-checklist-mobile.md` → write to `.claude/docs/spec-testing-checklist.md`
+> 3. Write `.claude/.sync-stack` with the line `testing=mobile` so `/project-update` never re-stamps the web docs over it.
+
 ```markdown
 # CLAUDE.md
 
@@ -571,10 +592,10 @@ If `CLAUDE.md` doesn't exist, create a FULL CLAUDE.md following the established 
 - **ALWAYS** read the code first — base ALL conclusions on evidence from the codebase, not assumptions.
 - **ALWAYS** verify with [BUILD COMMAND] and [TEST COMMAND] before claiming anything is "done".
 - **ALWAYS** use the Edit tool for surgical changes — never copy entire files.
-- **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, JS, design, layout, appearance). This is a **BLOCKING REQUIREMENT**.
+- **ALWAYS** invoke the `frontend-design` skill via the Skill tool BEFORE writing UI code (HTML, CSS, JS, or React Native / Flutter widgets — design, layout, appearance). This is a **BLOCKING REQUIREMENT**.
 - **ALWAYS** run generated text through the `humanizer` skill via the Skill tool BEFORE delivering to humans (documentation, commit messages, PR descriptions, emails, README). This is a **BLOCKING REQUIREMENT**.
 - **ALWAYS** follow existing patterns in the codebase — look at similar components first.
-- **ALWAYS** test **100% of implemented functions** in browser tests (Playwright). [Adapt testing rules based on interview answers about testing strategy]
+- **ALWAYS** test **100% of implemented functions** in [browser tests (Playwright) | Maestro flows + React Native Testing Library — pick per the stack-aware note above]. [Adapt testing rules based on interview answers about testing strategy]
 
 ## Execution mode
 
@@ -679,12 +700,14 @@ Core flow: **[primary user flow from interview]**
 
 NEVER say something is "implemented" or "done" until:
 
-1. All **unit tests** pass (`[TEST COMMAND]`).
-2. All **E2E tests in Playwright** pass (`[E2E COMMAND]`).
-3. For UI features: **functional coverage tests** + **destructive tests** (8+ scenarios, 6 attack categories).
-4. For UI features: **TLA+ formal verification** has been run (`/tla`).
-5. For web projects: **visually verified** in the browser.
-6. The code is assessed as **100% functional**.
+1. This spec's scenarios are in `specs/SCENARIOS.md` and marked `✓ validated` — observed actually working at runtime (real behaviour, not a stub), all four states proven: success, a specific visible error message (never silent), empty, loading. Validate prerequisite scenarios first; a broken prerequisite is a hard stop. A gap starts a scenario interview (`.claude/rules/scenarios.md`).
+2. **Unit + integration tests** pass (`[TEST COMMAND]`) — both layers; integration is where AI code most often breaks. **Property-based tests** for wide-input logic.
+3. All **E2E tests** pass (`[E2E COMMAND]`) — Playwright for web/.NET, **Maestro flows** for React Native / Expo, **Patrol / integration_test** for Flutter.
+4. For UI features: **functional coverage** (1 test per function) + a **destructive suite per interactive function sized to its input domain** (toggle ~3 → multi-step/auth ~20-30+, NOT a flat quota) + **visual-regression** baselines for key states. For mobile the attack categories include lifecycle and permissions — see `.claude/docs/spec-testing-checklist.md`.
+5. **Mutation kill rate** on the changed critical module(s) meets target (~80%; Stryker.NET web / StrykerJS mobile; nightly/on-demand, NOT per-push CI). The gate is the kill rate, not the test count.
+6. For UI features: **TLA+ formal verification** has been run (`/tla`) — runtime-agnostic, applies to web and mobile alike.
+7. **Validated locally before deploy** — full suite green AND the app runs in local dev and in Docker (`docker compose up`); you ship the container, so prove the container works.
+8. For web: **visually verified** in the browser. For mobile: **visually verified** on a simulator/emulator or device. The code is assessed as **fully functional**.
 
 If tests cannot be run (missing infrastructure), clearly inform about this.
 
@@ -708,10 +731,12 @@ If tests cannot be run (missing infrastructure), clearly inform about this.
 ```
 
 Adapt these based on the chosen tech stack:
-- .NET: `dotnet build`, `dotnet test`, `dotnet run --project src/[Name]`
+- .NET: `dotnet build`, `dotnet test`, `dotnet run --project src/[Name]`, E2E `dotnet test --filter "Category=UI"` (Playwright)
 - Node.js: `npm run build`, `npm test`, `npm run dev`
 - Python: `python -m build`, `pytest`, `python manage.py runserver`
 - Go: `go build ./...`, `go test ./...`, `go run .`
+- **React Native / Expo: `npx tsc --noEmit` (typecheck), `npm test` (jest-expo unit + RNTL), `npx expo start` (run), E2E `maestro test .maestro/` — NO Playwright, NO `dotnet`**
+- **Flutter: `flutter analyze` (lint), `flutter test` (unit + widget), `flutter run` (run), E2E `flutter test integration_test/` / `patrol test` — NO Playwright, NO `dotnet`**
 
 ## Principles
 
@@ -755,6 +780,8 @@ Read these files WHEN you need them — do not load everything upfront:
 #### 3C: Generate `design-system/MASTER.md` (if user said yes to Q32)
 
 If the user wants a persisted design system, create `design-system/MASTER.md` with the visual decisions from Category 6. This file is the single source of truth that the `frontend-design` skill references when building any UI component.
+
+**Decompile any brand/vibe reference FIRST (per `.claude/rules/design-references.md`).** If the user described the look as a feeling or a brand ("the feeling of Spotify", "like Linear", "Apple-clean") in Q25/Q30, do NOT store it as a vague note — compile it into the concrete primitives below: look it up in `.claude/docs/design-reference-library.md` (instant for ~12 known aesthetics), `WebFetch` the live brand for anything not seeded, and run a short `AskUserQuestion` if the reference is multi-faceted (Spotify = dark immersion *and* green energy *and* dense browse — ask which). Fill the Color/Typography/Layout/Motion/Mood/Anti-pattern sections with the decompiled hex values and named fonts, and record the source reference. The whole point: `frontend-design` must inherit primitives, never a feeling.
 
 ```markdown
 # [Project Name] — Design System
@@ -932,6 +959,126 @@ This is the human-readable version — for sharing with stakeholders, README, on
 [Anything unresolved from the interview]
 ```
 
+#### 3D-2: Seed the scenario map (`specs/SCENARIOS.md`)
+
+The inception interview IS the project's first scenario interview — turn the core modules and use cases the user described (Categories 1, 4, 5) into the first **diagram-led** scenario map. This gives the project a real, surveyable exploded view to grow from instead of a blank page, and it's the source the functional inventories and destructive suites derive from for every future spec (see `.claude/rules/scenarios.md`). The map is diagram-led: always seed the project **use-case diagram** + a **user-flow flowchart** for the first feature + the SC-id table (Mermaid, so it renders in GitHub/VS Code/Obsidian). Journey map / wireflow / storyboard are added later on-demand.
+
+Create `specs/SCENARIOS.md`:
+
+````markdown
+# Scenario map
+
+Living, surveyable exploded view of every scenario. Append as the project grows; never reuse an SC-id.
+Status:  ☐ mapped  ·  ◐ tested  ·  ✓ validated (proven to actually work at runtime)
+Gap or drift → run the scenario interview (.claude/rules/scenarios.md) before writing code.
+
+## Use case overview (who can do what)
+
+```mermaid
+flowchart LR
+  actor1([Primary role]); actor2([Other role])
+  actor1 --> uc1([Core use case 1])
+  actor1 --> uc2([Core use case 2])
+```
+
+## Actor: [primary role from interview]
+
+### Feature: [first core module]   (spec: 001-[slug])
+
+User flow:
+
+```mermaid
+flowchart TD
+  A[Entry] --> B{Decision?}
+  B -- ok --> C[Success outcome · SC-001]
+  B -- bad --> D[Specific error message · SC-004]
+```
+
+| ID     | Type        | Scenario                          | Expected outcome                | Status |
+|--------|-------------|-----------------------------------|---------------------------------|--------|
+| SC-001 | happy       | [main success path]               | [outcome]                       | ☐      |
+| SC-002 | edge        | [a boundary the user mentioned]   | [outcome]                       | ☐      |
+| SC-003 | adversarial | [double-submit / tamper / race]   | [safe outcome]                  | ☐      |
+| SC-004 | error       | [network / auth / timeout]        | [specific visible message]      | ☐      |
+
+## Scenario history
+- [today] — seeded from inception interview ([N] features mapped)
+````
+
+Seed the use-case diagram + a user-flow flowchart + at least the happy + one edge/error row per core module (all `☐ mapped` at inception). Note in the Phase 4 summary that the map was seeded as a diagram-led artifact, that every future spec extends it (a gap triggers an interview, not a guess), and that scenarios only reach `✓` once observed working at runtime with all four states (success / specific error / empty / loading).
+
+#### 3E: Scaffold the native E2E test harness (MOBILE PROJECTS ONLY — React Native / Expo · Flutter)
+
+> Skip this subsection entirely for web/.NET projects — they already get the Playwright harness from the template sync. This subsection exists so a mobile project starts with a real destructive-flow directory instead of a blank page, giving Maestro/Patrol exact parity with web's Playwright setup. The destructive scenarios (sized per interactive UI function from its input domain — not a flat quota, not one batch per spec — per `.claude/docs/spec-testing-checklist.md`, which on a mobile project is the mobile variant) live HERE, as native E2E flows — NOT as widget tests.
+
+Determine the stack from the Phase 2 interview (Q22-23), then scaffold the matching harness:
+
+**React Native / Expo → Maestro**
+
+```bash
+mkdir -p .maestro
+```
+
+Create `.maestro/example-destructive.yaml` as the copy-me template for every future destructive flow:
+
+```yaml
+# Maestro destructive flow — COPY THIS per destructive scenario, one file each, *-destructive.yaml.
+# Parity with web: this is the mobile equivalent of a Playwright destructive spec.
+# Run: maestro test .maestro/        (whole suite)
+#      maestro test .maestro/example-destructive.yaml   (single flow)
+appId: ${APP_ID}   # set to your app's bundle/package id, e.g. com.acme.app
+---
+- launchApp:
+    clearState: true
+# Category 2 (lifecycle): double-tap submit must create exactly one record
+- tapOn: "Submit"
+- tapOn: "Submit"
+- assertVisible: "Saved"          # not "Saved (2)" — one record, not two
+# Category 2 (process kill): kill mid-flow, relaunch, expect sane restore
+- stopApp
+- launchApp
+- assertNotVisible: "corrupt"
+# Category 6 (permissions): deny a permission and assert graceful degradation
+# - tapOn: "Use my location"
+# - # (deny at the OS dialog) → assert the manual-entry fallback is visible
+```
+
+If Maestro is not installed on the dev's machine, note it (do not hard-fail): `curl -fsSL https://get.maestro.mobile.dev | bash` (Windows: run under WSL or Git Bash). Confirm `@testing-library/react-native` + the `jest-expo` preset are wired for the functional-coverage layer.
+
+**Flutter → Patrol / integration_test**
+
+```bash
+mkdir -p integration_test
+```
+
+Create `integration_test/example_destructive_test.dart` as the copy-me template:
+
+```dart
+// Patrol destructive flow — COPY THIS per destructive scenario, one test each.
+// Parity with web: this is the mobile equivalent of a Playwright destructive spec.
+// Run: patrol test            (native: permissions, deep links, lifecycle, hardware back)
+//      flutter test integration_test/   (in-process integration)
+import 'package:patrol/patrol.dart';
+
+void main() {
+  patrolTest('submit is idempotent under double-tap', ($) async {
+    await $.pumpWidgetAndSettle(/* YourApp() */);
+    // Category 2 (lifecycle): double-tap submit → exactly one record
+    await $('Submit').tap();
+    await $('Submit').tap();
+    await $('Saved').waitUntilVisible();
+    // Category 6 (permissions): deny at the native dialog, assert graceful fallback
+    // await $.native.denyPermission();
+    // Category 2 (hardware back): press OS back mid-flow, assert no data loss
+    // await $.native.pressBack();
+  });
+}
+```
+
+Add Patrol as a dev dependency (`flutter pub add --dev patrol`) and note `dart pub global activate patrol_cli` + `patrol doctor` if not present. E2E in either framework needs a running iOS Simulator or Android emulator.
+
+**Both frameworks:** the scaffolded directory is the home for the destructive flows mandated per interactive UI function (sized to each function's input domain, not a flat quota and not one batch per spec). State explicitly in the Phase 4 summary that this harness was created and that destructive coverage is a native-E2E (Maestro/Patrol) requirement, not a widget-test one.
+
 ### Phase 4: Summary
 
 After writing all files, present:
@@ -943,6 +1090,7 @@ After writing all files, present:
 - `CLAUDE.md` — [created/updated] ([X] sections, [Y] lines)
 - `.specify/memory/constitution.md` — [X] core principles ratified (v1.0.0)
 - `design-system/MASTER.md` — visual identity locked down [if generated]
+- `.maestro/` or `integration_test/` — native E2E destructive-flow harness scaffolded [mobile projects only; Maestro for RN, Patrol for Flutter — parity with web's Playwright]
 - `PROJECT-BRIEF.md` — human-readable project description
 
 **Constitution Principles:**

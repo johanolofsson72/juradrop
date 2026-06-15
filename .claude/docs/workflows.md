@@ -285,7 +285,7 @@ Newer capabilities worth knowing when wiring this template into a project. None 
 
 ### Dynamic workflows (v2.1.150+)
 
-Ask Claude to write a workflow and it orchestrates work across dozens to hundreds of subagents from a script, in the background, returning a single result. The script encodes the control flow (fan-out, pipelines, loop-until-done, adversarial verify) deterministically instead of leaving it to the model turn-by-turn. Good fit for this template's exhaustive-review and migration-style tasks (e.g. "audit every spec against its implementation"). It is **opt-in** — the user must ask for it ("use a workflow" / "ultracode") — so it does not change the default pipeline. Treat it as a heavier alternative to spawning individual subagents, not a replacement for the `/specify → … → /tla` pipeline.
+Ask Claude to write a workflow and it orchestrates work across dozens to hundreds of subagents from a script, in the background, returning a single result. The script encodes the control flow (fan-out, pipelines, loop-until-done, adversarial verify) deterministically instead of leaving it to the model turn-by-turn. Good fit for this template's exhaustive-review and migration-style tasks (e.g. "audit every spec against its implementation"). It is **opt-in** — the user must ask for it ("use a workflow" / "ultracode") — so it does not change the default pipeline. Treat it as a heavier alternative to spawning individual subagents, not a replacement for the `/speckit-specify → … → /tla` pipeline.
 
 ### `security-guidance` plugin (v2.1.150+)
 

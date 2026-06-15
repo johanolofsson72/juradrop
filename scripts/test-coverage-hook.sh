@@ -2,7 +2,8 @@
 # PostToolUse hook: deterministic enforcement of functional test coverage
 # Fires on Edit|Write of test files. Blocks if inventory is missing or tests < inventory items.
 #
-# Supports: C# (.cs), TypeScript/JavaScript (.ts, .tsx, .js, .jsx)
+# Supports: C# (.cs), TypeScript/JavaScript (.ts, .tsx, .js, .jsx), Dart (.dart)
+# Covers web (Playwright), React Native (RNTL/Maestro), and Flutter (widget/Patrol) UI tests.
 # Inventory format: comment block with "FUNCTIONAL COVERAGE INVENTORY" header
 # and numbered items like "// 1. Feature name — description"
 
@@ -17,7 +18,7 @@ IS_TEST=$(echo "$FILE" | grep -ciE '(test|spec|e2e|playwright|\.tests)' 2>/dev/n
 [ "$IS_TEST" -eq 0 ] 2>/dev/null && exit 0
 
 # Check file extension — only process code files
-EXT=$(echo "$FILE" | grep -oE '\.(cs|ts|tsx|js|jsx)$' 2>/dev/null)
+EXT=$(echo "$FILE" | grep -oE '\.(cs|ts|tsx|js|jsx|dart)$' 2>/dev/null)
 [ -z "$EXT" ] && exit 0
 
 # File must exist
@@ -25,18 +26,20 @@ EXT=$(echo "$FILE" | grep -oE '\.(cs|ts|tsx|js|jsx)$' 2>/dev/null)
 
 CONTENT=$(cat "$FILE")
 
-# --- Detect if this is a UI/browser test file ---
-# Look for Playwright, browser, page, locator patterns
-IS_BROWSER_TEST=$(echo "$CONTENT" | grep -ciE '(playwright|browser|\.page\.|page\.|locator|getby|goto|navigate|waitfor|expect.*tobevisible|expect.*tohavetext|\.click|\.fill|\.type)' 2>/dev/null)
+# --- Detect if this is a UI test file (web OR native mobile) ---
+# Web (Playwright): page/locator/goto patterns.
+# React Native (RNTL): render/fireEvent/userEvent/screen.getBy/testing-library.
+# Flutter (widget/Patrol): testWidgets/pumpWidget/WidgetTester/find.by/tester./patrol.
+IS_UI_TEST=$(echo "$CONTENT" | grep -ciE '(playwright|browser|\.page\.|page\.|locator|getby|goto|navigate|waitfor|expect.*tobevisible|expect.*tohavetext|\.click|\.fill|\.type|render\(|fireevent|userevent|@testing-library/react-native|screen\.|testwidgets|pumpwidget|widgettester|find\.by|tester\.|patrol)' 2>/dev/null)
 
-# If no browser/UI test patterns found, exit silently (unit tests don't need inventory)
-[ "$IS_BROWSER_TEST" -eq 0 ] 2>/dev/null && exit 0
+# If no UI test patterns found, exit silently (pure unit/logic tests don't need inventory)
+[ "$IS_UI_TEST" -eq 0 ] 2>/dev/null && exit 0
 
 # --- Check for functional inventory ---
 HAS_INVENTORY=$(echo "$CONTENT" | grep -c 'FUNCTIONAL COVERAGE INVENTORY' 2>/dev/null)
 
 if [ "$HAS_INVENTORY" -eq 0 ] 2>/dev/null; then
-  echo '{"systemMessage": "BLOCKED: This browser test file has no FUNCTIONAL COVERAGE INVENTORY. Before writing tests, add a comment block listing EVERY user-facing function that was implemented. Format:\n\n// ===== FUNCTIONAL COVERAGE INVENTORY =====\n// 1. Feature name — description\n// 2. Feature name — description\n// ...\n// =============================================\n\nThen write at least one test per inventory item. Read .claude/docs/testing.md for details."}'
+  echo '{"systemMessage": "BLOCKED: This UI test file has no FUNCTIONAL COVERAGE INVENTORY. Before writing tests, add a comment block listing EVERY user-facing function that was implemented. Format:\n\n// ===== FUNCTIONAL COVERAGE INVENTORY =====\n// 1. Feature name — description\n// 2. Feature name — description\n// ...\n// =============================================\n\nThen write at least one test per inventory item. Read .claude/docs/testing.md for details."}'
   exit 0
 fi
 
@@ -63,9 +66,13 @@ case "$EXT" in
     fi
     ;;
   .ts|.tsx|.js|.jsx)
-    # JS/TS: count test() and it() calls
+    # JS/TS: count test() and it() calls (Jest / RNTL)
     TEST_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(test|it)\s*\(' 2>/dev/null)
     # Also count test.describe blocks' children aren't tests themselves, so skip describe
+    ;;
+  .dart)
+    # Flutter: count testWidgets(), test(), and patrolTest()/patrol() entries
+    TEST_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(testWidgets|test|patrolTest|patrol)\s*\(' 2>/dev/null)
     ;;
   *)
     exit 0

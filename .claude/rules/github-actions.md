@@ -45,6 +45,16 @@ Dependabot config (`.github/dependabot.yml`) is allowed — Dependabot PRs consu
 
 If the project workflow memory says `staffing: team` AND `PRs: yes`, a single push/PR-triggered validation workflow (build + unit tests, with `paths` filters and concurrency cancellation) is acceptable, because there is a reviewer who needs the signal remotely. The heavy checks (CodeQL, mutation testing, scheduled scans) stay forbidden without an explicit, recorded user decision.
 
+## Mobile app builds (the one mobile carve-out)
+
+A native mobile app cannot ship from the live4 cluster — App Store / Play builds need signing and store APIs that have no local equivalent on a Linux server. The shipping options, in order of preference:
+
+- **React Native / Expo → EAS Workflows (preferred).** Define the build → submit → update chain in `.eas/workflows/` and run it on Expo's infrastructure. It does **not** consume the org's GitHub Actions minutes at all, so it sidesteps this budget rule entirely. This is the first choice for an Expo project. See `.claude/docs/deployment-mobile.md`.
+- **React Native / Expo → GitHub Actions (fallback).** If the team is standardized on GHA, **one** `workflow_dispatch`-only `eas build` / `eas submit` workflow is allowed in addition to any backend deploy workflow. The compile runs on Expo's servers, so the Action only triggers it — near-zero Actions minutes.
+- **Flutter →** a `flutter build ipa` / `flutter build appbundle` + fastlane workflow. This one DOES compile on the runner (macOS minutes for iOS — the expensive case), so it must be `workflow_dispatch` only, `timeout-minutes` set, and never on push/schedule.
+
+Everything else stays forbidden: no push/PR-triggered build on every commit, no per-spec mobile workflows, no scheduled rebuilds, no matrix across OS versions. The same minimalism rule that protects the cluster budget protects the mobile build budget — store builds happen on demand, not on every push. Gate the build job behind `npx tsc --noEmit && npm test` (RN) or `flutter analyze && flutter test` (Flutter) so a broken build never reaches a store.
+
 ## How to apply
 
 - Before creating ANY file under `.github/workflows/`: count what is already there. If the new file is not the deploy workflow, stop and ask the user with `AskUserQuestion` — name this rule and the budget incident.

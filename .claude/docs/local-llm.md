@@ -33,8 +33,8 @@ The template ships with **only the hooks that demonstrably reduce Anthropic toke
 
 | Hook | Saves tokens by |
 |------|----------------|
-| `local-llm-tasks-draft-hook.sh` | Drafting initial `tasks.md` from a written `spec.md` so `/tasks` refines instead of generating |
-| `local-llm-plan-draft-hook.sh` | Drafting initial `plan.md` from a written `spec.md` so `/plan` refines instead of generating |
+| `local-llm-tasks-draft-hook.sh` | Drafting initial `tasks.md` from a written `spec.md` so `/speckit-tasks` refines instead of generating |
+| `local-llm-plan-draft-hook.sh` | Drafting initial `plan.md` from a written `spec.md` so `/speckit-plan` refines instead of generating |
 
 **Project-init scaffolds:**
 

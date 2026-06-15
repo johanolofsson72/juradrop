@@ -77,8 +77,10 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `.claude/rules/dotnet.md` — .NET code rules (paths: `**/*.cs`, `**/*.csproj`)
 - `.claude/rules/frontend.md` — frontend rules
 - `.claude/rules/security.md` — security rules for C#
-- `.claude/rules/specs.md` — spec/task rules with destructive test requirements (paths: `**/spec*.md`, `**/tasks*.md`, etc.)
-- `.claude/rules/tests.md` — browser test rules requiring functional coverage inventory (paths: `**/*Test*.cs`, `**/*test*.ts`, etc.)
+- `.claude/rules/specs.md` — spec/task rules: scenario-map source, risk-tiered destructive sizing (input-domain, not a flat quota), unit+integration+PBT+VRT, mutation-kill gate (paths: `**/spec*.md`, `**/tasks*.md`, etc.)
+- `.claude/rules/tests.md` — browser/E2E test rules: functional coverage inventory + risk-tiered destructive + the other test layers (paths: `**/*Test*.cs`, `**/*test*.ts`, etc.)
+- `.claude/rules/scenarios.md` — living, diagram-led scenario map `specs/SCENARIOS.md` (Mermaid use-case diagram + per-feature user-flow flowchart + SC-id ledger; journey map / wireflow / storyboard on-demand). Each scenario carries a `☐→◐→✓` status; `✓` = validated working at runtime (four states: success / specific error / empty / loading). A gap or drift starts a scenario interview rather than letting a missed case slip into code (paths: `**/specs/**`, `**/spec*.md`, `**/SCENARIOS.md`)
+- `.claude/rules/design-references.md` — decompile a brand/vibe reference ("feeling of Spotify") into concrete `design-system/MASTER.md` primitives BEFORE invoking `frontend-design`: library lookup → WebFetch the live brand → ambiguity interview (paths: UI files + `**/design-system/**` + `**/MASTER.md`)
 - `.claude/rules/wordpress.md` — WordPress rules
 - `.claude/rules/allium.md` — Allium spec language rules (paths: `**/*.allium`)
 - `.claude/rules/continuous-execution.md` — forbids phase-splitting stalls ("should I continue with phase 2?"); execute multi-phase plans in one uninterrupted run
@@ -88,10 +90,14 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `.claude/rules/project-workflow.md` — gates PR suggestions behind a one-time `AskUserQuestion` (solo vs team + PRs yes/no/sometimes); answer is saved to project memory and silently suppresses PR nagging on solo projects
 - `.claude/rules/sqlite.md` — SQLite-on-NFS pragmas (rollback journal, no `mmap`, `synchronous=FULL`, 30 s `busy_timeout`), single-writer enforcement (`replicas: 1` + `stop-first` + 30 s grace), NFS mount options (`noac`, `actimeo=0`), retry strategy (paths: `**/appsettings*.json`, `**/docker-compose*.yml`, `**/Program.cs`, `**/*Db*.cs`, `**/*Sqlite*.cs`)
 - `.claude/rules/spot-resilience.md` — required components for services on Azure spot workers: eviction watcher (IMDS scheduled events), graceful drain, idempotent writes, outbox pattern, healthcheck split (paths: `**/Program.cs`, `**/docker-compose*.yml`, controllers/endpoints/services/workers)
+- `.claude/rules/github-actions.md` — CI minimalism: solo projects get at most the `workflow_dispatch` deploy workflow (+ optionally ONE minimal validation workflow); no CodeQL/gitleaks/mutation/a11y/per-spec/scheduled workflows — those run locally. Born from iskvalp burning the org's 3000 Actions minutes in 4 days (June 2026)
 
 **Docs (loaded on demand, referenced from CLAUDE.md):**
-- `.claude/docs/testing.md` — test conventions, functional coverage + destructive browser tests (6+1 attack categories)
-- `.claude/docs/spec-testing-checklist.md` — mandatory checklist: functional coverage inventory + destructive tests in specs
+- `.claude/docs/testing.md` — test conventions (web/.NET), functional coverage + destructive browser tests (6+1 attack categories)
+- `.claude/docs/spec-testing-checklist.md` — mandatory checklist (web/.NET): functional coverage inventory + destructive tests in specs
+- `.claude/docs/design-reference-library.md` — seed decompositions of ~12 known product aesthetics (Spotify, Linear, Stripe, Notion, Vercel, Apple HIG, Discord, Airbnb, Netflix, Material 3, brutalist, Duolingo) into primitives; consumed by `.claude/rules/design-references.md`
+- `.claude/docs/testing-mobile.md` — **mobile variant** of testing.md covering BOTH native toolchains, React Native / Expo (Maestro + RNTL + jest-expo) and Flutter (`flutter test` + `integration_test` + Patrol). Native destructive categories (lifecycle/background, permissions, offline, deep links) are framework-agnostic. Backend-agnostic. On a mobile project this content becomes the project's canonical `testing.md` (see Step 7c)
+- `.claude/docs/spec-testing-checklist-mobile.md` — **mobile variant** of the checklist for React Native / Expo AND Flutter. On a mobile project this becomes the project's canonical `spec-testing-checklist.md` (see Step 7c)
 - `.claude/docs/conventions.md` — code style and naming
 - `.claude/docs/security.md` — security reference
 - `.claude/docs/git.md` — commit/branch/PR conventions
@@ -99,6 +105,7 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `.claude/docs/skills.md` — SKILL.md format, frontmatter fields, recommended skills
 - `.claude/docs/agents-templates.md` — copy-paste agent templates
 - `.claude/docs/deployment.md` — Docker Swarm, CI/CD, NFS export and mount setup (DBs live on `/mnt/nfs/<project>/db/`, manager exports the Azure managed disk to all spot workers)
+- `.claude/docs/deployment-mobile.md` — **mobile app** deployment for React Native / Expo via EAS (Build/Submit/Update, store credentials, versioning, TestFlight + Play). Separate target from `deployment.md` (the backend). Installed on mobile/hybrid projects (Step 7c)
 - `.claude/docs/spot-architecture.md` — three reference architectures for stateful services on an all-spot worker fleet (SQLite on NFS share, LiteFS replicas, managed Postgres) with full compose templates, volume matrix, healthcheck split, and migration path
 - `.claude/docs/stress-testing.md` — mandatory pre-deploy stress testing (k6, Lighthouse)
 - `.claude/docs/project-template.md` — template for project start
@@ -126,6 +133,7 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `scripts/tlc-cleanup.sh` — TLC process cleanup (kills orphaned Java/TLC processes after execution)
 - `scripts/test-coverage-hook.sh` — Deterministic functional test coverage enforcement (blocks if tests < inventory items)
 - `scripts/spec-md-coverage-reminder-hook.sh` — Deterministic replacement for the legacy `type:"prompt"` spec-completeness hook. Never blocks (only emits `systemMessage`), detects carve-out phrases ("carved to", "out-of-scope", "deferred to", "tracked in", etc.) and suppresses the destructive-test reminder when tests are explicitly deferred to another slice. Fixes the false-positive blocks observed in projects when slicing specs.
+- `scripts/scenario-map-reminder-hook.sh` — PostToolUse advisory (never blocks). Fires when a spec/tasks file gains interactive behaviour but `specs/SCENARIOS.md` has no rows for it; instructs Claude to START a scenario interview (capture happy/edge/adversarial/error/offline cases) rather than just jotting a note. Silent on template/scratch repos (no language marker). Pairs with `.claude/rules/scenarios.md`.
 - `scripts/continuous-execution-hook.sh` — Stop hook backstop: inspects the last assistant message for phase-continuation question patterns ("should I continue with...", "want me to proceed...") and refuses the stop when one is detected. Sentence-aware (only blocks `?` sentences). Requires `python3` and `jq`.
 - `scripts/local-llm-detect.sh` — Sourced helper. Pings Ollama at `${OLLAMA_HOST:-http://127.0.0.1:11434}/api/tags` with a 1s timeout and exports `LOCAL_LLM_AVAILABLE` (0/1). Honors `LOCAL_LLM_DISABLE=1` to force-disable. Other local-llm hooks bail out silently when AVAILABLE=0, so the stack is safe to ship to machines without Ollama. Default uses 127.0.0.1 explicitly to avoid Happy-Eyeballs routing to the wrong ollama instance when both IPv4 and IPv6 listeners exist on port 11434.
 - `scripts/local-llm-call.sh` — Generic non-streaming `/api/generate` caller. Reads system prompt as `$1`, user prompt from stdin, num_predict as optional `$2`. Prints model output or exits non-zero on offline/timeout/missing-model.
@@ -244,7 +252,7 @@ Browser tests (destructive) → /tla (distill + drift + invariants) → Done
 1. **`.claude/skills/tla/SKILL.md`** — formal verification skill with Allium drift detection
 2. **`.claude/rules/allium.md`** — prescriptive Allium rules (triggers on spec AND .allium files)
 3. **`.claude/rules/specs.md`** — updated with Allium pre-implementation + TLA+ post-implementation steps
-4. **`scripts/tla-hook.sh`** — PostToolUse hook that detects browser/E2E test files
+4. **`scripts/tla-hook.sh`** — PostToolUse hook that detects browser/native-E2E test files. Parity check: the hook MUST fire on mobile E2E files too, not just web — Maestro flows (`.maestro/*.yaml`), Patrol and `integration_test` (`*.dart`), AND Playwright (`.cs`/`.ts`/`.js`). If the project's copy only matches `playwright|e2e|browser` + `\.(cs|ts|js)$`, it is the old web-only version — overwrite it from the template so the `/tla` reminder fires after Maestro/Patrol runs exactly as it does after Playwright.
 5. **PostToolUse hook in settings.json** — triggers `scripts/tla-hook.sh` on Edit/Write of test files
 6. **UserPromptSubmit hook in settings.json** — updated to include Allium + TLA+ instructions on speckit keywords
 
@@ -309,7 +317,7 @@ This strips every template core hook from the project's `.claude/settings.json` 
 
 ```bash
 # Every core hook script the project HAS on disk must be wired — no script present-but-unwired
-for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-md-coverage-reminder-hook continuous-execution-hook; do
+for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook; do
   test -f "scripts/$s.sh" && ! grep -q "$s.sh" .claude/settings.json && echo "[GAP] $s present on disk but NOT wired"
 done
 echo "core-hook wiring check done (no [GAP] lines above = complete)"
@@ -629,20 +637,43 @@ Use `AskUserQuestion` to confirm:
 >
 > - .NET (C#, ASP.NET Core, Blazor, EF Core)
 > - WordPress (PHP, themes, plugins)
-> - React / frontend with UI
+> - React / web frontend with UI
+> - **Native mobile app** — React Native / Expo **or** Flutter (iOS / Android)
 > - SQLite / database
 >
 > List all that apply, or say "all" to keep everything.
+
+**Auto-detect the mobile case before asking.** This is a **native mobile project** if the root has any of:
+- a `package.json` whose dependencies include `expo` or `react-native` (→ React Native / Expo), OR an `app.json` / `app.config.{js,ts}` / `eas.json`;
+- a `pubspec.yaml` containing a `flutter:` section / `sdk: flutter` (→ Flutter).
+
+Present that as the pre-checked default and treat the testing layer as mobile (Step 7c) unless the developer overrides. The testing docs are the same file for both frameworks — `testing-mobile.md` carries a React Native section and a Flutter section.
 
 Then, based on the developer's answer:
 
 - Developer says NO to WordPress → remove `.claude/rules/wordpress.md`
 - Developer says NO to .NET → remove `.claude/rules/dotnet.md`, `.claude/rules/security.md`, `.claude/agents/dotnet-reviewer.md`, `.claude/agents/db-agent.md`
-- Developer says NO to UI → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, `.claude/skills/tla/SKILL.md`, `.claude/rules/allium.md`, `scripts/tla-hook.sh`, spec hook, TLA+ hook
+  - **Exception:** a native mobile project (React Native / Expo OR Flutter) IS a UI project — do NOT remove the UI/testing pipeline (`specs.md`, `allium.md`, the TLA+ skill, the testing checklist). It keeps the **mobile** testing docs instead (Step 7c). "NO to .NET" on a mobile project removes only the .NET-specific files above.
+- Developer says NO to UI → remove `.claude/rules/specs.md`, `.claude/docs/spec-testing-checklist.md`, `.claude/docs/spec-testing-checklist-mobile.md`, `.claude/skills/tla/SKILL.md`, `.claude/rules/allium.md`, `scripts/tla-hook.sh`, spec hook, TLA+ hook. (A native mobile project — RN/Expo or Flutter — always has UI; never take this branch for mobile.)
 - Developer says NO to SQLite → remove `.claude/rules/sqlite.md`
 - Developer says NO to live4 cluster deployment / Azure spot → remove `.claude/rules/spot-resilience.md` and `.claude/docs/spot-architecture.md`
-- ALWAYS keep regardless of answer: `testing.md`, `conventions.md`, `workflows.md`, `skills.md`, `git.md`, `continuous-execution.md`, `project-workflow.md`, `continuous-execution-hook.sh`
+- ALWAYS keep regardless of answer: `testing.md` (web/.NET) **or** `testing-mobile.md`→`testing.md` (mobile, per Step 7c), `conventions.md`, `workflows.md`, `skills.md`, `git.md`, `continuous-execution.md`, `project-workflow.md`, `github-actions.md`, `continuous-execution-hook.sh`, `scenarios.md` + `scenario-map-reminder-hook.sh` (the scenario map applies to any behaviour project, not just UI — use cases aren't only screens)
 - When in doubt, **keep the file** — extra rules cost nothing, missing rules cost bugs
+
+### Step 7c: Install the right testing docs for the stack (web vs mobile)
+
+The reference docs are always named `testing.md` and `spec-testing-checklist.md` in the project (CLAUDE.md points at those exact names). What differs by stack is their **content** — a native app has no browser, so the web/Playwright versions are actively wrong there (they say "browser back", "DOM manipulation", `dotnet test --filter "Category=UI"` — none of which exist on React Native or Flutter). The mobile doc covers BOTH native frameworks (it has a React Native section and a Flutter section), so the same selection works whether the app is Expo/RN or Flutter. Pick the variant:
+
+- **Web / .NET project** → the project's `testing.md` and `spec-testing-checklist.md` hold the **web** content (fetch `testing.md` / `spec-testing-checklist.md` from the template as normal). Remove `testing-mobile.md`, `spec-testing-checklist-mobile.md`, and `deployment-mobile.md` if they were copied in — they are not needed.
+- **Native mobile project (React Native / Expo OR Flutter)** → the project's `testing.md` and `spec-testing-checklist.md` must hold the **mobile** content. Do this:
+  1. Fetch `https://raw.githubusercontent.com/johanolofsson72/Claude/main/.claude/docs/testing-mobile.md` and write it to the project as `.claude/docs/testing.md` (overwrite the web one — do NOT also fetch the web `testing.md`).
+  2. Fetch `…/spec-testing-checklist-mobile.md` and write it to the project as `.claude/docs/spec-testing-checklist.md`.
+  3. Do NOT leave `testing-mobile.md` / `spec-testing-checklist-mobile.md` as separate files in the project — their content now lives under the canonical names.
+  4. Install `.claude/docs/deployment-mobile.md` (EAS Build/Submit/Update) so the project has a mobile-app deploy doc. Keep `deployment.md` only if the app also has a backend that deploys to live4 (otherwise remove it). A pure mobile app with a managed backend (Firebase/Supabase) does not need `deployment.md`.
+  5. **Scaffold the native E2E destructive-flow harness if it is missing** — parity with web's Playwright setup, so `/project-update` installs it exactly like `project-wizard` Phase 3E does. The destructive scenarios (sized per interactive UI function from its input domain, not a flat quota and not one batch per spec) are native E2E flows (Maestro/Patrol), NOT widget tests. For **React Native / Expo**: if `.maestro/` does not exist, `mkdir -p .maestro` and write `.maestro/example-destructive.yaml` (the copy-me destructive template — double-tap idempotency, process-kill restore, permission-denied fallback; same template as wizard Phase 3E). For **Flutter**: if `integration_test/` does not exist, `mkdir -p integration_test` and write `integration_test/example_destructive_test.dart` (the Patrol copy-me template). Never overwrite an existing harness or existing flows — only scaffold when absent. Note the Maestro/Patrol install commands (`curl -fsSL https://get.maestro.mobile.dev | bash`; `dart pub global activate patrol_cli`) if the binaries are not present, but do not hard-fail the sync on a missing binary.
+- **Hybrid project** (real .NET/web backend with browser-testable pages AND a native client — a Razor admin + an Expo or Flutter app) → keep BOTH: the web `testing.md` for the backend pages, and additionally write the mobile content to `.claude/docs/testing-mobile.md` and `.claude/docs/spec-testing-checklist-mobile.md`. Note in CLAUDE.md's reference-files section that the mobile client uses the `-mobile` docs.
+
+**Record the decision so re-sync does not clobber it.** Write the chosen testing track to `.claude/.sync-stack` (e.g. a line `testing=mobile` or `testing=web` or `testing=hybrid`). On a re-sync, read this file first: if it says `mobile`, repeat the mobile selection above instead of re-stamping the web `testing.md` over the mobile content. This is the mechanism that stops `/project-update` from silently reverting a mobile project to browser-testing docs on every run.
 
 ### Step 7b: Audit for unsafe SQLite-on-NFS patterns (if .NET + SQLite project)
 

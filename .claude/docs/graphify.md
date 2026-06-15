@@ -134,7 +134,7 @@ Every one of these commands (except `export`) fires the telemetry hook, so the f
 ## Integration with template conventions
 
 - **Spec register (`specs/INDEX.md`)** — unchanged. Graphify is for navigation, not planning. Specs remain the source of truth for what to build.
-- **Feature pipeline** — unchanged. `/specify → /clarify → ... → /implement` still runs in full. The graph helps `/implement` find existing call sites faster, nothing else.
+- **Feature pipeline** — unchanged. `/speckit-specify → /speckit-clarify → ... → /speckit-implement` still runs in full. The graph helps `/speckit-implement` find existing call sites faster, nothing else.
 - **Project workflow (solo vs team)** — unchanged. The git hooks rebuild the graph for whoever pushes; PR ceremony is unaffected.
 - **`/explore-codebase` skill** — complementary, not a replacement. Use Graphify for symbol-level lookups, `/explore-codebase` for architecture-level orientation.
 

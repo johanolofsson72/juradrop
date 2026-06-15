@@ -80,7 +80,7 @@ if [ "$HAS_FUNCTIONAL" -eq 0 ]; then
 fi
 
 if [ "$HAS_DESTRUCTIVE" -eq 0 ] && [ "$CARVED" -eq 0 ]; then
-  REMINDERS="${REMINDERS}- Missing DESTRUCTIVE tests: add 8+ scenarios across the 6 attack categories (boundary, malformed input, race/concurrency, auth/authz, resource exhaustion, state corruption).\n"
+  REMINDERS="${REMINDERS}- Missing DESTRUCTIVE tests: add a destructive suite PER interactive UI function, sized to its input domain (ISTQB equivalence partitioning + boundary-value analysis), NOT a flat count for the whole spec. Floor scales with shape: trivial toggle ~3, simple form ~8, multi-step/auth ~20-30+. Cover the relevant attack categories (invalid input, wrong order, skip steps, boundary, race/timing, accessibility). The real gate is mutation kill rate, not the count.\n"
 fi
 
 if [ -z "$REMINDERS" ]; then
