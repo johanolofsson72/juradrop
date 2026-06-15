@@ -71,8 +71,9 @@ if [ ! -f "$MAP" ]; then
   exit 0
 fi
 
-# Suppress if the map already references this spec slug (best-effort)
-if [ -n "$SLUG" ] && grep -qF "$SLUG" "$MAP" 2>/dev/null; then
+# Suppress if the map already references this spec slug. Anchor on non-alphanumeric
+# boundaries so a short slug (003-api) is not falsely matched inside a longer one.
+if [ -n "$SLUG" ] && grep -qE "(^|[^A-Za-z0-9])$SLUG([^A-Za-z0-9]|\$)" "$MAP" 2>/dev/null; then
   exit 0
 fi
 

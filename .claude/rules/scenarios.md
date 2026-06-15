@@ -45,7 +45,7 @@ Status:  ☐ mapped  ·  ◐ tested  ·  ✓ validated (proven to actually work 
 flowchart LR
   member([Member]); guest([Guest])
   member --> uc1([Browse catalog])
-  member --> uc2([Checkout & pay])
+  member --> uc2([Checkout and pay])
   guest  --> uc1
 ```
 
@@ -148,7 +148,7 @@ Do NOT silently invent the missing scenarios and move on — inventing them is t
 
 ## Enforcement
 
-- **PostToolUse reminder** (`scripts/scenario-map-reminder-hook.sh`, advisory — never blocks): fires when a `spec*.md` / `tasks*.md` gains interactive behaviour but `specs/SCENARIOS.md` lacks rows for it. The reminder explicitly instructs Claude to **start the scenario interview above**, not merely to jot a note. The hook is silent on template/scratch repos (no language marker) and on non-behaviour specs.
+- **PostToolUse reminder** (`scripts/scenario-map-reminder-hook.sh`, advisory — never blocks): fires when a `spec*.md` / `tasks*.md` / `plan*.md` gains interactive behaviour but `specs/SCENARIOS.md` lacks rows for it. The reminder explicitly instructs Claude to **start the scenario interview above**, not merely to jot a note. The hook is silent on template/scratch repos (no language marker) and on non-behaviour specs.
 - The map is seeded by `/project-wizard` at project inception (the inception interview is the first scenario interview) and grows from there.
 - Drift detection rides alongside Allium/TLA+: the scenario map is the human-readable layer above the Allium baseline, so `/tla`'s drift report and the scenario map stay in lockstep.
 

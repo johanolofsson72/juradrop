@@ -2,7 +2,7 @@
 
 ## Critical rules (READ FIRST)
 
-Rules tagged **(BLOCKING)** are backed by hooks — hard gates, not suggestions. The rest are strong defaults. (Markers are scarce on purpose: when everything is "ALWAYS", nothing is.)
+Rules tagged **(BLOCKING)** are enforced — by hooks (some are hard PreToolUse denies, some are advisory reminders or interviews you MUST act on) and by the Definition of Done. They are requirements, not suggestions. The rest are strong defaults. (Markers are scarce on purpose: when everything is "ALWAYS", nothing is.)
 
 - Read the code first — base conclusions on evidence, never assumptions. Read relevant files BEFORE answering about the codebase; never guess.
 - Use the Edit tool for surgical changes — never copy whole files.
