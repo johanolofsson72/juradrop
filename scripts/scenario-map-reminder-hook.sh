@@ -41,10 +41,16 @@ for m in package.json pyproject.toml requirements.txt go.mod Cargo.toml composer
   [ -f "$ROOT/$m" ] && HAS_MARKER=1 && break
 done
 if [ "$HAS_MARKER" -eq 0 ]; then
-  # Also accept any .csproj/.sln anywhere shallow
-  if ! ls "$ROOT"/*.sln "$ROOT"/*.csproj >/dev/null 2>&1; then
-    exit 0
+  # .NET: accept a .sln OR .csproj at the repo root. Test the two globs
+  # SEPARATELY — a single `ls "$ROOT"/*.sln "$ROOT"/*.csproj` exits non-zero
+  # when only one glob matches (the other stays an unexpanded literal), which
+  # made the hook silently skip solution-only .NET repos (root .sln, nested .csproj).
+  if ls "$ROOT"/*.sln >/dev/null 2>&1 || ls "$ROOT"/*.csproj >/dev/null 2>&1; then
+    HAS_MARKER=1
   fi
+fi
+if [ "$HAS_MARKER" -eq 0 ]; then
+  exit 0
 fi
 
 # --- Only remind for interactive behaviour ---
