@@ -27,9 +27,10 @@ echo "$COMBINED" | grep -qiE '(counterexample|invariant.+violated|deadlock|error
 # TLC traces can be long; sample the relevant slice.
 TRACE=$(printf '%s' "$COMBINED" | head -c 12000)
 
-SYSTEM='You are translating a TLA+ TLC counterexample trace into plain English for a developer who needs to fix the bug behind the violation.
+read -r -d '' SYSTEM <<'TLC_SYSTEM_EOF'
+You are translating a TLA+ TLC counterexample trace into plain English for a developer who needs to fix the bug behind the violation.
 
-The TLC trace shows model states leading to an invariant violation, deadlock, or property failure. Each state has variable assignments in TLA+ syntax (records like [field |-> value], primed variables like x'\''=...', set notation, tuples).
+The TLC trace shows model states leading to an invariant violation, deadlock, or property failure. Each state has variable assignments in TLA+ syntax (records like [field |-> value], primed variables like x'=..., set notation, tuples).
 
 Output format (no markdown headers, no preamble):
 
@@ -44,7 +45,8 @@ ROOT CAUSE: <one-line hypothesis: which spec assumption is wrong, or which code 
 
 NEXT ACTION: <one concrete suggestion: tighten an invariant, add a precondition, fix the modeled behavior to match code, or fix the code to match the spec>
 
-Translate TLA+ syntax to natural English (e.g. [status |-> "pending", retries |-> 0] → "the order is pending with zero retries"). Skip any TLC machinery (state count, depth, stuttering steps). Keep it concrete and short.'
+Translate TLA+ syntax to natural English (e.g. [status |-> "pending", retries |-> 0] → "the order is pending with zero retries"). Skip any TLC machinery (state count, depth, stuttering steps). Keep it concrete and short.
+TLC_SYSTEM_EOF
 
 TRANSLATION=$(printf '%s' "$TRACE" \
   | bash "$SCRIPT_DIR/local-llm-call.sh" "$SYSTEM" 768 2>/dev/null)

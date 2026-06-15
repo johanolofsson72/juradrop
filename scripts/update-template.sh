@@ -67,7 +67,7 @@ else
 fi
 
 # Main prompt sent to Claude
-PROMPT=$(cat <<'PROMPT_EOF'
+read -r -d '' PROMPT <<'PROMPT_EOF' || true
 You are an expert on Claude Code configuration. Your task is to analyze the latest news, guidelines, and best practices for Claude Code and then update this template repo.
 
 ## Step 1: Research (MANDATORY)
@@ -145,7 +145,6 @@ $FOCUS_INSTRUCTION
 - If unsure, report instead of changing
 - Run the humanizer skill on ALL generated text aimed at humans
 PROMPT_EOF
-)
 
 # Replace variables in the prompt
 PROMPT="${PROMPT//\$MODE_INSTRUCTION/$MODE_INSTRUCTION}"
