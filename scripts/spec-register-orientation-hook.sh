@@ -57,9 +57,42 @@ if [ -n "$FOUND_REG" ]; then
   NEXT_LINE=$(grep -m1 -E '^- \[[ /!]\]' "$FOUND_REG" 2>/dev/null | sed -E 's/^- \[[ /!]\] //' || true)
   [ -z "$NEXT_LINE" ] && NEXT_LINE="(register complete — all ${TOTAL} specs done)"
 
+  # Big-spec context hygiene: full-track / hardened / checkpoint rows want a
+  # fresh session. A hook cannot run /clear (it is a harness built-in), so we
+  # print a loud reminder per .claude/rules/spec-hardening.md. Case-insensitive
+  # match on the next row's text.
+  NEXT_LC=$(printf '%s' "$NEXT_LINE" | tr '[:upper:]' '[:lower:]')
+  CLEAR_BANNER=""
+  case "$NEXT_LC" in
+    *hardened*|*checkpoint*|*"full track"*|*"full-track"*)
+      CLEAR_BANNER="
+▶ START THIS SPEC IN A FRESH SESSION — run /clear now.
+  This is a full-track / hardened / checkpoint row (per .claude/rules/spec-hardening.md).
+  A hook cannot clear context for you. If this session already carries unrelated
+  work, stop, run /clear, and resume the spec fresh. (Already fresh → just proceed.)"
+      ;;
+  esac
+
+  # Cross-spec integration-hardening checkpoint cadence (every 5 completed specs).
+  # If DONE is a nonzero multiple of 5 and the next row is NOT already a checkpoint,
+  # flag that a checkpoint row is due before the next feature spec.
+  CHECKPOINT_DUE=""
+  case "$NEXT_LC" in
+    *checkpoint*) : ;;  # already on a checkpoint row — nothing to flag
+    *)
+      if [ "$DONE" -gt 0 ] && [ $((DONE % 5)) -eq 0 ]; then
+        CHECKPOINT_DUE="
+⚠ INTEGRATION-HARDENING CHECKPOINT DUE — ${DONE} specs done (multiple of 5).
+  Per .claude/rules/spec-hardening.md, insert + work an integration-hardening
+  checkpoint row (full-system regression + security sweep + scenario reconciliation
+  + mutation spot-check) BEFORE the next feature spec. Do not skip it silently."
+      fi
+      ;;
+  esac
+
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}
+Next: ${NEXT_LINE}${CHECKPOINT_DUE}${CLEAR_BANNER}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit + push to main, tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   jq -n --arg m "$MSG" '{systemMessage: $m}'

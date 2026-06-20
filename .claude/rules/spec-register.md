@@ -27,11 +27,12 @@ Order of execution. Tick when done. Append new specs to the end unless renumberi
 
 ## Specs
 
-- [x] 001 — user-auth — full track — short one-line goal
+- [x] 001 — user-auth — full track [hardened] — short one-line goal
 - [x] 002 — profile-page — light track — short one-line goal
 - [ ] 003 — search — full track — short one-line goal
 - [ ] 004 — admin-dashboard — full track — short one-line goal
-- [ ] 005 — billing-integration — full track — short one-line goal
+- [ ] 005 — billing-integration — full track [hardened] — short one-line goal
+- [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after spec 005
 
 ## Register history
 
@@ -43,8 +44,10 @@ Order of execution. Tick when done. Append new specs to the end unless renumberi
 Each row carries:
 - **Order number** (`001`, `002`, ...) — pad to 3 digits for sort stability.
 - **Slug** (`user-auth`, `search`) — kebab-case, matches the spec folder name (`.specify/specs/003-search/` or `specs/003-search/spec.md`, depending on project layout).
-- **Pipeline track** (`full`, `light`, `spec-only`) — triage per `.claude/rules/specs.md`. Recorded here so the track is visible at a glance.
+- **Pipeline track** (`full`, `light`, `spec-only`) — triage per `.claude/rules/specs.md`. Recorded here so the track is visible at a glance. Append the **`[hardened]`** tag (e.g. `full track [hardened]`) when the spec crosses a risk threshold per `.claude/rules/spec-hardening.md` (auth / payments / PII / upload / new external surface, full-track state machine, large surface, or an explicit author call). The tag is load-bearing: it forces the four hardening additions (threat model, expanded destructive + stress, hard mutation gate, adversarial review) and triggers the SessionStart `/clear` banner.
 - **One-line goal** — what this spec accomplishes. Not the full requirement — that lives in the spec itself.
+
+**Checkpoint rows** (`integration-hardening — checkpoint`) are not specs — they are the cross-spec hardening pass per `.claude/rules/spec-hardening.md`. Insert one after every 5th completed spec (`H1`, `H2`, … as the id), before the next feature spec. They are worked, ticked, committed, and pushed exactly like a spec row, and they produce a status summary before the per-row stop.
 
 Status markers:
 - `- [ ]` — not started
@@ -59,10 +62,11 @@ When a spec is complete, Claude's stop message uses this exact shape:
 ```
 **Spec NNN — <slug> — DONE**
 
-- Track: <full|light|spec-only>
+- Track: <full|light|spec-only>[ +hardened]
 - Commits: <count> (last: <short-sha> — "<commit subject>")
 - Push: origin/main <short-sha>
 - Pipeline: spec → <clarify status> → <allium status> → impl → <N> functional + <M> destructive browser tests → <tla status>
+- Hardening: <hardening status>
 - Open findings: <count> (or "none")
 
 **Next: NNN — <slug>** (or "register complete")
@@ -74,6 +78,7 @@ Fields:
 - `<clarify status>` — `clarify auto-picked N answers` / `clarify clean (no questions raised)` / `clarify deferred N questions to user`
 - `<allium status>` — `allium ok` / `allium skipped (spec-only track)` / `allium with N open questions surfaced`
 - `<tla status>` — `tla clean` / `tla skipped (spec-only or trivial state)` / `tla with N gaps surfaced`
+- `<hardening status>` — `n/a (not a hardened spec)` / `threat-model + stress + mutation-gate + adversarial-review all passed` / `hardened with N findings surfaced` (per `.claude/rules/spec-hardening.md`). For a checkpoint row, this line instead reads `integration checkpoint: regression + security sweep + scenario reconciliation + mutation spot-check — <result>`.
 - If `Open findings` is non-zero, the findings MUST have been surfaced individually per `validation-followup.md` before this status summary is written — the summary cites the count for the audit trail, not as a deferral mechanism.
 
 After printing the summary, Claude stops. No follow-up question like "want me to continue with 004?" — the stop **is** the question.

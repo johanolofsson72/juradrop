@@ -39,14 +39,15 @@ After `/speckit-specify` produces the spec, classify it per `specs.md` and pick 
 
 | Spec shape | Pipeline track |
 |---|---|
+| **Hardened** (full-track AND crosses a risk threshold — auth/payments/PII/upload/new external surface, full-track state machine/concurrency, new entity or ≥6 files, or explicitly tagged) | **Hardened:** the full track **plus** the four hardening additions — threat-model pass, expanded destructive + stress, hard mutation-kill gate, adversarial review. See `.claude/rules/spec-hardening.md`. |
 | Behavior-changing (new feature, new entity, new state machine, new concurrency, new API surface) | **Full:** spec → `/speckit-clarify` → `/allium:elicit` → impl → browser tests → `/tla` |
 | UI feature, single actor, no concurrency (CRUD form, search/filter, simple linear workflow) | **Light:** spec → `/speckit-clarify` → `/allium:elicit` → impl → browser tests (skip `/tla` unless state machine non-trivial) |
 | Non-behavior (refactor, doc, dependency bump, config tweak, cosmetic, i18n, logging) | **Spec-only:** spec → `/speckit-clarify` → impl. No `.allium`, no `/tla`. Browser tests still apply if user-facing surface changes. |
 | Fix / hardening / security with no new entities AND no new state transitions | **Spec-only.** spec → `/speckit-clarify` → impl. Express the constraint as a test, not as an Allium invariant. |
 
-`/speckit-clarify` runs on every track (auto-pick recommended) — not just full/light. `/allium:elicit` is the step that varies by track.
+`/speckit-clarify` runs on every track (auto-pick recommended) — not just full/light. `/allium:elicit` is the step that varies by track. **Hardened is full + a surcharge, not a separate path** — a hardened spec runs the entire full pipeline and adds the four checks; mark its register row `full track [hardened]`.
 
-When the track is unclear, ask **once** with `AskUserQuestion` and then proceed. Do not default to "full" out of caution.
+When the track is unclear, ask **once** with `AskUserQuestion` and then proceed. Do not default to "full" out of caution. (The cross-spec **integration-hardening checkpoint** — every 5 completed specs — is a register row, not a per-spec track; see `.claude/rules/spec-hardening.md`.)
 
 ## When the pipeline is NOT required
 
