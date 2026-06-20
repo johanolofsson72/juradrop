@@ -99,10 +99,25 @@ impl OllamaClient {
                     return Self::with_base_url(url);
                 }
             }
-            if let Ok(url) = std::fs::read_to_string("/tmp/juradrop-ollama-url-override") {
-                let url = url.trim();
-                if !url.is_empty() {
-                    return Self::with_base_url(url.to_string());
+            // H1 hardening (audit M-3): only honour the override file if it is
+            // owned by THIS process's UID. On a shared (multi-user / university
+            // lab) Mac another local user could otherwise pre-create the file
+            // and redirect debug-build inference to their own host. Debug-only
+            // either way — release builds never compile this block — but the
+            // ownership gate closes the shared-machine vector for `cargo test` /
+            // `tauri dev`. (TOCTOU between stat and read is benign here: a debug
+            // seam, not a security boundary.)
+            const OVERRIDE_FILE: &str = "/tmp/juradrop-ollama-url-override";
+            use std::os::unix::fs::MetadataExt;
+            let owned_by_us = std::fs::metadata(OVERRIDE_FILE)
+                .map(|m| m.uid() == unsafe { libc::getuid() })
+                .unwrap_or(false);
+            if owned_by_us {
+                if let Ok(url) = std::fs::read_to_string(OVERRIDE_FILE) {
+                    let url = url.trim();
+                    if !url.is_empty() {
+                        return Self::with_base_url(url.to_string());
+                    }
                 }
             }
         }

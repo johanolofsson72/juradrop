@@ -206,6 +206,69 @@ mod tests {
         );
     }
 
+    // ---- C-8 / audit L-1: style-src 'unsafe-inline' is justified + bounded ----
+    //
+    // style-src carries 'unsafe-inline' and — unlike script-src — cannot drop
+    // it: the app sets DYNAMIC inline `style` attributes (progress-bar widths,
+    // `width: {pct}%`) that have no CSP nonce/hash equivalent (nonces cover
+    // <style> ELEMENTS, not style ATTRIBUTES, and the percentages can't be
+    // hashed). This is an ACCEPTED, bounded risk because:
+    //   - the XSS vector that matters — inline SCRIPTS — is fully closed: c3
+    //     pins script-src to exactly 'self' (no 'unsafe-inline'/'unsafe-eval').
+    //   - every inline style is computed from APP STATE (percentages, fixed
+    //     rem units), never from untrusted document content, so there is no
+    //     path from a dropped document to an injected style.
+    // This test BOUNDS the relaxation: style-src may contain ONLY 'self' and
+    // 'unsafe-inline' — never 'unsafe-eval', a remote host, or anything worse.
+    // A future edit that widens it fails CI.
+    #[test]
+    fn c8_style_src_is_self_plus_unsafe_inline_only() {
+        let dirs = parse_csp(&prod_csp());
+        let mut style = directive_sources(&dirs, "style-src");
+        style.sort_unstable();
+        assert_eq!(
+            style,
+            vec!["'self'", "'unsafe-inline'"],
+            "style-src must be exactly 'self' + 'unsafe-inline' (dynamic progress \
+             widths need inline styles); nothing worse is permitted"
+        );
+    }
+
+    // ---- C-9 / audit L-2: the updater endpoint + verification pubkey pinned ----
+    //
+    // The updater is the ONLY auto-applied outbound channel (Principle I's lone
+    // exception besides the initial model pull). The pubkey in tauri.conf.json
+    // is PUBLIC BY DESIGN — a minisign signature-VERIFICATION key, not a secret
+    // (the matching private key lives only in CI secrets). The real supply-chain
+    // risk is a config edit re-pointing the updater at a malicious manifest
+    // host, so this pins the endpoint to the project's own GitHub Releases over
+    // HTTPS and asserts a verification key is present; a foreign host fails CI.
+    #[test]
+    fn c9_updater_endpoint_and_pubkey_pinned() {
+        let conf: Value = serde_json::from_str(TAURI_CONF).expect("tauri.conf.json parses");
+        let updater = &conf["plugins"]["updater"];
+        let endpoints = updater["endpoints"]
+            .as_array()
+            .expect("updater.endpoints is an array");
+        assert_eq!(
+            endpoints.len(),
+            1,
+            "exactly one updater endpoint is expected"
+        );
+        let ep = endpoints[0].as_str().expect("endpoint is a string");
+        assert!(
+            ep.starts_with("https://github.com/johanolofsson72/juradrop/releases/"),
+            "updater endpoint must be the project's own GitHub Releases over HTTPS, got {ep}"
+        );
+        let pubkey = updater["pubkey"]
+            .as_str()
+            .expect("updater.pubkey is a string");
+        assert!(
+            !pubkey.trim().is_empty(),
+            "an update signature-verification pubkey must be present (updates verified before apply)"
+        );
+    }
+
     // ---- T010-T012: the pin must be able to FAIL (else it rubber-stamps) ----
 
     #[test]
