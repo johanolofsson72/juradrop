@@ -385,6 +385,68 @@ mod tests {
         assert!(w.contains("Granska och ta bort manuellt"));
     }
 
+    // ── H1 mutation-kill: total() + warning_paragraph boundary/inflection ──
+
+    #[test]
+    fn total_sums_every_category_distinctly() {
+        // Distinct per-field values so a `+`→`*`/`-` swap in total() is caught
+        // (all-equal values would let those mutants survive).
+        let f = PiiFindings {
+            personnummer: 1,
+            email: 2,
+            phone: 4,
+            postnummer: 8,
+            adress: 16,
+        };
+        assert_eq!(f.total(), 31);
+        assert!(!f.is_clean());
+    }
+
+    #[test]
+    fn warning_omits_personnummer_when_zero_but_present_otherwise() {
+        // warning_paragraph `f.personnummer > 0`: a zero count must NOT produce
+        // a "personnummer" mention even when the paragraph is otherwise
+        // non-empty (catches `>` → `>=`, which only differs at the 0 boundary).
+        let f = PiiFindings {
+            email: 1,
+            ..Default::default()
+        };
+        let w = warning_paragraph(&f).expect("warning expected (email present)");
+        assert!(
+            !w.contains("personnummer"),
+            "zero personnummer must be omitted: {w}"
+        );
+    }
+
+    #[test]
+    fn warning_includes_and_inflects_email_category() {
+        // warning_paragraph `f.email > 0` (catches `>` → `<`, which never runs
+        // the branch) AND `f.email == 1` (catches `==` → `!=`, wrong noun).
+        let one = warning_paragraph(&PiiFindings {
+            email: 1,
+            ..Default::default()
+        })
+        .expect("warning expected for one e-post");
+        assert!(
+            one.contains("1 e-postadress"),
+            "singular noun expected: {one}"
+        );
+        assert!(
+            !one.contains("e-postadresser"),
+            "must not pluralize a single e-post: {one}"
+        );
+
+        let two = warning_paragraph(&PiiFindings {
+            email: 2,
+            ..Default::default()
+        })
+        .expect("warning expected for two e-post");
+        assert!(
+            two.contains("2 e-postadresser"),
+            "plural noun expected: {two}"
+        );
+    }
+
     #[test]
     fn single_category_warning_has_no_conjunction() {
         let f = PiiFindings {
