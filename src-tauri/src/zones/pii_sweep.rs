@@ -154,10 +154,20 @@ pub(crate) static RE_ADRESS_FULL: LazyLock<Regex> = LazyLock::new(|| {
 
 // Placeholder spans the model is SUPPOSED to emit — masked before counting
 // so `[Personnr 1]` never reads as a personnummer, etc.
+//
+// H1 hardening (audit M-2): the body is locked to ` \d+` (a single space then
+// an index), NOT the old `[^\]]*` "anything up to ]". The loose form let an
+// ADVERSARIAL document silence the sweep: a crafted `[Person 19850101-1234]`
+// was masked whole, hiding the embedded personnummer from the residue count.
+// Every real placeholder the scrub/prompt emits is `[Category N]`
+// (`[Personnr 1]`, `[Telefon 2]`, `[Adress 1]`, `[E-post 1]`, `[Postnr 1]`,
+// and the legacy `[Person 1]`), so this tighter form masks all of them while
+// a bracket containing real PII no longer matches → it is counted and warned.
+// `Personnr` precedes `Person` so the longer label wins the alternation.
 // expect on a compile-time-constant literal regex — infallible, test-covered.
 #[allow(clippy::expect_used)]
 static RE_PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\[(?:Person|Personnr|Adress|Telefon|E-post|Postnr)[^\]]*\]")
+    Regex::new(r"\[(?:Personnr|Person|Adress|Telefon|E-post|Postnr) \d+\]")
         .expect("placeholder regex")
 });
 
@@ -267,6 +277,64 @@ mod tests {
             "Klienten [Person 1], personnummer [Personnr 1], nås på [Telefon 1] och [E-post 1].";
         let f = scan_residual_pii(t);
         assert!(f.is_clean(), "placeholders must not count, got {f:?}");
+    }
+
+    #[test]
+    fn double_digit_placeholder_indices_are_masked() {
+        // H1 hardening (audit M-2): the tightened `\d+` body still masks
+        // multi-digit indices (a document with 10+ of one category).
+        let t = "Se [Personnr 11], [Telefon 12], [Adress 100], [Postnr 47], [E-post 9].";
+        assert!(
+            scan_residual_pii(t).is_clean(),
+            "indexed placeholders must mask"
+        );
+    }
+
+    #[test]
+    fn crafted_bracket_cannot_silence_the_sweep() {
+        // H1 hardening (audit M-2): the OLD over-broad RE_PLACEHOLDER
+        // (`[^\]]*`) masked ANY bracket starting with a category word, so an
+        // adversarial document could wrap a real personnummer in a fake
+        // `[Person …]` bracket and the residue counter would miss it. The
+        // tightened pattern only masks `[Category N]`, so the embedded
+        // personnummer here is now seen and counted.
+        let crafted = "Klienten [Person Anna Andersson 19850101-1234] är part.";
+        let f = scan_residual_pii(crafted);
+        assert_eq!(
+            f.personnummer, 1,
+            "a personnummer hidden inside a crafted bracket must still be counted, got {f:?}"
+        );
+        // Same trick with an e-post inside a fake [Adress …] bracket.
+        let crafted_mail = "Bostad [Adress på orten anna@example.se finns] noterad.";
+        assert_eq!(
+            scan_residual_pii(crafted_mail).email,
+            1,
+            "an e-post hidden inside a crafted bracket must still be counted"
+        );
+    }
+
+    #[test]
+    fn unicode_digit_personnummer_is_detected() {
+        // H1 hardening (audit M-1 verification): the `regex` crate runs in
+        // Unicode mode by default, so `\d` is `\p{Nd}`, NOT ASCII-only. A
+        // personnummer written with FULLWIDTH digits (U+FF10..U+FF19, a common
+        // OCR / copy-paste artefact) or ARABIC-INDIC digits is therefore still
+        // matched. This locks that behaviour in as a regression guard — if a
+        // future change narrows the digit class to `[0-9]`, this fails loudly
+        // and the leak is caught before it ships.
+        let fullwidth = "\u{FF11}\u{FF19}\u{FF18}\u{FF15}\u{FF10}\u{FF11}\u{FF10}\u{FF11}-\u{FF11}\u{FF12}\u{FF13}\u{FF14}"; // 19850101-1234
+        assert_eq!(
+            scan_residual_pii(fullwidth).personnummer,
+            1,
+            "fullwidth-digit personnummer must be detected (regex is Unicode-aware)"
+        );
+        // Arabic-Indic digits ٠١٢٣٤٥٦٧٨٩ (U+0660..U+0669): 19850101 1234 shape.
+        let arabic = "\u{0661}\u{0669}\u{0668}\u{0665}\u{0660}\u{0661}\u{0660}\u{0661}-\u{0661}\u{0662}\u{0663}\u{0664}";
+        assert_eq!(
+            scan_residual_pii(arabic).personnummer,
+            1,
+            "arabic-indic-digit personnummer must be detected"
+        );
     }
 
     #[test]

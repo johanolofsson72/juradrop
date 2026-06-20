@@ -14,7 +14,7 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async () => () => {}),
 }));
 
-import { useSettingsStore } from '@/lib/settings-store';
+import { ensureSettingsSubscription, useSettingsStore } from '@/lib/settings-store';
 
 describe('useSettingsStore', () => {
   beforeEach(() => {
@@ -79,5 +79,84 @@ describe('useSettingsStore', () => {
     await expect(useSettingsStore.getState().selectTier('Stor')).rejects.toThrow();
     // snapshot reverted to the previous value
     expect(useSettingsStore.getState().snapshot?.model_tier).toBe('Smart');
+  });
+
+  // ── H1 mutation-kill: the if-false branches + setters + subscription ──
+
+  it('refresh() keeps snapshot null when get_settings fails but still sets pullState', async () => {
+    invokeMock.mockImplementation(async (name: string) => {
+      if (name === 'get_settings') throw new Error('boom');
+      if (name === 'get_tier_pull_state')
+        return { snabb_pulled: true, smart_pulled: false, stor_pulled: false };
+      throw new Error(`unexpected invoke: ${name}`);
+    });
+
+    await useSettingsStore.getState().refresh();
+
+    expect(useSettingsStore.getState().snapshot).toBeNull();
+    expect(useSettingsStore.getState().pullState).toEqual({
+      snabb_pulled: true,
+      smart_pulled: false,
+      stor_pulled: false,
+    });
+  });
+
+  it('refresh() keeps pullState null when get_tier_pull_state fails but still sets snapshot', async () => {
+    invokeMock.mockImplementation(async (name: string) => {
+      if (name === 'get_settings') return { schema_version: 1, model_tier: 'Stor' };
+      if (name === 'get_tier_pull_state') throw new Error('boom');
+      throw new Error(`unexpected invoke: ${name}`);
+    });
+
+    await useSettingsStore.getState().refresh();
+
+    expect(useSettingsStore.getState().snapshot).toEqual({ schema_version: 1, model_tier: 'Stor' });
+    expect(useSettingsStore.getState().pullState).toBeNull();
+  });
+
+  it('selectTier() with no previous snapshot invokes Rust without an optimistic set', async () => {
+    // previous === null → the `if (previous)` optimistic-set branch is skipped.
+    invokeMock.mockResolvedValue(undefined);
+
+    await useSettingsStore.getState().selectTier('Snabb');
+
+    expect(invokeMock).toHaveBeenCalledWith('set_model_tier', { tier: 'Snabb' });
+    expect(useSettingsStore.getState().snapshot).toBeNull();
+  });
+
+  it('selectTier() with no previous rethrows on error and leaves snapshot null', async () => {
+    invokeMock.mockRejectedValue(new Error('TierNotPulled'));
+
+    await expect(useSettingsStore.getState().selectTier('Stor')).rejects.toThrow('TierNotPulled');
+    expect(useSettingsStore.getState().snapshot).toBeNull();
+  });
+
+  it('setSnapshot() and setPullState() write directly to the store', () => {
+    useSettingsStore.getState().setSnapshot({ schema_version: 1, model_tier: 'Smart' });
+    expect(useSettingsStore.getState().snapshot).toEqual({ schema_version: 1, model_tier: 'Smart' });
+
+    useSettingsStore
+      .getState()
+      .setPullState({ snabb_pulled: false, smart_pulled: false, stor_pulled: true });
+    expect(useSettingsStore.getState().pullState).toEqual({
+      snabb_pulled: false,
+      smart_pulled: false,
+      stor_pulled: true,
+    });
+  });
+
+  it('ensureSettingsSubscription() fetches once and is idempotent on repeat calls', async () => {
+    invokeMock.mockResolvedValue({ schema_version: 1, model_tier: 'Smart' });
+
+    ensureSettingsSubscription();
+    await Promise.resolve();
+    await Promise.resolve();
+    const firstCallCount = invokeMock.mock.calls.filter((c) => c[0] === 'get_settings').length;
+    expect(firstCallCount).toBeGreaterThanOrEqual(1);
+
+    invokeMock.mockClear();
+    ensureSettingsSubscription(); // already subscribed → no second fetch
+    await Promise.resolve();
+    expect(invokeMock.mock.calls.filter((c) => c[0] === 'get_settings')).toHaveLength(0);
   });
 });

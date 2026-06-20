@@ -122,7 +122,17 @@ impl OllamaSidecar {
             })?
             .args(["serve"])
             .env("OLLAMA_HOST", "127.0.0.1:11434")
-            .env("OLLAMA_ORIGINS", "");
+            // H1 hardening (audit M-4): pin the allowed browser origins to
+            // loopback EXPLICITLY rather than the empty string. JuraDrop's
+            // frontend never calls Ollama from the WKWebView — every inference
+            // goes through the Rust reqwest client (no Origin header, not
+            // subject to CORS) — so no legitimate browser origin needs access.
+            // An explicit `127.0.0.1` is monotonically safer than `""`: across
+            // Ollama versions an empty value has at times meant "use the default
+            // origins" (which include `*`), so the empty string could silently
+            // expose this loopback Ollama to any local web page. The explicit
+            // value can only ever be MORE restrictive, never less.
+            .env("OLLAMA_ORIGINS", "127.0.0.1");
 
         let (mut rx, child) = cmd.spawn().map_err(|e| {
             self.set_status(SidecarStatus::Crashed);

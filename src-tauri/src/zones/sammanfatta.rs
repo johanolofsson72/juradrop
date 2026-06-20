@@ -413,30 +413,37 @@ impl DropZone {
             }
         };
 
+        // Spec 014 — Anonymisera output-side PII-residue sweep. Scan the model
+        // OUTPUT (never the input) for personnummer / e-post / telefon the model
+        // failed to redact. Detection only — the model text is never edited.
+        // Runs for Anonymisera only (spec 038: on the FULL combined output);
+        // every other zone keeps its output byte-identical.
+        //
+        // H1 hardening (audit L-3): the sweep scans the raw model body HERE,
+        // BEFORE the chunk disclaimer is prepended, so an app-controlled string
+        // (the disclaimer) can never trip the residue counter — a future
+        // disclaimer edit that happened to contain a digit run cannot produce a
+        // spurious warning. The final paragraph order is unchanged (warning,
+        // then disclaimer, then body) because the warning is prepended LAST.
+        let warning = if self.id == ZoneId::Anonymisera {
+            pii_sweep::warning_paragraph(&pii_sweep::scan_residual_pii(&response_text))
+        } else {
+            None
+        };
+
         // Spec 038 FR-014 — multi-chunk Anonymisera output carries an honest
         // Swedish review disclaimer: chunks are anonymized independently, so
-        // placeholder labels can differ between document sections. Prepended
-        // BEFORE the PII sweep so the sweep warning (if any) stays first.
+        // placeholder labels can differ between document sections.
         let response_text = if self.id == ZoneId::Anonymisera && multi {
             format!("{ANONYMISERA_CHUNK_DISCLAIMER}\n\n{response_text}")
         } else {
             response_text
         };
 
-        // Spec 014 — Anonymisera output-side PII-residue sweep. Scan the
-        // model OUTPUT (never the input) for personnummer / e-post / telefon
-        // the model failed to redact; when found, prepend a Swedish warning
-        // as the first body paragraph. Detection only — the model text is
-        // never edited. Runs for Anonymisera only (spec 038: on the FULL
-        // combined output); every other zone keeps its output byte-identical.
-        let response_text = if self.id == ZoneId::Anonymisera {
-            let findings = pii_sweep::scan_residual_pii(&response_text);
-            match pii_sweep::warning_paragraph(&findings) {
-                Some(warning) => format!("{warning}\n\n{response_text}"),
-                None => response_text,
-            }
-        } else {
-            response_text
+        // Prepend the residue warning (if any) as the first body paragraph.
+        let response_text = match warning {
+            Some(warning) => format!("{warning}\n\n{response_text}"),
+            None => response_text,
         };
 
         // Spec 044 — restore the original quoted spans verbatim on the

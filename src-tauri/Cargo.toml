@@ -82,3 +82,7 @@ wiremock = "0.6"
 tempfile = "3"
 # Spec 003 — source-immutability SHA-256 check in integration tests (R-009).
 sha2 = "0.10"
+# H1 integration-hardening — property-based fuzzing of the PII scrub/sweep
+# (the privacy core). Wide-input generation finds leak paths a fixed example
+# set misses; test-time only, never linked into the app.
+proptest = "1"

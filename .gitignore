@@ -54,3 +54,9 @@ appsettings.Development.json
 
 # Local manual-test corpus (contains a 53 MB size-cap fixture — never commit)
 juradrop-test/
+
+# Mutation-testing output (H1 integration-hardening checkpoint — local/on-demand only)
+src-tauri/mutants.out/
+src-tauri/mutants.out.old/
+.stryker-tmp/
+reports/mutation/

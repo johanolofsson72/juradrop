@@ -36,7 +36,7 @@ export interface ProgressEstimate {
   etaRendered: string;
 }
 
-interface Sample {
+export interface Sample {
   t: number;
   bytes: number;
 }
@@ -60,8 +60,12 @@ export function formatEta(etaSeconds: number | null): string {
   return `≈ ${minutes} min`;
 }
 
-/** Rolling-window mean bytes-per-second over the buffer. */
-function meanBps(samples: Sample[]): number {
+/**
+ * Rolling-window mean bytes-per-second over the buffer.
+ * Exported for direct unit + mutation testing of the boundary logic
+ * (fewer than two samples, non-advancing clock) — H1 hardening.
+ */
+export function meanBps(samples: Sample[]): number {
   if (samples.length < 2) return 0;
   const oldest = samples[0]!;
   const newest = samples[samples.length - 1]!;
@@ -117,7 +121,10 @@ export function useProgressEstimate(opts: Options = {}): ProgressEstimate {
       const last = samples[samples.length - 1]!;
       const elapsed = Date.now() - last.t;
       if (elapsed >= staleMs) {
-        setLabel((current) => (current === 'waiting' ? current : 'waiting'));
+        // Once the last sample is older than staleMs, the label is 'waiting'.
+        // (Previously a `current === 'waiting' ? current : 'waiting'` ternary
+        // whose branches were identical — dead logic, removed in H1.)
+        setLabel('waiting');
       }
     }, STALE_POLL_INTERVAL_MS);
     return () => clearInterval(id);
@@ -156,7 +163,7 @@ export function formatBytesSwedish(bytes: number, total: number): string {
   return `${formatThousands(mb)} MB av ${formatThousands(totalMb)} MB`;
 }
 
-function formatThousands(n: number): string {
+export function formatThousands(n: number): string {
   // Swedish thin-space thousands separator (U+202F).
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 }

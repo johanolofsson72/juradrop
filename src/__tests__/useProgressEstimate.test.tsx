@@ -3,7 +3,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-import { formatBytesSwedish, formatEta, useProgressEstimate } from '@/lib/use-progress-estimate';
+import {
+  formatBytesSwedish,
+  formatEta,
+  formatThousands,
+  meanBps,
+  useProgressEstimate,
+  type Sample,
+} from '@/lib/use-progress-estimate';
 import { WIZARD_STRINGS } from '@/lib/wizard-strings';
 import { useStatusStore } from '@/lib/status-store';
 
@@ -94,5 +101,53 @@ describe('useProgressEstimate — rolling-window estimator', () => {
     }));
     const { result } = renderHook(() => useProgressEstimate());
     expect(result.current.lastPct).toBe(73);
+  });
+
+  it('exposes the ~2 GiB estimated total as totalByteCount by default', () => {
+    // H1 mutation-kill: pins the ESTIMATED_TOTAL_BYTES arithmetic
+    // (2 * 1024 * 1024 * 1024) so an operator swap (× → ÷) is caught.
+    const { result } = renderHook(() => useProgressEstimate());
+    expect(result.current.totalByteCount).toBe(2 * 1024 * 1024 * 1024);
+    expect(result.current.totalByteCount).toBe(2_147_483_648);
+  });
+});
+
+describe('meanBps — rolling-window bytes/second (H1 mutation-kill)', () => {
+  const sample = (t: number, bytes: number): Sample => ({ t, bytes });
+
+  it('returns 0 with fewer than two samples', () => {
+    expect(meanBps([])).toBe(0);
+    expect(meanBps([sample(0, 0)])).toBe(0);
+  });
+
+  it('computes (Δbytes / Δseconds) across the window edges', () => {
+    // 2000 bytes over 2 s = 1000 B/s. Uses ONLY first+last sample.
+    expect(meanBps([sample(1000, 500), sample(2000, 1500), sample(3000, 2500)])).toBe(1000);
+  });
+
+  it('returns 0 when the clock does not advance (Δt ≤ 0)', () => {
+    // Guards the dt <= 0 branch — same timestamp must not divide-by-zero.
+    expect(meanBps([sample(5000, 100), sample(5000, 900)])).toBe(0);
+  });
+
+  it('returns 0 when time runs backwards (negative Δt)', () => {
+    expect(meanBps([sample(5000, 100), sample(4000, 900)])).toBe(0);
+  });
+
+  it('uses the buffer extremes, not adjacent pairs', () => {
+    // First=(0,0), last=(4000,4000) → 1000 B/s regardless of the middle jitter.
+    expect(meanBps([sample(0, 0), sample(1000, 50), sample(4000, 4000)])).toBe(1000);
+  });
+});
+
+describe('formatThousands — Swedish thin-space grouping (H1 mutation-kill)', () => {
+  it('leaves sub-1000 values ungrouped', () => {
+    expect(formatThousands(0)).toBe('0');
+    expect(formatThousands(999)).toBe('999');
+  });
+
+  it('groups thousands with the thin space (U+202F)', () => {
+    expect(formatThousands(2048)).toBe('2 048');
+    expect(formatThousands(1234567)).toBe('1 234 567');
   });
 });
