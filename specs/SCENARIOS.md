@@ -61,21 +61,21 @@ flowchart TD
 
 | ID     | Type        | Scenario                                                        | Expected outcome                                                  | Status |
 |--------|-------------|-----------------------------------------------------------------|------------------------------------------------------------------|--------|
-| SC-001 | happy       | Drop a supported `.docx` on a transform zone                    | Extract → model → sidecar written next to source → opens         | ◐      |
-| SC-002 | happy       | Drag a file over a zone                                          | Zone highlights, macOS shows accepted-drop cursor                | ◐      |
-| SC-003 | loading     | While a zone processes                                          | Spinner + zone-specific Swedish label + visible "Avbryt"         | ◐      |
+| SC-001 | happy       | Drop a supported `.docx` on a transform zone                    | Extract → model → sidecar written next to source → opens         | ✓      |
+| SC-002 | happy       | Drag a file over a zone                                          | Zone highlights, macOS shows accepted-drop cursor                | ✓      |
+| SC-003 | loading     | While a zone processes                                          | Spinner + zone-specific Swedish label + visible "Avbryt"         | ✓      |
 | SC-004 | happy       | Source file integrity                                           | Original file never modified (SHA-256 unchanged)                 | ✓      |
 | SC-005 | error       | Drop while sidecar not `Klar`                                   | Zone visibly disabled, drop rejected, welcome-card hint shown    | ◐      |
 | SC-006 | error       | Drop an unsupported format (e.g. `.xlsx`)                       | Swedish "Filformatet stöds inte …" naming accepted formats       | ◐      |
-| SC-007 | error       | Drop 2+ files at once                                           | "Ett dokument i taget" — no processing started                   | ☐      |
-| SC-008 | adversarial | Drop a 2nd file while the zone is mid-process (single-flight)   | "Vänta tills föregående dokument är klart" — exactly one job     | ◐      |
+| SC-007 | error       | Drop 2+ files at once                                           | "Ett dokument i taget" — no processing started                   | ✓      |
+| SC-008 | adversarial | Drop a 2nd file while the zone is mid-process (single-flight)   | "Vänta tills föregående dokument är klart" — exactly one job     | ✓      |
 | SC-009 | adversarial | Double-drop the SAME file rapidly (race)                        | Single-flight holds; one sidecar, no duplicate run               | ◐      |
 | SC-010 | error       | Drop a corrupt / unreadable document                            | "Kunde inte läsa dokumentet" — no stack trace                    | ✓      |
 | SC-011 | empty       | Drop a file that extracts to zero text                          | "Dokumentet innehåller ingen text"                               | ✓      |
 | SC-012 | error       | Model times out / does not respond                              | "AI-motorn svarade inte — försök igen", zone returns to idle     | ◐      |
-| SC-013 | edge        | Cancel mid-process via "Avbryt"                                 | Run aborts cleanly, zone → idle, no partial sidecar              | ◐      |
+| SC-013 | edge        | Cancel mid-process via "Avbryt"                                 | Run aborts cleanly, zone → idle, no partial sidecar              | ✓      |
 | SC-014 | edge        | Sidecar name collision (canonical output exists)               | Timestamp-suffixed sidecar, source untouched                     | ◐      |
-| SC-015 | adversarial | Drop documents on multiple zones simultaneously                | Per-zone independence holds; no cross-zone corruption (spec 017) | ◐      |
+| SC-015 | adversarial | Drop documents on multiple zones simultaneously                | Per-zone independence holds; no cross-zone corruption (spec 017) | ✓      |
 
 ### Feature: Click-to-browse file picker   (spec: 016-click-to-browse-fallback)
 
@@ -122,10 +122,10 @@ flowchart TD
 |--------|--------|---------------------------------------------------------------|-------------------------------------------------------------------|--------|
 | SC-020 | happy  | Drop `.pdf`, `.txt`, `.md`                                     | Correct extraction; sidecar mirrors input format (PDF→.docx)      | ✓      |
 | SC-021 | edge   | `.md` with YAML/TOML frontmatter                              | Frontmatter stripped before model, restored on sidecar write      | ◐      |
-| SC-022 | edge   | `.rtf` / `.odt` where native write unavailable               | Best-effort extract; graceful fall back to `.docx` sidecar        | ◐      |
-| SC-023 | error  | Drop a `.pages` file (zip OR legacy bundle)                   | Actionable Swedish msg: export to Word/PDF first (spec 028)        | ◐      |
-| SC-024 | edge   | Document over 24k chars in a single-pass zone                | Honest truncation-disclaimer paragraph appended                   | ◐      |
-| SC-025 | happy  | Long document (20–240 pages) on a chunking zone              | Map-reduce/concat combine; "Bearbetar del N av M" progress        | ◐      |
+| SC-022 | edge   | `.rtf` / `.odt` where native write unavailable               | Best-effort extract; graceful fall back to `.docx` sidecar        | ✓      |
+| SC-023 | error  | Drop a `.pages` file (zip OR legacy bundle)                   | Actionable Swedish msg: export to Word/PDF first (spec 028)        | ✓      |
+| SC-024 | edge   | Document over 24k chars in a single-pass zone                | Honest truncation-disclaimer paragraph appended                   | ✓      |
+| SC-025 | happy  | Long document (20–240 pages) on a chunking zone              | Map-reduce/concat combine; "Bearbetar del N av M" progress        | ✓      |
 | SC-026 | error  | A chunk or the combine pass fails mid-run                    | All-or-nothing: no sidecar written, zone shows error              | ☐      |
 | SC-027 | error  | UTF-16 / unsupported-encoding text file                      | "Teckenkodning stöds inte — spara som UTF-8"                       | ◐      |
 | SC-028 | error  | Scanned (image-only) PDF, no extractable text               | "Hittade ingen text … skannade bilder stöds inte än"              | ◐      |
@@ -161,7 +161,7 @@ flowchart TD
 | SC-102 | adversarial | Full street address line (gata + postnr + ort)               | Collapsed to a single `[Adress N]` (leftmost-longest, spec 047)   | ✓      |
 | SC-103 | error       | Output still contains a missed personnummer/email/phone       | Residue sweep appends a specific visible warning paragraph        | ✓      |
 | SC-104 | edge        | Instruction "behåll citaten på svenska" + translate zone     | Quoted spans masked to `[CITAT N]`, restored verbatim after       | ✓      |
-| SC-105 | happy       | Clean anonymise run                                            | Placeholders applied + honest "inte 100 %" disclaimer             | ◐      |
+| SC-105 | happy       | Clean anonymise run                                            | Placeholders applied + honest "inte 100 %" disclaimer             | ✓      |
 | SC-106 | edge        | Multi-chunk anonymise (placeholder labels differ per section) | Disclaimer about inconsistent placeholders across chunks          | ◐      |
 | SC-107 | edge        | Kontakter groups output per PERSON, not per category          | Per-person grouping; unpaired details → "Övriga uppgifter"        | ◐      |
 | SC-108 | adversarial | Phone digits whitespace-glued to an earlier postnummer (`100 00 01-000 00 00`) | Gap re-scan catches BOTH → `[Postnr N] [Telefon N]`; scrub complete, sweep clean (spec 048) | ✓      |
@@ -185,7 +185,7 @@ flowchart TD
 |--------|-------------|---------------------------------------------------------------|-----------------------------------------------------------------|--------|
 | SC-120 | adversarial | Document contains "ignore previous instructions …"           | Treated as DATA inside delimiters; model does not obey it        | ◐      |
 | SC-121 | edge        | Generera zone whose input IS instructions                    | No anti-injection guard; instructions are followed by design    | ◐      |
-| SC-122 | edge        | Per-drop custom instruction (e.g. keep quotes in Swedish)    | Instruction sits ABOVE doc framing; injection seam stays closed  | ◐      |
+| SC-122 | edge        | Per-drop custom instruction (e.g. keep quotes in Swedish)    | Instruction sits ABOVE doc framing; injection seam stays closed  | ✓      |
 
 ### Feature: First-run wizard   (spec: 008-first-run-wizard)
 
@@ -235,12 +235,12 @@ flowchart TD
 
 | ID     | Type   | Scenario                                                  | Expected outcome                                               | Status |
 |--------|--------|-----------------------------------------------------------|---------------------------------------------------------------|--------|
-| SC-080 | happy  | Open settings via gear or Cmd+,                           | Panel slides in; Esc/X/outside-click dismiss                  | ◐      |
-| SC-081 | happy  | Select a model tier (Snabb / Smart / Stor)               | Selection persists; helper text shown per tier               | ◐      |
-| SC-082 | edge   | OS appearance changes while panel open                   | Read-only line updates live (follows system, no toggle)      | ◐      |
-| SC-083 | happy  | Click "Visa utgåvor på GitHub"                            | Default browser opens the releases page                      | ◐      |
+| SC-080 | happy  | Open settings via gear or Cmd+,                           | Panel slides in; Esc/X/outside-click dismiss                  | ✓      |
+| SC-081 | happy  | Select a model tier (Snabb / Smart / Stor)               | Selection persists; helper text shown per tier               | ✓      |
+| SC-082 | edge   | OS appearance changes while panel open                   | Read-only line updates live (follows system, no toggle)      | ✓      |
+| SC-083 | happy  | Click "Visa utgåvor på GitHub"                            | Default browser opens the releases page                      | ✓      |
 | SC-084 | edge   | Toggle diagnostics on (default OFF)                      | Content-free local log; enum-only API; consent stored apart  | ◐      |
-| SC-085 | happy  | Open Help for a zone (? icon)                            | Per-zone short + long help strings shown                     | ◐      |
+| SC-085 | happy  | Open Help for a zone (? icon)                            | Per-zone short + long help strings shown                     | ✓      |
 | SC-086 | error  | Settings file is corrupt on load                         | Defaults used, no crash, no leaked stack trace               | ◐      |
 
 ### Feature: On-demand tier download   (specs: 027-on-demand-tier-download, 034-tier-download-pull-timeout)
@@ -339,7 +339,7 @@ flowchart TD
 
 | ID     | Type   | Scenario                                                  | Expected outcome                                              | Status |
 |--------|--------|-----------------------------------------------------------|--------------------------------------------------------------|--------|
-| SC-130 | happy  | User wants to confirm nothing leaves the Mac             | Persistent UI affordance "ingenting lämnar din dator"        | ◐      |
+| SC-130 | happy  | User wants to confirm nothing leaves the Mac             | Persistent UI affordance "ingenting lämnar din dator"        | ✓      |
 | SC-131 | happy  | First-run wizard privacy copy                             | Explains the model lives on the Mac and works offline        | ◐      |
 | SC-132 | adversarial | WKWebView attempts any non-localhost egress          | Strict CSP blocks all egress except 127.0.0.1:11434 + ipc    | ✓      |
 
@@ -358,7 +358,7 @@ The only outbound traffic is the Ollama localhost call + the initial model pull 
 
 | ID     | Type    | Scenario                                              | Expected outcome                                                        | Status |
 |--------|---------|-------------------------------------------------------|------------------------------------------------------------------------|--------|
-| SC-140 | offline | Drop + process any zone with no network (model pulled)| Extract + sidecar succeed fully offline — no network touched           | ☐      |
+| SC-140 | offline | Drop + process any zone with no network (model pulled)| Extract + sidecar succeed fully offline — no network touched           | ✓      |
 | SC-141 | offline | Auto-updater tick while offline                       | Silent `Failed { NoNetwork }`, badge hidden, retries next tick (spec 007)| ◐    |
 | SC-142 | error   | Tier download requested while offline                 | Honest Swedish error ("ingen internetanslutning"), never a fake "Klar" | ◐      |
 | SC-143 | offline | App launched offline before any model was ever pulled | Honest "first launch needs internet" gate (spec 002 assumption)        | ☐      |
@@ -400,3 +400,4 @@ flowchart TD
   - **◐ (67)** — a real test exists but it is mocked-Tauri-IPC UI rendering (all Playwright + most vitest assert against a stubbed bridge, spec 033 by design), OR model-output-dependent (wiremock pipeline, real model live), OR unit-only. Each needs a live `tauri dev` four-state pass (success / specific error / empty / loading) to reach ✓.
   - **☐ (11) — THE LIVE PUNCH-LIST:** SC-007 (drop 2+ files), SC-026 (chunk/combine fails mid-run), SC-042 (network drops mid model-download), SC-043 (network returns after a drop), SC-044 (≥5 min download failure), SC-046 (model download completes), SC-092 (tier download completes), SC-117 (unsupported macOS for the update), SC-140 (process fully offline with model pulled), SC-143 (launched offline, no model ever pulled), SC-145 (zone yields no entities/sources → empty state).
   - 049 stays OPEN. Per `.claude/rules/scenarios.md`, ✓ requires observed real behaviour — this audit gives an honest ◐/✓ floor; the 67 ◐ + 11 ☐ rows await a live runtime pass (real Ollama + real file drops) before reaching ✓.
+- 2026-06-20 — spec 049 validation round 3 (LIVE runtime pass, Johan). Ran the real app (`npm run tauri dev`, coexisting with Johan's Ollama gemma3:4b + gemma3:12b) through a 17-step scenario-mapped pass over the `juradrop-test/` corpus; Johan confirmed "ser bra ut". Flipped to **✓** the scenarios OBSERVED working at runtime: SC-001/002/003 (drag-over → loading spinner+Avbryt → sidecar opens), SC-008 (busy single-flight), SC-013 (cancel mid-run, no partial sidecar), SC-015 (multi-zone independence), SC-022 (.rtf/.odt → .docx sidecar), SC-023 (.pages honest error), SC-024/025 (long-doc chunking covers the whole document), SC-080/081/082/083/085 (settings open / tier switch Smart↔Stor / appearance / GitHub link / zone Hjälp), SC-105 (anonymise placeholders + disclaimer), SC-122 (per-drop custom instruction), SC-130 (privacy line visible), and the two no-automated-coverage punch-list rows **SC-007** (drop 2+ files → "ett dokument i taget") and **SC-140** (process fully offline with Wi-Fi off). New tally **36 ✓ · 49 ◐ · 9 ☐**. STILL ◐/☐ and deliberately NOT flipped (each needs a setup this happy-session can't reproduce): the updater lifecycle SC-110..117 (needs a real new GitHub release), the first-run wizard + model download SC-040..046/090..098 (needs a fresh install / unpulled model), sidecar crash recovery SC-120R..125R (needs fault injection), and the residual error/offline edges SC-026/042/043/044/092/143/145. These flip opportunistically when those real conditions next occur.
