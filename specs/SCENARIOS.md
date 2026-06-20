@@ -142,6 +142,8 @@ flowchart TD
   C --> C1[personnummer/telefon/e-post → placeholders · SC-100]
   C --> C2[postnummer NNN NN → [Postnr N] · SC-101]
   C --> C3[full address line gata+postnr+ort → [Adress N] · SC-102]
+  C --> C4[overlap resolution: gap re-scan until stable · SC-108]
+  C4 --> D
   C1 --> D[Model anonymises fuzzy PII: names, free-text addresses]
   C2 --> D
   C3 --> D
@@ -162,6 +164,8 @@ flowchart TD
 | SC-105 | happy       | Clean anonymise run                                            | Placeholders applied + honest "inte 100 %" disclaimer             | ☐      |
 | SC-106 | edge        | Multi-chunk anonymise (placeholder labels differ per section) | Disclaimer about inconsistent placeholders across chunks          | ☐      |
 | SC-107 | edge        | Kontakter groups output per PERSON, not per category          | Per-person grouping; unpaired details → "Övriga uppgifter"        | ☐      |
+| SC-108 | adversarial | Phone digits whitespace-glued to an earlier postnummer (`100 00 01-000 00 00`) | Gap re-scan catches BOTH → `[Postnr N] [Telefon N]`; scrub complete, sweep clean (spec 048) | ☐      |
+| SC-109 | boundary    | Long chain of glued PII runs (stress)                         | Resolution terminates, all spans replaced, no hang (spec 048)     | ☐      |
 
 ### Feature: Prompt-injection framing   (spec: 022-prompt-injection-framing, 041-custom-instructions)
 
@@ -342,5 +346,52 @@ flowchart TD
 <!-- On-demand artifacts (journey map / wireflow with design-frame links / storyboard)
      to be added during the scenario-validation interview if a flow warrants it. -->
 
+---
+
+## Validation interview round 1 (2026-06-20) — resolved gaps
+
+> Decisions taken with the developer on 2026-06-20 (per `.claude/rules/scenarios.md`). All rows below are `☐` — runtime `◐/✓` still pending.
+
+### Fully-offline operation (spec 002: "subsequent launches work fully offline")
+
+The only outbound traffic is the Ollama localhost call + the initial model pull + the Tauri updater (spec 005 privacy invariant). Every document flow is local (spec 003 FR-003).
+
+| ID     | Type    | Scenario                                              | Expected outcome                                                        | Status |
+|--------|---------|-------------------------------------------------------|------------------------------------------------------------------------|--------|
+| SC-140 | offline | Drop + process any zone with no network (model pulled)| Extract + sidecar succeed fully offline — no network touched           | ☐      |
+| SC-141 | offline | Auto-updater tick while offline                       | Silent `Failed { NoNetwork }`, badge hidden, retries next tick (spec 007)| ☐    |
+| SC-142 | error   | Tier download requested while offline                 | Honest Swedish error ("ingen internetanslutning"), never a fake "Klar" | ☐      |
+| SC-143 | offline | App launched offline before any model was ever pulled | Honest "first launch needs internet" gate (spec 002 assumption)        | ☐      |
+
+### Empty states (extract/scrub zones produce nothing)
+
+| ID     | Type  | Scenario                                              | Expected outcome                                              | Status |
+|--------|-------|-------------------------------------------------------|--------------------------------------------------------------|--------|
+| SC-144 | empty | Anonymisera runs on a file with no detectable PII     | Sidecar written, honest "inga personuppgifter hittades" note | ☐      |
+| SC-145 | empty | A zone whose extraction yields no entities/sources    | Real empty result state, not a blank or a crash              | ☐      |
+
+### Concurrency — tier download single-flight + double-drop (confirmed 2026-06-20)
+
+> Per-zone behaviour stays byte-identical to spec 004 (FR-020). Zones differ ONLY by system prompt + output suffix — they share one state machine; the only intentional divergence is the Generera zone (SC-121). No per-zone flow split.
+
+```mermaid
+flowchart TD
+  A[Download tier T requested] --> B{T already pulling?}
+  B -- yes --> C[Attach to in-flight pull, same progress · SC-146]
+  B -- no --> D[Start single pull; Ollama /api/pull idempotent, resumes by layer]
+  E[Drop file F on zone Z] --> F{Z processing?}
+  F -- no --> G[Re-process, atomic overwrite of sidecar · SC-148]
+  F -- yes --> H[Single-flight slot ignores 2nd drop, no parallel job · SC-149]
+```
+
+| ID     | Type        | Scenario                                              | Expected outcome                                                  | Status |
+|--------|-------------|-------------------------------------------------------|------------------------------------------------------------------|--------|
+| SC-146 | edge        | Second download of the SAME tier while one is in flight | Single-flight: coalesces to one pull, second shows same progress | ☐      |
+| SC-147 | adversarial | Two different tiers requested at once                 | Each pulls independently; no cross-tier corruption (idempotent)  | ☐      |
+| SC-148 | edge        | Re-drop the same file on an idle zone                 | Re-processes; sidecar atomically overwritten (idempotent)        | ☐      |
+| SC-149 | adversarial | Drop the same file again while the zone is Processing | Single-flight slot ignores the 2nd drop — no parallel job/corruption | ☐    |
+
 ## Scenario history
 - 2026-06-20 — seeded from existing specs during fleet sync (derived, awaiting validation interview)
+- 2026-06-20 — spec 048 (pii-scrub-overlap-resolution): added SC-108 (whitespace-glued postnummer+phone → gap re-scan catches both) and SC-109 (glued-PII chain stress, terminates) to the Anonymisera feature; flowchart node C4 (overlap resolution: gap re-scan).
+- 2026-06-20 — validation interview (round 1): added fully-offline rows (SC-140..143, spec 002), empty-state rows (SC-144..145), and resolved the two inferred concurrency behaviours → tier download single-flight/coalesce (SC-146..147) and double-drop idle-reprocess / busy-single-flight (SC-148..149). Confirmed all zones share one byte-identical state machine (spec 005 FR-020) — no per-zone split. Rows remain ☐ — runtime ◐/✓ pending.
