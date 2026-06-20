@@ -64,7 +64,11 @@ GRAPH_FILE="$PROJECT_ROOT/graphify-out/graph.json"
 NODES=0
 EDGES=0
 if [ -f "$GRAPH_FILE" ]; then
-  GRAPH_MTIME=$(stat -f %m "$GRAPH_FILE" 2>/dev/null || stat -c %Y "$GRAPH_FILE" 2>/dev/null || echo 0)
+  # GNU stat (-c %Y) first, BSD/macOS (-f %m) fallback — `-f` means
+  # --file-system on GNU coreutils, so trying it first yields a filesystem
+  # block instead of an mtime and the cache key never matches.
+  GRAPH_MTIME=$(stat -c %Y "$GRAPH_FILE" 2>/dev/null || stat -f %m "$GRAPH_FILE" 2>/dev/null || echo 0)
+  case "$GRAPH_MTIME" in (*[!0-9]*|'') GRAPH_MTIME=0 ;; esac
   CACHE_FILE="$PROJECT_ROOT/graphify-out/.fire-hook-cache"
   if [ -f "$CACHE_FILE" ]; then
     read -r CACHED_MTIME CACHED_NODES CACHED_EDGES < "$CACHE_FILE" 2>/dev/null || true

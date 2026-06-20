@@ -70,7 +70,7 @@ fi
 
 **Step 5 — Run the COMPLETE template sync (identical to `/project-update`):**
 
-This single step puts **everything** in place — every skill (`allium`, `tla`, `code-review`, `explore-codebase`, `deploy-checklist`, `sync-template`, `update-template`), every rule (`allium.md`, `specs.md`, `continuous-execution.md`, `validation-followup.md`, `feature-pipeline.md`, `spec-register.md`, the stack rules), every doc, every hook script, the deterministic local-LLM wiring, AND the Graphify wiring + bootstrap. **After this step the project is fully configured. The wizard IS the full sync — there is no separate `/project-update` pass required afterward.** If you ever catch yourself about to tell the user "now run `/project-update` to get allium/graphify", you skipped part of this step — go back and finish it. That handoff is the exact bug this step exists to kill.
+This single step puts **everything** in place — every skill (`allium`, `tla`, `code-review`, `explore-codebase`, `deploy-checklist`, `sync-template`, `update-template`), every rule (`allium.md`, `specs.md`, `continuous-execution.md`, `validation-followup.md`, `feature-pipeline.md`, `spec-register.md`, `spec-hardening.md`, the stack rules), every doc, every hook script, the deterministic local-LLM wiring, AND the Graphify wiring + bootstrap. **After this step the project is fully configured. The wizard IS the full sync — there is no separate `/project-update` pass required afterward.** If you ever catch yourself about to tell the user "now run `/project-update` to get allium/graphify", you skipped part of this step — go back and finish it. That handoff is the exact bug this step exists to kill.
 
 The wizard does NOT paraphrase the sync into a summary and curl files one at a time — that approach reliably dropped `allium`, the pipeline rules, and the graphify wiring on the floor. Instead it resolves the template **locally** (cloning once if absent, which is far more reliable than ~50 individual HTTP fetches) and executes the canonical `sync-prompt.md` verbatim — the exact same instruction set `/project-update` runs. Single source of truth, zero drift.
 
@@ -120,6 +120,7 @@ for f in \
   .claude/rules/validation-followup.md \
   .claude/rules/feature-pipeline.md \
   .claude/rules/spec-register.md \
+  .claude/rules/spec-hardening.md \
   .claude/rules/github-actions.md \
   .claude/rules/scenarios.md \
   .claude/rules/design-references.md \
@@ -728,6 +729,7 @@ If tests cannot be run (missing infrastructure), clearly inform about this.
 [RUN COMMAND]                             # Run the application
 [E2E COMMAND]                             # Playwright E2E tests
 [SINGLE TEST COMMAND]                     # Single test
+bash scripts/project-freshness.sh         # Freshness pass: trufflehog secret scan + npm audit (report-first; --fix to remediate)
 ```
 
 Adapt these based on the chosen tech stack:

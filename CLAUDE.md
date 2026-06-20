@@ -189,6 +189,7 @@ Read these files WHEN you need them — do not load everything upfront:
 - **Scenario map (living use-case map, validation gate)** → `.claude/rules/scenarios.md` + `specs/SCENARIOS.md`
 - **Design references (decompile a brand/vibe into design-system primitives)** → `.claude/rules/design-references.md` + `.claude/docs/design-reference-library.md`
 - **Feature pipeline (end-to-end execution)** → `.claude/rules/feature-pipeline.md`
+- **Spec hardening (risk tier above full, integration checkpoints, /clear for big specs)** → `.claude/rules/spec-hardening.md`
 - **Constitution (principles, hard constraints)** → `.specify/memory/constitution.md`
 - **Design system (colors, typography, motion)** → `design-system/MASTER.md`
 - **Deploy, signing, notarization, GitHub Actions** → `.claude/docs/deployment.md`

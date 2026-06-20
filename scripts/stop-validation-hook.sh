@@ -32,13 +32,19 @@ ALL_UI="${UI_CHANGED}${UI_UNTRACKED}"
 # validated this batch, allow stop.
 MARKER=".claude/validation/last-validated"
 if [ -f "$MARKER" ]; then
-  MARKER_TIME=$(stat -f %m "$MARKER" 2>/dev/null || stat -c %Y "$MARKER" 2>/dev/null || echo 0)
+  # Cross-platform mtime: GNU stat (-c %Y) first, BSD/macOS (-f %m) fallback.
+  # On GNU coreutils `-f` means --file-system, so trying it first prints a
+  # filesystem block instead of an mtime and the numeric comparisons below
+  # break with "integer expected" — hence GNU-first ordering + numeric guard.
+  MARKER_TIME=$(stat -c %Y "$MARKER" 2>/dev/null || stat -f %m "$MARKER" 2>/dev/null || echo 0)
+  case "$MARKER_TIME" in (*[!0-9]*|'') MARKER_TIME=0 ;; esac
   # Find newest UI file mtime
   NEWEST=0
   while IFS= read -r f; do
     [ -z "$f" ] && continue
     [ ! -f "$f" ] && continue
-    MT=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0)
+    MT=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
+    case "$MT" in (*[!0-9]*|'') MT=0 ;; esac
     [ "$MT" -gt "$NEWEST" ] && NEWEST=$MT
   done <<< "$ALL_UI"
 

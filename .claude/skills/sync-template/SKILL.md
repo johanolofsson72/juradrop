@@ -83,6 +83,7 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `validation-followup.md`
 - `feature-pipeline.md`
 - `spec-register.md`
+- `spec-hardening.md`
 - `project-workflow.md`
 - `sqlite.md`
 - `spot-resilience.md`
@@ -118,7 +119,8 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `scripts/spec-register-guard-hook.sh`
 - `scripts/spec-register-orientation-hook.sh`
 - `scripts/spec-md-coverage-reminder-hook.sh` (deterministic replacement for the legacy `type:"prompt"` spec-completeness hook; never blocks, suppresses reminder on carved-out test slices)
-- `scripts/scenario-map-reminder-hook.sh` (advisory; fires the scenario interview when a spec gains interactive behaviour but `specs/SCENARIOS.md` lacks rows for it)
+- `scripts/scenario-map-reminder-hook.sh` (PostToolUse advisory; fires the scenario interview when a spec gains interactive behaviour but `specs/SCENARIOS.md` lacks rows for it)
+- `scripts/scenario-map-orientation-hook.sh` (SessionStart advisory; PROACTIVE complement — nudges a scenario interview when the project has specs but no `specs/SCENARIOS.md`, catching already-built projects the reactive reminder misses)
 - `scripts/local-llm-call.sh` (telemetry funnel + auto-detect)
 - `scripts/local-llm-detect.sh`
 - `scripts/local-llm-stats.sh` (per-hook ROI reporter)
@@ -129,6 +131,7 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `scripts/graphify-bootstrap.sh` (cross-platform Graphify self-installer — handles macOS brew, Linux apt/dnf/pacman/zypper, Windows Git Bash via scoop/winget/choco; idempotent; eligibility-gates by source-file count — invoked in step 3.1c)
 - `scripts/graphify-fire-hook.sh` (PostToolUse Bash hook — logs every `graphify query|path|explain|update` invocation to `.claude/graphify-fire.log` with response bytes + graph node/edge counts)
 - `scripts/graphify-stats.sh` (per-project Graphify ROI reporter — `--all` flag aggregates across `~/repos/*` and `~/Projects/*`)
+- `scripts/project-freshness.sh` (local "keep the project fresh" pass — trufflehog verified-secret scan + `npm audit` dependency report; **self-installs trufflehog if missing** (brew/scoop/official-script, `--no-install` to suppress); report-first, `--fix` opt-in runs `npm audit fix --force` + mandates build/test. LOCAL only — never a CI/scheduled Action per `.claude/rules/github-actions.md`)
 
 Note: `scripts/local-llm-*-hook.sh` files are NOT hand-globbed here. Step 3.1 invokes `sync-local-llm-hooks.py`, which atomically mirrors both the wiring AND the hook script files on disk (copying new ones, deleting orphans, verifying no wired hook is missing its script). Hand-globbing this set used to be a prose instruction here and proved unreliable — the LLM short-circuited the glob and produced settings.json entries referencing scripts that did not exist on disk, generating "No such file or directory" errors on every Edit/Bash. The deterministic helper closed that gap.
 
@@ -256,6 +259,30 @@ Ensure the project's `.gitignore` covers these patterns. Add any that are missin
 - `.claude/local-llm-*.log.errors` (telemetry write-error log)
 - `.claude/projects/` (per-user memory directory — never commit)
 - `.claude/settings.local.json` (per-machine settings)
+
+### 3b. Freshness pass (ALWAYS RUNS — regardless of sync mode)
+
+This runs on **every** `/project-update` — full, incremental, or "already current" no-op. It is the recurring "keep the project fresh" ritual: it catches newly-disclosed dependency CVEs and newly-committed secrets independent of whether any template file changed. Do NOT skip it just because the sync was incremental or the project was already up to date.
+
+After `scripts/project-freshness.sh` has been copied from the template (step 1) and made executable, run it from the project root (report-first):
+
+```bash
+chmod +x scripts/project-freshness.sh
+bash scripts/project-freshness.sh
+```
+
+It runs two LOCAL checks (never as a GitHub Action — that violates `.claude/rules/github-actions.md`):
+
+1. **trufflehog** — verified-secret scan of the repo (git history, or working tree if not a git repo). **Self-installs trufflehog if missing** (brew → scoop → the official install script into `~/.local/bin`, mirroring `graphify-bootstrap.sh`); falls back to a skip + manual-install hint only if every install path fails (or `--no-install` is passed). Never hard-fails the sync.
+2. **npm audit** — dependency-CVE report for every non-vendored `package.json`.
+
+This step is **report-first**: it does NOT mutate the tree. Surface the result to the user:
+
+- **Verified secrets found** → STOP and tell the user to rotate them immediately; a committed credential is compromised. Do not proceed past this silently.
+- **npm advisories found** → report the counts and the remediation path. `npm audit fix` (safe, semver-compatible) is the default suggestion. `npm audit fix --force` pulls in breaking major bumps, so only run it on explicit user confirmation, and when you do, follow it with a full `npm run build && npm test` (or `dotnet build && dotnet test` when the React build feeds `wwwroot`) before committing. `bash scripts/project-freshness.sh --fix` does exactly this (force + verification reminder) in one shot.
+- **Clean** → note it in the step-6 report and move on.
+
+Do not auto-run `--fix` during a sync. Forced dependency upgrades are a user decision, not a silent side effect of syncing config.
 
 ### 4. CLAUDE.md handling
 

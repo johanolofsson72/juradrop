@@ -44,7 +44,8 @@ if [ -z "$TEMPLATE_SHA" ]; then
   echo "[WARN] Could not fetch template SHA — falling back to full sync"
 elif [ "$TEMPLATE_SHA" = "$LAST_SHA" ]; then
   echo "[UP TO DATE] Already synced with template @ $TEMPLATE_SHA"
-  # Nothing changed since last sync — skip Steps 1-8, but STILL run Step 9 (CLAUDE.md slim check).
+  # Nothing changed since last sync — skip Steps 1-8, but STILL run Step 8c
+  # (freshness pass) AND Step 9 (CLAUDE.md slim check). Both are unconditional.
   # (If the user says "force resync" or "full resync", ignore this and continue with a full sync.)
 elif [ -n "$LAST_SHA" ]; then
   echo "[INCREMENTAL SYNC] $LAST_SHA → $TEMPLATE_SHA"
@@ -58,8 +59,8 @@ fi
 
 **Decision logic:**
 
-- **SHAs equal** → project is up to date. Report "already current", skip Steps 1-8, then **jump to Step 9** (CLAUDE.md slim check always runs). Do NOT read template files.
-- **LAST_SHA exists, SHAs differ** → **incremental mode**. Read ONLY files in `$CHANGED`, skip steps that involve files not in that list. Still run Step 7 (tech stack confirmation), Step 8 (verify), and Step 9 (slim check) unconditionally.
+- **SHAs equal** → project is up to date. Report "already current", skip Steps 1-8, then **run Step 8c (freshness pass) and Step 9 (CLAUDE.md slim check)** — both always run. Do NOT read template files.
+- **LAST_SHA exists, SHAs differ** → **incremental mode**. Read ONLY files in `$CHANGED`, skip steps that involve files not in that list. Still run Step 7 (tech stack confirmation), Step 8 (verify), **Step 8c (freshness pass)**, and Step 9 (slim check) unconditionally.
 - **No LAST_SHA** → **full sync**. Read all template files per Step 1 below.
 - **Force override** → if the user prompt contains "force", "full resync", or "--force", ignore `.sync-version` and do a full sync regardless.
 
@@ -87,6 +88,7 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `.claude/rules/validation-followup.md` — after any Allium/TLA+ run, surface every finding individually for an explicit fix/defer/dismiss decision (no "looks good overall" summaries that bury findings)
 - `.claude/rules/feature-pipeline.md` — mandates the speckit + Allium + TLA+ pipeline for non-trivial work; defines the triage tracks and the PreToolUse state-guard hard block
 - `.claude/rules/spec-register.md` — per-project `specs/INDEX.md` register, one-stop-per-spec execution, SessionStart orientation + PreToolUse bootstrap guard
+- `.claude/rules/spec-hardening.md` — risk tier ABOVE the full track (threat-model + expanded destructive/stress + hard mutation gate + adversarial review), auto-triggered by risk domain / state machine / `[hardened]` tag / size; cross-spec integration-hardening checkpoint every 5 specs (a register row); `/clear`-before-big-spec reminder surfaced by the spec-register orientation hook (a hook cannot run `/clear` itself)
 - `.claude/rules/project-workflow.md` — gates PR suggestions behind a one-time `AskUserQuestion` (solo vs team + PRs yes/no/sometimes); answer is saved to project memory and silently suppresses PR nagging on solo projects
 - `.claude/rules/sqlite.md` — SQLite-on-NFS pragmas (rollback journal, no `mmap`, `synchronous=FULL`, 30 s `busy_timeout`), single-writer enforcement (`replicas: 1` + `stop-first` + 30 s grace), NFS mount options (`noac`, `actimeo=0`), retry strategy (paths: `**/appsettings*.json`, `**/docker-compose*.yml`, `**/Program.cs`, `**/*Db*.cs`, `**/*Sqlite*.cs`)
 - `.claude/rules/spot-resilience.md` — required components for services on Azure spot workers: eviction watcher (IMDS scheduled events), graceful drain, idempotent writes, outbox pattern, healthcheck split (paths: `**/Program.cs`, `**/docker-compose*.yml`, controllers/endpoints/services/workers)
@@ -134,7 +136,9 @@ Read the following files from `$TEMPLATE` (resolved in Step -1; all are importan
 - `scripts/test-coverage-hook.sh` — Deterministic functional test coverage enforcement (blocks if tests < inventory items)
 - `scripts/spec-md-coverage-reminder-hook.sh` — Deterministic replacement for the legacy `type:"prompt"` spec-completeness hook. Never blocks (only emits `systemMessage`), detects carve-out phrases ("carved to", "out-of-scope", "deferred to", "tracked in", etc.) and suppresses the destructive-test reminder when tests are explicitly deferred to another slice. Fixes the false-positive blocks observed in projects when slicing specs.
 - `scripts/scenario-map-reminder-hook.sh` — PostToolUse advisory (never blocks). Fires when a spec/tasks file gains interactive behaviour but `specs/SCENARIOS.md` has no rows for it; instructs Claude to START a scenario interview (capture happy/edge/adversarial/error/offline cases) rather than just jotting a note. Silent on template/scratch repos (no language marker). Pairs with `.claude/rules/scenarios.md`.
+- `scripts/scenario-map-orientation-hook.sh` — SessionStart advisory (never blocks). PROACTIVE complement to the reminder above: at session start, if the project already has specs but no `specs/SCENARIOS.md`, it emits a systemMessage telling Claude to START a scenario interview. Catches the **retroactive gap** the PostToolUse reminder structurally cannot — an already-built project whose map was never created (the reminder only fires while a spec is being edited). Silent on template/scratch repos, on projects with no specs, and when the map already exists. Wired into SessionStart by `sync-core-hooks.py` (script-presence gated). Pairs with `.claude/rules/scenarios.md`.
 - `scripts/continuous-execution-hook.sh` — Stop hook backstop: inspects the last assistant message for phase-continuation question patterns ("should I continue with...", "want me to proceed...") and refuses the stop when one is detected. Sentence-aware (only blocks `?` sentences). Requires `python3` and `jq`.
+- `scripts/project-freshness.sh` — Local "keep the project fresh" maintenance pass (NOT a hook — invoked manually or as a sync step). Runs a trufflehog verified-secret scan (git history, or working tree if no `.git`) and an `npm audit` dependency-CVE report for every non-vendored `package.json`. **Self-installs trufflehog if missing** (brew → scoop → official install script into `~/.local/bin`, mirroring `graphify-bootstrap.sh`; `--no-install` suppresses it). Report-first: mutates nothing in the project tree by default; `--fix` opts into `npm audit fix --force` plus a build/test verification reminder. Falls back to a manual-install hint only if every trufflehog install path fails; `npm audit` is skipped (not failed) when there's no lockfile or npm is absent. bash 3.2-safe, cross-platform (macOS/Linux/Windows Git Bash). LOCAL only — never wire it as a CI/scheduled Action (`.claude/rules/github-actions.md`).
 - `scripts/local-llm-detect.sh` — Sourced helper. Pings Ollama at `${OLLAMA_HOST:-http://127.0.0.1:11434}/api/tags` with a 1s timeout and exports `LOCAL_LLM_AVAILABLE` (0/1). Honors `LOCAL_LLM_DISABLE=1` to force-disable. Other local-llm hooks bail out silently when AVAILABLE=0, so the stack is safe to ship to machines without Ollama. Default uses 127.0.0.1 explicitly to avoid Happy-Eyeballs routing to the wrong ollama instance when both IPv4 and IPv6 listeners exist on port 11434.
 - `scripts/local-llm-call.sh` — Generic non-streaming `/api/generate` caller. Reads system prompt as `$1`, user prompt from stdin, num_predict as optional `$2`. Prints model output or exits non-zero on offline/timeout/missing-model.
 - `scripts/local-llm-classify-hook.sh` — UserPromptSubmit hook. Tags the incoming prompt as TRIVIAL / MEDIUM / COMPLEX via local LLM and injects the hint as `additionalContext`. Skips prompts ≤20 chars. Honors `LOCAL_LLM_CLASSIFY_TIMEOUT` (default 4s) so the prompt path stays snappy.
@@ -753,6 +757,49 @@ git add -f .claude/.sync-version 2>/dev/null && echo "[STAGED] .claude/.sync-ver
 ```
 
 **Why this matters:** `.sync-version` is per-project cache state. If it's gitignored or left unstaged, a teammate who clones the repo fresh has no record of the last sync SHA, and their next `/project-update` will do a full 100% sync instead of the incremental path. Committing it is the only way the cache survives across machines.
+
+### Step 8c: Freshness pass (ALWAYS RUNS — regardless of sync mode)
+
+This is the "keep the project fresh" ritual and it runs on **every** `/project-update`, including an "already current" no-op sync and an incremental sync that touched unrelated files. The point is to catch **newly-disclosed dependency CVEs and newly-committed secrets** independent of what template files changed since last sync — a vulnerability disclosed last week against a dependency you never touched must still surface. Do NOT skip this in incremental or up-to-date mode.
+
+Make the freshness script executable and run it from the project root (report-first — trufflehog + npm audit). Because this step ALSO runs in "already current" / incremental mode (where Step 1's file copy was skipped), it first ensures the script is actually present — fetching it from `$TEMPLATE` if a pre-freshness project somehow lacks it:
+
+```bash
+if [ ! -f scripts/project-freshness.sh ]; then
+  mkdir -p scripts
+  cp "$TEMPLATE/scripts/project-freshness.sh" scripts/project-freshness.sh 2>/dev/null \
+    || curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/project-freshness.sh -o scripts/project-freshness.sh
+fi
+chmod +x scripts/project-freshness.sh
+bash scripts/project-freshness.sh
+```
+
+Two LOCAL checks (never as a GitHub Action — that violates `.claude/rules/github-actions.md`): a trufflehog verified-secret scan and an `npm audit` dependency report. The script mutates nothing by default. Fold the outcome into the Step 10 report:
+
+- **Verified secrets found** → this is a hard stop, not a footnote. Tell the developer to rotate the exposed credential immediately and surface it at the TOP of the Step 10 report.
+- **npm advisories found** → report the counts and the remediation path. Suggest `npm audit fix` (safe) first; `npm audit fix --force` only on explicit developer confirmation, always followed by `npm run build && npm test` (or `dotnet build && dotnet test` when React feeds `wwwroot`). `bash scripts/project-freshness.sh --fix` does the force + verification-reminder in one shot.
+- **trufflehog missing** → the script self-installs it (brew/scoop/official script). If every install path fails, it falls back to a SKIP with a manual-install hint — note it, do not block the sync. **npm/lockfile missing** → the `npm audit` leg is a SKIP (no lockfile → "run `npm install` first"), never a false-positive finding.
+
+Do NOT auto-run `--fix` here. A forced dependency upgrade is a developer decision, not a silent side effect of `/project-update`.
+
+### Step 8d: Scenario-map presence check (ALWAYS RUNS — regardless of sync mode)
+
+The scenario map (`specs/SCENARIOS.md`) is a BLOCKING artifact per `.claude/rules/scenarios.md` — it's the source the functional inventory and destructive test suite derive from. The reactive PostToolUse reminder only fires while a spec is being edited, so an already-built project whose map was never created (the iskvalp case) never gets nudged. This sync-time check closes that retroactive gap. Run it on every `/project-update`:
+
+```bash
+if { [ -f specs/INDEX.md ] && grep -qE '^- \[[ x/!]\]' specs/INDEX.md; } \
+   || ls specs/*/spec.md >/dev/null 2>&1 || ls .specify/specs/*/spec.md >/dev/null 2>&1; then
+  if [ ! -f specs/SCENARIOS.md ]; then
+    echo "[SCENARIO GAP] project has specs but specs/SCENARIOS.md is MISSING"
+  else
+    echo "[OK] specs/SCENARIOS.md present"
+  fi
+else
+  echo "[N/A] no specs yet — scenario map not expected"
+fi
+```
+
+If it prints `[SCENARIO GAP]`, surface it prominently in the Step 10 report and **offer to START a scenario interview** (`AskUserQuestion`, one feature at a time, recommended answers the developer confirms) to build the map from the project's existing specs. Do NOT autonomously scaffold a `SCENARIOS.md` — the rule forbids inventing scenarios silently; the map must come from the developer. The SessionStart hook (`scenario-map-orientation-hook.sh`) emits the same nudge every session until the map exists, so this is belt-and-suspenders for the maintenance moment.
 
 ### Step 9: Slim CLAUDE.md (ALWAYS RUNS — regardless of sync mode)
 

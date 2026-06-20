@@ -67,6 +67,14 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-classify-hook.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash \"$CLAUDE_PROJECT_DIR/scripts/pipeline-trigger-match.sh\" pipeline; then bash \"$CLAUDE_PROJECT_DIR/scripts/emit-pipeline-reminder.sh\"; fi"
           },
           {
@@ -83,14 +91,6 @@
             "statusMessage": "Checking for feature-pipeline trigger..."
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-classify-hook.sh\""
-          }
-        ]
       }
     ],
     "PreToolUse": [
@@ -100,15 +100,6 @@
           {
             "type": "command",
             "command": "INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(/\\.ssh/|/\\.aws/|/\\.azure/|/\\.git-credentials|/\\.docker/config\\.json|/\\.config/gh/|\\.env$|\\.env\\.)'; then echo '{\"hookSpecificOutput\": {\"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"Blocked: access to sensitive files is not allowed\"}}'; fi"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "CMD=$(python3 -c \"import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',d).get('command',''))\" 2>/dev/null || true); case \"$CMD\" in *grep*|*rg\\ *|*ripgrep*|*find\\ *|*fd\\ *|*ack\\ *|*ag\\ *)   [ -f graphify-out/graph.json ] &&   echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: knowledge graph at graphify-out/. For focused questions, run `graphify query \\\"<question>\\\"` (scoped subgraph, usually much smaller than GRAPH_REPORT.md) instead of grepping raw files. Read GRAPH_REPORT.md only for broad architecture context.\"}}'   || true ;; esac"
           }
         ]
       },
@@ -139,6 +130,15 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/sqlite-nfs-safety-hook.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=$(python3 -c \"import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',d).get('command',''))\" 2>/dev/null || true); case \"$CMD\" in *grep*|*rg\\ *|*ripgrep*|*find\\ *|*fd\\ *|*ack\\ *|*ag\\ *)   [ -f graphify-out/graph.json ] &&   echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: knowledge graph at graphify-out/. For focused questions, run `graphify query \\\"<question>\\\"` (scoped subgraph, usually much smaller than GRAPH_REPORT.md) instead of grepping raw files. Read GRAPH_REPORT.md only for broad architecture context.\"}}'   || true ;; esac"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -158,60 +158,6 @@
             "type": "command",
             "command": "INPUT=$(cat); CMD=$(echo \"$INPUT\" | jq -r '.tool_input.command // empty' 2>/dev/null); EXIT=$(echo \"$INPUT\" | jq -r '.tool_response.interrupted // false' 2>/dev/null); if echo \"$CMD\" | grep -qiE '(Category=UI|playwright|npx playwright|pnpm.*playwright|yarn.*playwright)'; then jq -n '{hookSpecificOutput: {hookEventName: \"PostToolUse\", additionalContext: \"BROWSER TESTS COMPLETED \u2014 BLOCKING VALIDATION REQUIRED before declaring work done:\\n\\n(1) SPEC COMPLIANCE: Open the feature spec and its FUNCTIONAL COVERAGE section. Enumerate every implemented function. Confirm each has a passing browser test AND that the assertion actually verifies the spec behavior (not just that the page loaded). If ANY function lacks a real test, the task is NOT done \u2014 write the missing tests now.\\n\\n(2) DESIGN COMPLIANCE: Invoke the frontend-design skill via the Skill tool and verify the UI follows its recommendations (typography scale, spacing rhythm, color palette, component polish, accessibility, responsive behavior, distinctive design \u2014 not generic AI aesthetic). If any violations exist, fix them before declaring done.\\n\\nDo NOT skip either step. Do NOT declare the task complete until both validations pass. Report findings explicitly: which functions were verified, which design checks passed/failed.\"}}'; fi",
             "statusMessage": "Enforcing post-browser-test validation..."
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/graphify-fire-hook.sh\"",
-            "statusMessage": "Logging graphify invocation telemetry..."
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-md-coverage-reminder-hook.sh\"",
-            "statusMessage": "Validating spec completeness..."
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/scenario-map-reminder-hook.sh\"",
-            "statusMessage": "Checking scenario map (SCENARIOS.md)..."
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
-            "statusMessage": "Checking functional test coverage..."
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
-            "statusMessage": "Checking for TLA+ verification..."
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/allium-hook.sh\"",
-            "statusMessage": "Checking for Allium specification..."
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/after-specify-hook.sh\"",
-            "statusMessage": "after_specify: auto-commit check..."
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "INPUT=$(cat | jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$INPUT\" | grep -qiE '(tlc|tla2tools|tlc2\\.TLC)'; then bash \"$CLAUDE_PROJECT_DIR/scripts/tlc-cleanup.sh\" 2>/dev/null; fi"
           }
         ]
       },
@@ -296,6 +242,60 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-tlc-translate-hook.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-md-coverage-reminder-hook.sh\"",
+            "statusMessage": "Validating spec completeness..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/scenario-map-reminder-hook.sh\"",
+            "statusMessage": "Checking scenario map (SCENARIOS.md)..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/allium-hook.sh\"",
+            "statusMessage": "Checking for Allium specification..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/after-specify-hook.sh\"",
+            "statusMessage": "after_specify: auto-commit check..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "INPUT=$(cat | jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$INPUT\" | grep -qiE '(tlc|tla2tools|tlc2\\.TLC)'; then bash \"$CLAUDE_PROJECT_DIR/scripts/tlc-cleanup.sh\" 2>/dev/null; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/graphify-fire-hook.sh\"",
+            "statusMessage": "Logging graphify invocation telemetry..."
+          }
+        ]
       }
     ],
     "PreCompact": [
@@ -322,7 +322,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-register-orientation-hook.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-orientation-hook.sh\""
           }
         ]
       },
@@ -330,7 +330,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-orientation-hook.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-register-orientation-hook.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/scenario-map-orientation-hook.sh\""
           }
         ]
       }

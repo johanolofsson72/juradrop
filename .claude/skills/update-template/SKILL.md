@@ -26,8 +26,12 @@ Search for ALL of the following using WebSearch. Run searches in parallel where 
 6. "anthropic claude code new features update"
 7. "context engineering claude code best practices"
 8. "claude code community CLAUDE.md examples github"
+9. "trufflehog latest CLI flags filesystem git scan only-verified best practices"
+10. "npm audit fix --force breaking changes best practices 2026"
 
 Collect ALL relevant findings before proceeding.
+
+When the trufflehog/npm-audit findings land, reconcile them against `scripts/project-freshness.sh` (the local freshness pass). If trufflehog's CLI surface has shifted (renamed flags, changed `--only-verified`/`--results` semantics, new scan subcommands) or npm's audit/remediation guidance has moved, update that script and the matching Step 8c instructions in `scripts/sync-prompt.md` + the freshness step in `.claude/skills/sync-template/SKILL.md`. Keep all three in lockstep — they describe the same local-only check (never a CI/scheduled Action, per `.claude/rules/github-actions.md`).
 
 ## Step 2: Read current structure
 
@@ -53,6 +57,7 @@ Compare online findings (step 1) with current structure (step 2). Identify:
 5. **Security improvements** missing
 6. **Context optimizations** available
 7. **New skill types** worth creating
+8. **Freshness tooling drift** — does `scripts/project-freshness.sh` still use current trufflehog flags and npm audit guidance? (see step 1 queries 9–10)
 
 ## Step 4: Apply or report
 
