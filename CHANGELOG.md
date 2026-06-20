@@ -6,6 +6,16 @@ Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/), och p
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-20
+
+En liten men viktig integritetsfix i anonymiseringen, plus en omgång härdning under huven.
+
+### Fixed
+- **Anonymiseringen täpper till ett kantfall** (spec 048): om ett telefonnummer stod ihopklistrat med ett postnummer utan något ord emellan (t.ex. "100 00 01-000 00 00") maskades förut bara postnumret innan texten gick till AI-modellen — telefonnumret följde med ända fram till modellen. Efterkontrollen fångade det ändå, så inget lämnade datorn, men nu maskas båda redan innan modellen ser något.
+
+### Changed
+- Integritetskärnan har gåtts igenom ordentligt: fler tester, mutationstestning och en säkerhetsgranskning av koden som maskar personuppgifter. Inget syns utåt, men skyddet står på stadigare grund.
+
 ## [0.4.0] - 2026-06-08
 
 Anonymiseringen blev mycket vassare den här rundan — driven av testaren Mejas
