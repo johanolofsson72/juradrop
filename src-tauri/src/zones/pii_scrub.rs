@@ -83,45 +83,97 @@ impl Category {
 /// bridge ACROSS two adjacent personnummer ("…-0101 19020202-…") and leave
 /// PII fragments behind — caught by the document_of_only_pii test.
 pub fn scrub_structured_pii(text: &str) -> ScrubOutcome {
-    // 1. Collect all candidates from all categories on the original text.
-    let mut candidates: Vec<(std::ops::Range<usize>, &str, Category)> = Vec::new();
-    for (re, cat) in [
+    // The shared patterns. RE_ADRESS_FULL precedes RE_ADRESS so the whole-line
+    // address (street+postnummer+city, spec 047) is offered BEFORE the
+    // street-only form; both feed Category::Adress and leftmost-longest keeps the
+    // longer full-line span, collapsing the line to one [Adress N].
+    let patterns: [(&Regex, Category); 6] = [
         (&*RE_EMAIL, Category::Epost),
         (&*RE_PHONE, Category::Telefon),
         (&*RE_PERSONNUMMER, Category::Personnr),
         (&*RE_POSTNUMMER, Category::Postnr),
-        // Spec 047 — the whole-line address (street+postnummer+city) is offered
-        // BEFORE the street-only RE_ADRESS; both feed Category::Adress, and the
-        // leftmost-longest sweep keeps the longer full-line span, collapsing the
-        // line to one [Adress N] and discarding the street/postnummer sub-spans.
         (&*RE_ADRESS_FULL, Category::Adress),
         (&*RE_ADRESS, Category::Adress),
-    ] {
-        let re: &Regex = re;
-        for m in re.find_iter(text) {
-            candidates.push((m.range(), m.as_str(), cat));
-        }
-    }
+    ];
 
-    // 2. Leftmost-longest sweep: sort by (start asc, len desc, category
-    //    priority asc) and keep non-overlapping winners in order.
-    candidates.sort_by(|a, b| {
-        a.0.start
-            .cmp(&b.0.start)
-            .then(b.0.len().cmp(&a.0.len()))
-            .then((a.2 as u8).cmp(&(b.2 as u8)))
-    });
+    // 1+2. Streaming leftmost-longest overlap resolution (spec 048).
+    //
+    // From a moving cursor, find each pattern's leftmost match in the REMAINDER
+    // text[cursor..], pick the overall leftmost-longest (start asc, len desc,
+    // category priority asc), commit it, and advance the cursor past it. The
+    // region between the cursor and the winner's start is provably match-free for
+    // EVERY pattern (the winner is the leftmost match of all of them), so it is
+    // skipped wholesale and the loop is linear in the text length.
+    //
+    // This is the spec-048 fix. The pre-048 code collected ALL candidates from one
+    // whole-text scan and resolved overlaps once; a candidate whose greedy
+    // whole-text match BRIDGED into an earlier winner was discarded, and its
+    // clean sub-span — which only surfaces as a match when the text BEFORE it is
+    // removed — was never reconsidered. A phone whose digit run is whitespace-glued
+    // to an earlier postnummer ("100 00 01-000 00 00") leaked INTO the model that
+    // way (only the output sweep netted it). Re-finding from the cursor after each
+    // commit reconsiders exactly those clean sub-spans, so the scrub is complete on
+    // its own. For non-glued input the cursor walk yields the identical result to
+    // the pre-048 pass (every existing scrub test is unchanged); only the
+    // previously-leaking glued cases now scrub to the full placeholder (FR-002).
+    //
+    // `kept` comes out strictly ascending (the cursor only moves forward), so the
+    // first-occurrence registry below indexes in document order (FR-003).
     let mut kept: Vec<(std::ops::Range<usize>, &str, Category)> = Vec::new();
-    let mut covered_until = 0usize;
-    for (range, value, cat) in candidates {
-        if range.start >= covered_until {
-            covered_until = range.end;
-            kept.push((range, value, cat));
+    let mut cursor = 0usize;
+    // `loop` (not `while cursor < text.len()`): the empty-remainder case is the
+    // None branch below — `&text[text.len()..]` is "" and finds nothing — so a
+    // separate bound check would be a redundant, mutation-equivalent comparison.
+    loop {
+        let slice = &text[cursor..];
+        let mut best: Option<(std::ops::Range<usize>, &str, Category)> = None;
+        for (re, cat) in patterns {
+            if let Some(m) = re.find(slice) {
+                let cand = (cursor + m.start()..cursor + m.end(), m.as_str(), cat);
+                // Keep the leftmost match. On an IDENTICAL start the first pattern
+                // in `patterns` wins (a later one fails `start < best.start`), and
+                // the array is deliberately ordered so first-listed == the correct
+                // leftmost-longest / lowest-category winner for every collision the
+                // six patterns can actually produce: RE_ADRESS_FULL before
+                // RE_ADRESS (the only same-start different-length pair → longer
+                // wins) and category order Epost<Telefon<Personnr<Postnr<Adress
+                // (the only same-start same-length pair, phone vs personnummer →
+                // lower category wins). An explicit length/category comparison here
+                // would be unreachable dead code — the mutation gate confirmed it —
+                // so the tie-break lives in the array order, pinned by
+                // `phone_wins_identical_span_tiebreak` and the whole-line collapse
+                // tests. KEEP THIS ORDERING when adding a pattern.
+                let wins = match &best {
+                    None => true,
+                    Some(b) => cand.0.start < b.0.start,
+                };
+                if wins {
+                    best = Some(cand);
+                }
+            }
+        }
+        match best {
+            // No pattern matches anywhere in the remainder — done.
+            None => break,
+            Some((range, value, cat)) => {
+                // Termination invariant: every pattern matches >= 1 byte, so the
+                // cursor strictly advances. A future zero-length-match pattern
+                // would stall the cursor here and spin on untrusted input — fail
+                // loudly in test/CI rather than hang in the field (no-op in
+                // release). All six current patterns are >= 5 bytes.
+                debug_assert!(
+                    range.end > range.start,
+                    "zero-length PII match at byte {} would stall the scrub cursor",
+                    range.start
+                );
+                cursor = range.end;
+                kept.push((range, value, cat));
+            }
         }
     }
 
-    // 3. Per-category first-occurrence registries (FR-002: same value →
-    //    same index). Values live only in this stack frame (FR-007).
+    // 3. Per-category first-occurrence registries (FR-003: same value →
+    //    same index). Values live only in this stack frame (FR-005).
     let mut registries: [Vec<&str>; 5] =
         [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
     for (_, value, cat) in &kept {
@@ -612,32 +664,143 @@ mod tests {
     }
 
     #[test]
-    fn postnummer_adjacent_phone_is_netted_by_sweep() {
-        // H1 finding (property-based test, audit follow-up): when a phone's
-        // digit run is whitespace-adjacent to an earlier postnummer with NO
-        // intervening non-`[\s-]` character (`"100 00 01-000 00 00"`), the
-        // scrub's leftmost-longest overlap resolution can leave the phone
-        // un-replaced — `find_iter`'s greedy match bridges the boundary, that
-        // bridging span loses the overlap contest, and the clean phone span is
-        // never reconsidered. This documents the KNOWN limitation and PROVES
-        // the two-layer design still protects the user: the output-side sweep
-        // detects the residual phone, so the Swedish "double-check" warning
-        // fires and nothing leaves the Mac (Principle I intact). Tightening the
-        // scrub's overlap resolution to re-scan uncovered gaps is tracked as a
-        // follow-up hardened spec, not slipped into this checkpoint.
+    fn postnummer_adjacent_phone_is_scrubbed_by_gap_rescan() {
+        // Spec 048 — the H1 finding, now FIXED. When a phone's digit run is
+        // whitespace-glued to an earlier postnummer with no intervening
+        // non-`[\s-]` character (`"100 00 01-000 00 00"`), `find_iter`'s greedy
+        // phone match bridges the boundary, that bridging span loses the
+        // first-pass leftmost-longest contest, and PRE-048 the clean phone span
+        // ("01-000 00 00") was never reconsidered — so the phone leaked INTO the
+        // model (the output sweep netted it). The gap re-scan now re-examines the
+        // uncovered range after the postnummer and replaces the phone too: the
+        // scrub is complete on its own, the sweep finds nothing.
         let out = scrub_structured_pii("100 00 01-000 00 00");
-        // The scrub catches the postnummer but (knowingly) misses the glued phone.
         assert!(
             out.text.contains("[Postnr 1]"),
             "postnummer must scrub: {}",
             out.text
         );
-        // The independent residue sweep is the safety net — it MUST flag the phone.
-        let residue = scan_residual_pii(&out.text);
-        assert_eq!(
-            residue.phone, 1,
-            "the sweep must net the phone the scrub missed (defense-in-depth): {}",
+        assert!(
+            out.text.contains("[Telefon 1]"),
+            "the glued phone must now be scrubbed by the gap re-scan: {}",
             out.text
+        );
+        assert_eq!(out.text, "[Postnr 1] [Telefon 1]", "{}", out.text);
+        assert_eq!((out.postnummer, out.telefon), (1, 1));
+        // The scrub no longer relies on the sweep to net the phone — the output
+        // is clean of every detectable pattern by construction.
+        assert!(
+            scan_residual_pii(&out.text).is_clean(),
+            "gap re-scan must leave no residue: {}",
+            out.text
+        );
+    }
+
+    // ── Spec 048 — gap re-scan functional + destructive coverage ─────────────
+
+    #[test]
+    fn gap_rescan_postnummer_glued_to_personnummer() {
+        // A personnummer whose 10-digit run is space-glued to a leading
+        // postnummer: "100 00 19850312-1234". The personnummer's leftmost match
+        // and the postnummer can bridge; the gap re-scan must catch both.
+        let out = scrub_structured_pii("100 00 19850312-1234");
+        assert_eq!(out.text, "[Postnr 1] [Personnr 1]", "{}", out.text);
+        assert_eq!((out.postnummer, out.personnummer), (1, 1));
+        assert!(scan_residual_pii(&out.text).is_clean(), "{}", out.text);
+    }
+
+    #[test]
+    fn gap_rescan_three_way_glued_chain() {
+        // A chain that forces >1 re-scan pass: postnummer, phone, postnummer all
+        // bare-space joined. Every span must end up replaced, none leaking.
+        let out = scrub_structured_pii("100 00 070-123 45 67 200 10");
+        assert!(out.text.contains("[Postnr 1]"), "{}", out.text);
+        assert!(out.text.contains("[Telefon 1]"), "{}", out.text);
+        assert!(out.text.contains("[Postnr 2]"), "{}", out.text);
+        assert_eq!((out.postnummer, out.telefon), (2, 1));
+        assert!(scan_residual_pii(&out.text).is_clean(), "{}", out.text);
+    }
+
+    #[test]
+    fn gap_rescan_preserves_same_value_same_index_across_a_gap() {
+        // FR-003 — a value first seen via the gap re-scan and then again later
+        // must share its index. The first phone is glued (re-scan path); the
+        // second is the same number standalone (first-pass path).
+        let out = scrub_structured_pii("100 00 070-123 45 67. Igen: 070-123 45 67.");
+        assert_eq!(
+            out.text.matches("[Telefon 1]").count(),
+            2,
+            "same number → same index regardless of which pass found it: {}",
+            out.text
+        );
+        assert_eq!(out.telefon, 1, "one DISTINCT phone");
+        assert!(scan_residual_pii(&out.text).is_clean(), "{}", out.text);
+    }
+
+    #[test]
+    fn gap_rescan_is_idempotent() {
+        // Re-scanning already-scrubbed glued text changes nothing.
+        let once = scrub_structured_pii("100 00 01-000 00 00");
+        let twice = scrub_structured_pii(&once.text);
+        assert_eq!(once.text, twice.text, "placeholders must never re-match");
+        assert_eq!((twice.postnummer, twice.telefon), (0, 0));
+    }
+
+    #[test]
+    fn gap_rescan_utf8_adjacency_across_a_gap() {
+        // FR-004 — Swedish characters either side of a glued pair survive intact.
+        let out = scrub_structured_pii(" åäö 100 00 01-000 00 00 öäå");
+        assert_eq!(out.text, " åäö [Postnr 1] [Telefon 1] öäå", "{}", out.text);
+        assert!(out.text.chars().count() > 0);
+    }
+
+    #[test]
+    fn gap_rescan_boundary_single_char_gap_between_kept_spans() {
+        // The gap between two kept spans is a single non-word char (no PII to
+        // find there) — the loop must still settle and leave it untouched.
+        let out = scrub_structured_pii("114 35 200 10");
+        assert_eq!(out.text, "[Postnr 1] [Postnr 2]", "{}", out.text);
+        assert_eq!(out.postnummer, 2);
+    }
+
+    #[test]
+    fn first_pass_identity_on_a_non_glued_document() {
+        // FR-002 — for input with no glued-adjacency edge case, the gap re-scan
+        // adds nothing: the result is exactly what the pre-048 single pass gave.
+        let input = "Anna 19850312-1234 bor på Storgatan 5, 114 35 Lund. \
+                     Tel 070-123 45 67, e-post anna@exempel.se.";
+        let out = scrub_structured_pii(input);
+        assert!(out.text.contains("[Personnr 1]"), "{}", out.text);
+        assert!(out.text.contains("[Adress 1]"), "{}", out.text);
+        assert!(out.text.contains("[Telefon 1]"), "{}", out.text);
+        assert!(out.text.contains("[E-post 1]"), "{}", out.text);
+        // The whole-line address folded the postnummer in (spec 047) → no [Postnr].
+        assert_eq!(
+            out.postnummer, 0,
+            "postnummer folded into address: {}",
+            out.text
+        );
+        assert!(scan_residual_pii(&out.text).is_clean(), "{}", out.text);
+    }
+
+    #[test]
+    fn gap_rescan_stress_long_glued_chain_terminates_and_is_clean() {
+        // Hardened stress (T007 / SC-109 / DoS mitigation): a long run of
+        // bare-space-glued postnummer+phone pairs must terminate quickly, replace
+        // every span, and leave zero residue — no unbounded loop, no leak.
+        let unit = "100 00 01-000 00 00 ";
+        let input = unit.repeat(1000);
+        let out = scrub_structured_pii(&input);
+        assert_eq!(out.postnummer, 1, "one DISTINCT postnummer value");
+        assert_eq!(out.telefon, 1, "one DISTINCT phone value");
+        assert!(
+            !out.text.contains("01-000"),
+            "no raw phone fragment may survive in {} chars",
+            out.text.len()
+        );
+        assert!(
+            scan_residual_pii(&out.text).is_clean(),
+            "stress input must scrub clean"
         );
     }
 }
@@ -658,20 +821,27 @@ mod prop_tests {
     /// A generator of realistic PII-rich Swedish text: random personnummer,
     /// phone numbers, e-post, street addresses, postnummer and filler.
     ///
-    /// Fragments are joined with prose separators (`, ` / `. ` / ` och `) — NOT
-    /// a bare space. This mirrors real legal documents (a postnummer is followed
-    /// by a city/word, never glued straight onto a phone number) AND it sidesteps
-    /// a known scrub-completeness edge case the bare-space version found: when a
-    /// phone's digit run is whitespace-adjacent to an earlier postnummer with no
-    /// intervening non-`[\s-]` character, `find_iter`'s greedy match bridges the
-    /// boundary, loses the leftmost-longest contest, and leaves the phone for the
-    /// SWEEP to net (proven in `postnummer_adjacent_phone_is_netted_by_sweep`).
-    /// That edge case is an H1 finding tracked for a follow-up spec, not a silent
-    /// pass — this generator keeps the property honest about realistic input.
+    /// Spec 048 — fragments are joined with a **bare space** alongside prose
+    /// separators. The bare-space join is the strong case: it reproduces the H1
+    /// finding where a phone's digit run is whitespace-glued to an earlier
+    /// postnummer with no intervening non-`[\s-]` character
+    /// (`"100 00 01-000 00 00"`), the boundary-bridging match loses the
+    /// leftmost-longest contest, and PRE-048 the clean phone span was never
+    /// reconsidered. With the gap re-scan that case is now scrubbed completely, so
+    /// the residue property below holds even under bare-space adjacency — the
+    /// prose-only workaround the H1 checkpoint used is retired.
     fn pii_rich_text() -> impl Strategy<Value = String> {
         let fragment = prop_oneof![
             (1900u32..2030, 1u32..13, 1u32..29, 0u32..10_000)
                 .prop_map(|(y, m, d, n)| format!("{y:04}{m:02}{d:02}-{n:04}")),
+            // Spec 048 (adversarial-review F2): also fuzz the separator-less
+            // 12-digit personnummer and the '+'-separator (born >100 yrs ago)
+            // forms — RE_PERSONNUMMER matches both, so the residue property must
+            // exercise them, not just the canonical YYMMDD-NNNN shape.
+            (1900u32..2030, 1u32..13, 1u32..29, 0u32..10_000)
+                .prop_map(|(y, m, d, n)| format!("{y:04}{m:02}{d:02}{n:04}")),
+            (0u32..130, 1u32..13, 1u32..29, 0u32..10_000)
+                .prop_map(|(y, m, d, n)| format!("{:02}{m:02}{d:02}+{n:04}", y % 100)),
             (1u32..1000, 0u32..1000, 0u32..100, 0u32..100)
                 .prop_map(|(a, b, c, d)| format!("0{a}-{b:03} {c:02} {d:02}")),
             "[a-zåäö]{1,8}\\.[a-zåäö]{1,8}@[a-z]{2,8}\\.[a-z]{2,3}",
@@ -679,7 +849,8 @@ mod prop_tests {
             (100u32..990, 0u32..100).prop_map(|(a, b)| format!("{a} {b:02}")),
             "[A-Za-zåäöÅÄÖ]{0,12}",
         ];
-        let separator = prop_oneof![Just(", "), Just(". "), Just(" och "), Just(": ")];
+        // Bare space FIRST — the adjacency the H1 finding lives in.
+        let separator = prop_oneof![Just(" "), Just(", "), Just(". "), Just(" och "), Just(": ")];
         (prop::collection::vec(fragment, 0..8), separator).prop_map(|(parts, sep)| parts.join(sep))
     }
 

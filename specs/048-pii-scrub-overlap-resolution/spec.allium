@@ -1,0 +1,150 @@
+-- allium: 3
+
+-- Spec 048: PII-scrub overlap resolution (gap re-scan).
+-- Elicited 2026-06-20 from specs/048-pii-scrub-overlap-resolution/spec.md (post-clarify).
+-- Provenance: H1 PBT finding — a phone whose digit run is whitespace-glued to an
+-- earlier postnummer ("100 00 01-000 00 00") had its bridging match discarded by
+-- the single-pass leftmost-longest sweep and its clean sub-span never reconsidered,
+-- so the scrub leaked the phone INTO the model (the output sweep netted it).
+-- This sharpens the spec-039 scrub model: the resolution is now multi-pass complete.
+
+enum PiiCategory { epost | telefon | personnr | postnr | adress }
+
+external entity ExtractedDocument {
+    text: String
+}
+
+-- One candidate PII span found by a shared pattern on a (sub)range of the text.
+value Candidate {
+    range_start: Integer
+    range_end: Integer
+    matched_value: String       -- in-memory only, never persisted/logged
+    category: PiiCategory
+
+    invariant CharBoundaryAligned {
+        -- regex match ranges are UTF-8 char-boundary aligned (FR-004)
+        this.range_is_char_boundary = true
+    }
+}
+
+-- The set of non-overlapping winners kept by the resolution, with the in-memory
+-- value -> (category, index) registry for ONE Anonymisera run.
+entity Resolution {
+    document: ExtractedDocument
+    kept: Set<Candidate>
+
+    invariant NonOverlapping {
+        -- no two kept spans share a byte
+        for a in kept:
+            not exists b in kept
+                where b.range_start < a.range_end
+                and a.range_start < b.range_end
+                and b != a
+    }
+    invariant LeftmostLongest {
+        -- within each pass, winners are chosen start-asc, length-desc, category-asc;
+        -- a loser's clean sub-span is reconsidered in a later pass
+        this.winners_are_leftmost_longest_per_pass = true
+    }
+    invariant Complete {
+        -- THE 048 strengthening: after the multi-pass resolution settles, no
+        -- uncovered gap contains any further pattern match. The scrub is complete
+        -- on its own — not reliant on the output sweep to net a missed span.
+        this.no_uncovered_gap_contains_a_pattern_match = true
+    }
+    invariant Terminates {
+        -- gaps shrink monotonically (each pass covers >= 1 more byte or stops),
+        -- bounded by text length: the loop always terminates (FR-004)
+        this.uncovered_length_strictly_decreases_until_stable = true
+    }
+    invariant SameValueSameIndex {
+        for a in kept:
+            not exists b in kept
+                where b.matched_value = a.matched_value
+                and b.category = a.category
+                and b.index != a.index
+    }
+    invariant SequentialFirstOccurrence {
+        -- indices dense + ordered by first occurrence (document/start order) per
+        -- category, preserved across the multi-pass resolution (FR-003)
+        this.indices_dense_per_category_in_start_order = true
+    }
+    invariant NeverPersisted {
+        -- Principle I (FR-005): the registry lives only for the run
+        this.persisted = false
+        this.logged = false
+    }
+}
+
+entity ScrubResult {
+    resolution: Resolution
+    scrubbed_text: String
+
+    invariant NoResidueOfMatchedPatterns {
+        -- the output contains zero matches of the shared PII patterns for
+        -- realistic prose-or-whitespace-separated input (FR-001)
+        this.scrubbed_text_matches_pii_patterns = false
+    }
+    invariant Utf8Safe {
+        this.scrubbed_text_valid_utf8 = true
+    }
+    invariant FirstPassUnchanged {
+        -- FR-002: the first pass is byte-for-byte the pre-048 behaviour; the gap
+        -- re-scan only ADDS replacements in previously-uncovered ranges
+        this.first_pass_output_equals_pre048 = true
+    }
+}
+
+-- ── Rules ────────────────────────────────────────────────────────────────
+
+rule ResolveOverlapsWithGapRescan {
+    when: ScrubStructuredPii(document)
+    ensures:
+        -- collect candidates from the whole text, keep leftmost-longest winners,
+        -- then re-scan the uncovered gaps until no new match is found
+        let resolution = Resolution.created(document: document)
+        let result = ScrubResult.created(resolution: resolution)
+        result.no_uncovered_gap_contains_a_pattern_match = true
+}
+
+rule GapRescanOperatesOnUncoveredSlices {
+    when: GapRescanPass(resolution)
+    requires:
+        -- re-scan runs on slices of the uncovered gaps only; gaps are disjoint
+        -- from kept spans, so a kept span is never re-discovered
+        resolution.gaps_disjoint_from_kept = true
+    ensures:
+        -- shared patterns are \b-anchored both ends and every kept span edge is a
+        -- \b boundary, so a slice match is valid at the same absolute position
+        resolution.slice_matches_valid_in_full_text = true
+}
+
+rule SweepStillRuns {
+    when: AnonymiseraCombinedOutputReady(output)
+    ensures:
+        -- FR-006: the spec-014 output-side sweep runs unchanged as the
+        -- independent net for fabricated/unmatched PII (defense-in-depth)
+        PiiSweepRun(output)
+}
+
+-- ── Global invariants ────────────────────────────────────────────────────
+
+invariant DetectAndReplaceAgree {
+    -- the scrub uses literally the same compiled patterns as the sweep, so
+    -- "replaced" and "warned about" can never disagree on what PII is
+    for result in ScrubResults:
+        result.patterns_are_shared_with_sweep = true
+}
+
+invariant ScrubCompletesWithoutSweep {
+    -- the 048 contract: the scrub no longer relies on the output sweep to net a
+    -- whitespace-glued candidate; the sweep is a second layer, not a backstop for
+    -- a known scrub miss
+    for result in ScrubResults:
+        result.scrubbed_text_matches_pii_patterns = false
+}
+
+invariant AnonymiseraOnly {
+    for resolution in Resolutions:
+        resolution.zone_id = `anonymisera`
+}
