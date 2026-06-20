@@ -82,26 +82,52 @@ fn seam_env_read_is_debug_gated_in_production_code() {
 fn seam_file_fallback_is_debug_gated_in_production_code() {
     const OVERRIDE_PATH: &str = "juradrop-ollama-url-override";
     let prod = production_region(CLIENT_SRC);
-    let lines: Vec<&str> = prod.lines().collect();
-    let mut found = false;
-    for (i, line) in lines.iter().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("//") || trimmed.starts_with("///") {
-            continue;
+
+    // Locate the single production `#[cfg(debug_assertions)]` seam block and its
+    // brace extent, then assert every non-comment override-path read sits INSIDE
+    // it. This is robust to line count (the spec-037 file fallback and the H1
+    // M-3 UID-ownership guard both add lines but keep the read gated) AND
+    // strictly stronger than the old fixed-line-window heuristic: a read moved
+    // AFTER the block closes is now caught, not just one too far below the gate.
+    let gate = prod
+        .find("#[cfg(debug_assertions)]")
+        .expect("a #[cfg(debug_assertions)] seam gate must exist in production code");
+    let open = prod[gate..]
+        .find('{')
+        .map(|o| gate + o)
+        .expect("the debug seam gate must open a block");
+    let bytes = prod.as_bytes();
+    let mut depth = 0usize;
+    let mut close = prod.len();
+    for (k, &b) in bytes[open..].iter().enumerate() {
+        match b {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = open + k;
+                    break;
+                }
+            }
+            _ => {}
         }
-        if line.contains(OVERRIDE_PATH) {
+    }
+
+    let mut found = false;
+    let mut from = 0;
+    while let Some(rel) = prod[from..].find(OVERRIDE_PATH) {
+        let at = from + rel;
+        // Skip mentions inside comments — only the real read must be gated.
+        let line_start = prod[..at].rfind('\n').map(|n| n + 1).unwrap_or(0);
+        if !prod[line_start..at].trim_start().starts_with("//") {
             found = true;
-            let start = i.saturating_sub(12);
-            let gated = lines[start..i]
-                .iter()
-                .any(|l| l.contains("#[cfg(debug_assertions)]"));
             assert!(
-                gated,
-                "the override-file read at production line {} is NOT inside a \
-                 #[cfg(debug_assertions)] gate — Principle I violation",
-                i + 1
+                at > open && at < close,
+                "an override-file read sits OUTSIDE the #[cfg(debug_assertions)] \
+                 seam block — Principle I violation (ReleaseUsesLocalhostOnly)"
             );
         }
+        from = at + OVERRIDE_PATH.len();
     }
     assert!(
         found,
