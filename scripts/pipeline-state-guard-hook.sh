@@ -63,39 +63,38 @@ case "$EXT_LC" in
     ;;
 esac
 
-# 3) Walk up to find project root + language marker
+# 3) Walk up to the .git boundary, collecting: a language marker (anywhere in
+#    the path — gates out template/scratch repos), and the spec register
+#    (specs/INDEX.md, searched independently because it may live at the repo
+#    root while the language marker sits in a subdir — e.g. an extension/ or
+#    backend/ package.json with the register at the git root).
 DIR=$(dirname "$FILE")
 LANG_MARKER=""
+GIT_ROOT=""
+REGISTER=""
 PROJECT_ROOT=""
-REPO_FOUND=0
 while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
   if [ -z "$LANG_MARKER" ]; then
     for marker in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile build.gradle build.gradle.kts pom.xml pubspec.yaml; do
-      if [ -f "$DIR/$marker" ]; then LANG_MARKER="$marker"; PROJECT_ROOT="$DIR"; break; fi
+      if [ -f "$DIR/$marker" ]; then LANG_MARKER="$marker"; break; fi
     done
   fi
-  if [ -z "$LANG_MARKER" ] && ls "$DIR"/*.csproj >/dev/null 2>&1; then
-    LANG_MARKER="*.csproj"; PROJECT_ROOT="$DIR"
+  [ -z "$LANG_MARKER" ] && ls "$DIR"/*.csproj >/dev/null 2>&1 && LANG_MARKER="*.csproj"
+  [ -z "$LANG_MARKER" ] && ls "$DIR"/*.sln >/dev/null 2>&1 && LANG_MARKER="*.sln"
+  if [ -z "$REGISTER" ] && [ -f "$DIR/specs/INDEX.md" ]; then
+    REGISTER="$DIR/specs/INDEX.md"; PROJECT_ROOT="$DIR"
   fi
-  if [ -z "$LANG_MARKER" ] && ls "$DIR"/*.sln >/dev/null 2>&1; then
-    LANG_MARKER="*.sln"; PROJECT_ROOT="$DIR"
-  fi
-  if [ -d "$DIR/.git" ]; then
-    REPO_FOUND=1
-    [ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$DIR"
-    break
-  fi
+  if [ -d "$DIR/.git" ]; then GIT_ROOT="$DIR"; break; fi
   DIR=$(dirname "$DIR")
 done
 
-[ "$REPO_FOUND" -eq 0 ] && exit 0
-[ -z "$LANG_MARKER" ] && exit 0
-
-REGISTER="$PROJECT_ROOT/specs/INDEX.md"
-[ ! -f "$REGISTER" ] && exit 0
+[ -z "$GIT_ROOT" ] && exit 0      # not inside a git repo
+[ -z "$LANG_MARKER" ] && exit 0   # template/scratch repo — no code project
+[ -z "$REGISTER" ] && exit 0      # no spec register up to the git root
 
 # 4) Parse register + check artifacts in Python (regex + filesystem)
 RESULT=$(REGISTER_PATH="$REGISTER" PROJECT_ROOT_PATH="$PROJECT_ROOT" python3 <<'PY' 2>/dev/null
+import glob
 import json
 import os
 import re
@@ -104,11 +103,15 @@ import sys
 reg_path = os.environ["REGISTER_PATH"]
 root = os.environ["PROJECT_ROOT_PATH"]
 
-# Register row: "- [x] 003 — search — full track — short goal"
-# Track word ("track") is optional to accept both documented and shorthand forms.
-row_re = re.compile(
-    r"^-\s+\[(.)\]\s+(\S+)\s+—\s+(\S+)\s+—\s+(\S+)(?:\s+track)?\s+—.*$"
-)
+# Register row, tolerant form. Accepts the canonical
+#   "- [x] 003 — search — full track — short goal"
+# AND heavily-formatted real-world rows like
+#   "- [ ] **364 — inbound-reply (mail / Slack)** — full [hardened] — NOT STARTED"
+# The leading spec id is extracted separately (stripping markdown ** and
+# whitespace); the track is the first token of the third field; the spec dir is
+# resolved by globbing "<id>-*". Same parser as spec-interview-guard-hook.sh.
+row_re = re.compile(r"^-\s+\[([ xX/!])\]\s+(.+?)\s+—\s+(.+?)\s+—\s+(.+?)\s+—.*$")
+id_re = re.compile(r"^\**\s*([0-9]+)\b")  # numeric spec ids only — H1/checkpoint rows are skipped
 
 active = None
 pending = []
@@ -118,12 +121,18 @@ try:
             m = row_re.match(line.rstrip())
             if not m:
                 continue
-            status, num, slug, track = m.group(1), m.group(2), m.group(3), m.group(4)
+            status, raw_id, track = m.group(1), m.group(2), m.group(4)
+            idm = id_re.match(raw_id.strip())
+            if not idm:
+                # Non-numeric id (e.g. "H1" integration-hardening checkpoint) —
+                # not a spec, no pipeline artifacts required.
+                continue
+            spec_id = idm.group(1)
             if status == "/":
-                active = (num, slug, track)
+                active = (spec_id, track)
                 break
             if status == " ":
-                pending.append((num, slug, track))
+                pending.append((spec_id, track))
 except Exception:
     sys.exit(0)
 
@@ -133,17 +142,18 @@ if active is None:
     # All done or unparseable register — allow.
     sys.exit(0)
 
-num, slug, track = active
-track = track.lower().strip()
+num, track = active
+# Track = first token of the third field, so "full track" / "full [hardened]" → "full".
+track = (track.strip().split() or ["full"])[0].lower().strip()
 if track not in ("full", "light", "spec-only"):
     track = "full"  # most conservative
 
-# Resolve spec dir
-candidates = [
-    os.path.join(root, "specs", f"{num}-{slug}"),
-    os.path.join(root, ".specify", "specs", f"{num}-{slug}"),
-]
+# Resolve spec dir by globbing "<id>-*" so a parenthesized / bold slug in the
+# register doesn't break dir resolution.
+candidates = sorted(glob.glob(os.path.join(root, "specs", f"{num}-*"))) + \
+             sorted(glob.glob(os.path.join(root, ".specify", "specs", f"{num}-*")))
 spec_dir = next((c for c in candidates if os.path.isdir(c)), None)
+slug = os.path.basename(spec_dir)[len(num) + 1:] if spec_dir else "(not created — run /speckit-specify)"
 
 needs_allium = track in ("full", "light")
 required = ["specify", "clarify"]
