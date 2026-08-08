@@ -8,19 +8,33 @@
 #   - pipeline-state-guard ensures the active spec progressed through its
 #     pipeline phases (specify → clarify → allium_elicit → plan → tasks).
 #   - spec-interview-guard (THIS) ensures the active spec recorded a
-#     human-answered interview of 15–25 questions BEFORE source code is touched.
+#     15–25 question anti-drift interview BEFORE source code is touched
+#     (base auto-answered by default; fully-human in MANUAL mode — see below).
 #
-# Why: /speckit-clarify runs in auto-pick mode (answers are chosen silently),
-# so a spec can reach implementation without a human ever engaging with its
-# scope, edge cases, error states, or non-goals. That is the drift this gate
-# closes — EVERY spec, regardless of track, must answer 15–25 questions, and
-# the answers are recorded in <spec-dir>/interview.md.
+# Why: without a per-spec interview a spec can reach implementation without any
+# deliberate pass over its scope, edge cases, error states, and non-goals. That
+# is the drift this gate closes — EVERY spec, regardless of track, must carry a
+# 15–25 question interview recorded in <spec-dir>/interview.md before code is
+# touched.
+#
+# Two answer modes (see .claude/rules/spec-interview.md):
+#   - AUTO  (default) — Claude auto-answers the base 15–25 with the RECOMMENDED
+#     option (escalating only genuinely-ambiguous questions to the human), and
+#     asks the human the OVERFLOW questions when it judges the spec
+#     large/advanced. Auto answers are tagged "**A (auto):**"; human answers are
+#     plain "**A:**". Both count toward the floor.
+#   - MANUAL — a project that wants the old fully-human behaviour sets
+#     SPEC_INTERVIEW_MODE=manual (settings.json env or CLAUDE.local.md). In that
+#     mode ONLY human "**A:**" answers count, so auto answers do not unblock
+#     code — forcing a genuine human interview.
 #
 # Artifact contract (must match .claude/rules/spec-interview.md):
 #   - File:   <spec-dir>/interview.md
-#   - Each answered question is a line that begins with "**A:**" followed by
-#     a non-empty answer (markdown bold answer marker). The hook counts these.
-#   - DONE = at least 15 answered questions (the floor of the 15–25 band).
+#   - Human answer  = a line beginning with "**A:**"        + non-empty text.
+#   - Auto answer   = a line beginning with "**A (auto):**" + non-empty text.
+#   - DONE = at least 15 answered questions (the floor of the 15–25 band):
+#       AUTO mode   → human + auto answers counted.
+#       MANUAL mode → only human answers counted.
 #     25 is guidance, not a hard ceiling — more is fine, the hook never blocks
 #     for "too many".
 #
@@ -98,7 +112,8 @@ done
 
 # 4) Parse register + count answered interview questions in Python.
 MIN_QUESTIONS="${SPEC_INTERVIEW_MIN:-15}"
-RESULT=$(REGISTER_PATH="$REGISTER" PROJECT_ROOT_PATH="$PROJECT_ROOT" MIN_Q="$MIN_QUESTIONS" python3 <<'PY' 2>/dev/null
+INTERVIEW_MODE="${SPEC_INTERVIEW_MODE:-auto}"
+RESULT=$(REGISTER_PATH="$REGISTER" PROJECT_ROOT_PATH="$PROJECT_ROOT" MIN_Q="$MIN_QUESTIONS" MODE="$INTERVIEW_MODE" python3 <<'PY' 2>/dev/null
 import glob
 import json
 import os
@@ -111,6 +126,11 @@ try:
     min_q = int(os.environ.get("MIN_Q", "15"))
 except ValueError:
     min_q = 15
+# Answer mode: "manual" counts only human answers; anything else (default
+# "auto") counts human + auto answers.
+mode = os.environ.get("MODE", "auto").strip().lower()
+if mode != "manual":
+    mode = "auto"
 
 # Register row, tolerant form. Accepts the canonical
 #   "- [x] 003 — search — full track — short goal"
@@ -164,17 +184,29 @@ num = spec_id
 
 interview = os.path.join(spec_dir, "interview.md") if spec_dir else None
 
-answered = 0
+# Human answer = "**A:**"; auto answer = "**A (auto):**". The auto marker is
+# matched FIRST so an auto line is never miscounted as a human line.
+auto_re = re.compile(r"^\s*\*\*A \(auto\):\*\*\s*(.+\S)\s*$")
+human_re = re.compile(r"^\s*\*\*A:\*\*\s*(.+\S)\s*$")
+
+human = 0
+auto = 0
 if interview and os.path.isfile(interview) and os.path.getsize(interview) > 0:
     try:
         with open(interview, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
-                # An answered question = a "**A:**" marker with non-empty answer.
-                m = re.match(r"^\s*\*\*A:\*\*\s*(.+\S)\s*$", line)
+                m = auto_re.match(line)
                 if m and len(m.group(1).strip()) >= 2:
-                    answered += 1
+                    auto += 1
+                    continue
+                m = human_re.match(line)
+                if m and len(m.group(1).strip()) >= 2:
+                    human += 1
     except Exception:
-        answered = 0
+        human = 0
+        auto = 0
+
+answered = human if mode == "manual" else human + auto
 
 if answered >= min_q:
     sys.exit(0)
@@ -187,6 +219,9 @@ print(
             "spec_dir": spec_dir if spec_dir else "(missing — run /speckit-specify first)",
             "interview": interview if interview else "(spec dir missing)",
             "answered": answered,
+            "human": human,
+            "auto": auto,
+            "mode": mode,
             "min": min_q,
         }
     )
@@ -207,15 +242,13 @@ SLUG=$(printf '%s' "$RESULT" | jq -r '.slug')
 SPEC_DIR=$(printf '%s' "$RESULT" | jq -r '.spec_dir')
 INTERVIEW=$(printf '%s' "$RESULT" | jq -r '.interview')
 ANSWERED=$(printf '%s' "$RESULT" | jq -r '.answered')
+HUMAN=$(printf '%s' "$RESULT" | jq -r '.human')
+AUTO=$(printf '%s' "$RESULT" | jq -r '.auto')
+MODE=$(printf '%s' "$RESULT" | jq -r '.mode')
 MIN=$(printf '%s' "$RESULT" | jq -r '.min')
 
-REASON="BLOCKED — anti-drift interview incomplete for active spec ${SPEC_ID}-${SLUG}.
-
-Answered questions: ${ANSWERED} / ${MIN} required (target 15–25).
-Interview file: ${INTERVIEW}
-File you tried to edit: ${FILE}
-
-Per .claude/rules/spec-interview.md, EVERY spec — regardless of track — must answer 15–25 questions BEFORE source code is touched. This exists because /speckit-clarify auto-picks its answers silently; the interview is where a human actually pins down scope, data model, edge cases, error/empty/loading states, security/authorization, integration points, acceptance criteria, and non-goals. Skipping it is exactly how a spec drifts.
+if [ "$MODE" = "manual" ]; then
+  HOWTO="This project runs the interview in MANUAL mode (SPEC_INTERVIEW_MODE=manual), so ONLY human-answered questions count.
 
 To unblock:
   1. Conduct the interview with AskUserQuestion — ONE question per turn, NO auto-pick.
@@ -226,8 +259,43 @@ To unblock:
        **Q:** <the question>
        **A:** <the answer the user gave>
 
-     The hook counts lines starting with \"**A:**\" that have a non-empty answer.
-  3. Once ≥${MIN} questions are answered, source-code edits unlock automatically.
+     The hook counts \"**A:**\" lines (human answers) with non-empty text. Auto
+     answers (\"**A (auto):**\") do NOT count in manual mode."
+else
+  HOWTO="This project runs the interview in AUTO mode (the default). You may auto-answer the base 15–25.
+
+To unblock:
+  1. Auto-answer the base 15–25 questions with the RECOMMENDED option for each,
+     covering the categories in .claude/rules/spec-interview.md. Record each as:
+
+       ## Q1 — <short topic>
+       **Q:** <the question>
+       **A (auto):** <the recommended answer + one-line reason>
+
+  2. Escalate ONLY the genuinely-ambiguous, spec-affecting questions to the user
+     via AskUserQuestion (auto-pick OFF) and record those as human answers:
+
+       **A:** <the answer the user gave>
+
+  3. If you judge this spec LARGE or ADVANCED (hardened triggers: auth / payments /
+     PII / upload / new external surface, full-track state machine or concurrency,
+     new entity or ≥6 files, or a [hardened] register tag), also ask the user the
+     OVERFLOW questions the complexity demands (beyond 25) as human \"**A:**\" answers.
+
+  The hook counts human \"**A:**\" + auto \"**A (auto):**\" lines with non-empty text."
+fi
+
+REASON="BLOCKED — anti-drift interview incomplete for active spec ${SPEC_ID}-${SLUG}.
+
+Answered questions: ${ANSWERED} / ${MIN} required (target 15–25).  [mode: ${MODE} · human: ${HUMAN} · auto: ${AUTO}]
+Interview file: ${INTERVIEW}
+File you tried to edit: ${FILE}
+
+Per .claude/rules/spec-interview.md, EVERY spec — regardless of track — must carry a 15–25 question interview BEFORE source code is touched. The interview is where scope, data model, edge cases, error/empty/loading states, security/authorization, integration points, acceptance criteria, and non-goals get pinned down. Skipping it is exactly how a spec drifts.
+
+${HOWTO}
+
+Once ≥${MIN} questions are counted, source-code edits unlock automatically.
 
 The block scope is strictly source-code extensions. Edits to markdown, config, .claude/**, scripts/**, and specs/** remain allowed — including interview.md itself — so you can write the interview now.
 

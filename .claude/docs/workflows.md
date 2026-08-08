@@ -181,6 +181,19 @@ Use `if` to restrict WHEN a hook triggers, with permission rule syntax:
 
 `if` matches on the tool's arguments — the hook above only triggers for `Bash` calls starting with `git`. Without `if`, it triggers for ALL Bash calls.
 
+**Syntax constraints (learned the hard way):**
+
+- `if` holds **exactly one** permission rule. No `&&`, no `||`, no list. A hook that needs N patterns becomes N handler objects with the same `command`, one rule each.
+- File patterns use **gitignore syntax**, and `Edit(...)` covers *every* file-editing tool — Edit, Write, MultiEdit, NotebookEdit. `Write(path)` and `Glob(path)` rules are accepted but **never matched** (v2.1.210+ warns about them at startup); use `Edit(...)` and `Read(...)`.
+- Prefix patterns with `**/` (`Edit(**/*.cs)`, not `Edit(*.cs)`). Anchored single-segment patterns match at different depths depending on rule type; `**/` matches at any depth in every rule type, so it means what you think it means.
+- Avoid clever globs (character classes, brace-ish tricks). A pattern that fails to match doesn't error — the hook simply never runs. Silent. Write the extension out.
+
+**This template's convention — the `if` pattern must be a SUPERSET of the script's own filter.** Every hook script re-checks the file it was handed; `if` exists only to skip the process spawn. A pattern narrower than the script's internal guard silently disables the hook for files it used to cover, and nothing tells you.
+
+**Deliberately ungated** (they must fire unconditionally): the three PreToolUse enforcement guards (`spec-register-guard`, `pipeline-state-guard`, `spec-interview-guard`), the sensitive-file deny hook, `sqlite-nfs-safety-hook`, `ui-design-hook`, and the Bash hooks that analyze arbitrary command *output* (`bash-tldr`, `stacktrace`, `tlc-translate`, `tlc-cleanup`, `graphify-fire`). Never let a config-level filter shadow a security or enforcement gate — that trades a few milliseconds for a hole you cannot see.
+
+Measured effect in this template: 29 handlers wired to `Edit|Write`, all of which used to spawn on every single edit. With `if`, a spec `.md` edit spawns 5, a `.cs` edit 6, a `.tsx` edit 3, and an `appsettings.json` edit 0.
+
 ### Defer permission decision (v2.1.89)
 
 For headless sessions (`claude -p`), PreToolUse hooks can return `permissionDecision: "defer"` to pause the session. Resume later with `-p --resume` to have the hook re-evaluate.
@@ -400,9 +413,19 @@ Multiple Claude Code instances working together with direct communication and a 
 
 ## Model and output
 
-- Default model: Opus 4.6 with 1M token context window (Max/Team/Enterprise)
-- Default max output: 64k tokens, upper limit 128k tokens (Opus 4.6 and Sonnet 4.6)
-- Fast mode (`/fast`) uses the same Opus 4.6 with faster output — does NOT switch model
+Current lineup (verified July 2026 — re-check before quoting, this section goes stale fast):
+
+| Model | Model ID | $/MTok in → out | Where it is the default |
+|---|---|---|---|
+| Fable 5 | `claude-fable-5` | 10 → 50 | Opt-in (requires usage-credits consent) |
+| Opus 5 | `claude-opus-5` | 5 → 25 | Max, Team Premium, Enterprise PAYG, API — 1M context |
+| Sonnet 5 | `claude-sonnet-5` | 3 → 15 (intro 2 → 10 through Aug 31) | Pro, Team Standard, Enterprise seats — 1M context, adaptive thinking on |
+| Haiku 4.5 | `claude-haiku-4-5-20251001` | 1 → 5 | Cheap tier for mechanical subagents |
+
+- Default max output: 64k tokens, upper limit 128k tokens
+- Fast mode (`/fast`) runs Opus 5 with faster output — it does NOT downgrade to a smaller model. Opus 4.7 was removed from fast mode.
+- `fallbackModel` (v2.1.166+) configures up to three fallback models tried in order when the primary is unavailable.
+- Effort: `/effort` slider with `xhigh` as the recommended level for hard coding work; hooks read the active level from `$CLAUDE_EFFORT` / `effort.level`.
 
 ## Session management
 

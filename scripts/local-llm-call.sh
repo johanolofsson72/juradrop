@@ -107,24 +107,48 @@ if [ "$CACHE_HIT" = "1" ]; then
   RESPONSE_TEXT="$CACHED_RESPONSE"
   CURL_EXIT=0
 else
-  PAYLOAD=$(jq -nc \
-    --arg model "$LOCAL_LLM_MODEL" \
-    --arg system "$SYSTEM_PROMPT" \
-    --arg prompt "$USER_PROMPT" \
-    --argjson num_predict "$NUM_PREDICT" \
-    '{
-      model: $model,
-      system: $system,
-      prompt: $prompt,
-      stream: false,
-      options: { temperature: 0.2, num_predict: $num_predict }
-    }')
+  # think:false is load-bearing, not cosmetic. Qwen3-family models reason by
+  # default, and a hook's num_predict budget is small — measured on qwen3:4b
+  # with num_predict 320, the model spent ALL 320 tokens thinking and returned
+  # a response of exactly zero characters. Every hook would score that a
+  # failure after paying the full latency. Non-thinking models accept the flag
+  # and ignore it (verified on qwen2.5-coder, llama3.2, gemma3 / Ollama 0.21).
+  build_payload() {
+    jq -nc \
+      --arg model "$LOCAL_LLM_MODEL" \
+      --arg system "$SYSTEM_PROMPT" \
+      --arg prompt "$USER_PROMPT" \
+      --argjson num_predict "$NUM_PREDICT" \
+      --argjson think "$1" \
+      --arg keep_alive "$LOCAL_LLM_KEEP_ALIVE" \
+      '{
+        model: $model,
+        system: $system,
+        prompt: $prompt,
+        stream: false,
+        think: $think,
+        keep_alive: $keep_alive,
+        options: { temperature: 0.2, num_predict: $num_predict }
+      }' | if [ "$1" = "null" ]; then jq -c 'del(.think)'; else cat; fi
+  }
 
+  PAYLOAD=$(build_payload false)
   RESPONSE=$(curl -sf --max-time "$LOCAL_LLM_TIMEOUT" \
     -X POST "${LOCAL_LLM_HOST}/api/generate" \
     -H "Content-Type: application/json" \
     -d "$PAYLOAD" 2>/dev/null)
   CURL_EXIT=$?
+
+  # Ollama older than ~0.9 has no `think` field and 400s the request. Retry
+  # once without it rather than silently losing the offload on an older box
+  # (David's, typically) — curl exit 22 is HTTP >= 400 under -f.
+  if [ $CURL_EXIT -eq 22 ]; then
+    RESPONSE=$(curl -sf --max-time "$LOCAL_LLM_TIMEOUT" \
+      -X POST "${LOCAL_LLM_HOST}/api/generate" \
+      -H "Content-Type: application/json" \
+      -d "$(build_payload null)" 2>/dev/null)
+    CURL_EXIT=$?
+  fi
 
   RESPONSE_TEXT=""
   if [ $CURL_EXIT -eq 0 ]; then

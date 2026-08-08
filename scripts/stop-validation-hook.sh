@@ -9,6 +9,15 @@
 
 set -u
 
+INPUT=$(cat 2>/dev/null || true)
+
+# Loop breaker — see the same guard in continuous-execution-hook.sh. A Stop hook
+# that exits 2 unconditionally re-blocks its own continuation forever. One block
+# per stop chain; the validation instructions were already delivered on block #1.
+if [ -n "$INPUT" ] && [ "$(printf '%s' "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)" = "true" ]; then
+  exit 0
+fi
+
 # Find repo root
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 [ -z "$REPO_ROOT" ] && exit 0

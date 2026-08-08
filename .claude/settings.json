@@ -67,14 +67,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-classify-hook.sh\""
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
             "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash \"$CLAUDE_PROJECT_DIR/scripts/pipeline-trigger-match.sh\" pipeline; then bash \"$CLAUDE_PROJECT_DIR/scripts/emit-pipeline-reminder.sh\"; fi"
           },
           {
@@ -89,6 +81,14 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/feature-pipeline-detect.sh\"",
             "statusMessage": "Checking for feature-pipeline trigger..."
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-classify-hook.sh\""
           }
         ]
       }
@@ -167,88 +167,6 @@
         ]
       },
       {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-changelog-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-readme-skeleton-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gitignore-skeleton-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-dotenv-example-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-n1-query-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-dockerfile-review-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-async-audit-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-allium-openq-hook.sh\""
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-commit-draft-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-pr-draft-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-run-view-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-pr-view-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-issue-view-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-bash-tldr-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-stacktrace-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-tlc-translate-hook.sh\""
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
@@ -263,33 +181,115 @@
         "hooks": [
           {
             "type": "command",
+            "if": "Edit(**/*.md)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-md-coverage-reminder-hook.sh\"",
             "statusMessage": "Validating spec completeness..."
           },
           {
             "type": "command",
+            "if": "Edit(**/*.md)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/scenario-map-reminder-hook.sh\"",
             "statusMessage": "Checking scenario map (SCENARIOS.md)..."
           },
           {
             "type": "command",
+            "if": "Edit(**/*.cs)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
             "statusMessage": "Checking functional test coverage..."
           },
           {
             "type": "command",
+            "if": "Edit(**/*.ts)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.js)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.tsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.jsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.dart)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/test-coverage-hook.sh\"",
+            "statusMessage": "Checking functional test coverage..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.cs)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
             "statusMessage": "Checking for TLA+ verification..."
           },
           {
             "type": "command",
+            "if": "Edit(**/*.ts)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.js)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.tsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.jsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.dart)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.y*ml)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/tla-hook.sh\"",
+            "statusMessage": "Checking for TLA+ verification..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.md)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/allium-hook.sh\"",
             "statusMessage": "Checking for Allium specification..."
           },
           {
             "type": "command",
+            "if": "Edit(**/spec.md)",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/after-specify-hook.sh\"",
             "statusMessage": "after_specify: auto-commit check..."
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.md)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-run-log-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.allium)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/spec-run-log-hook.sh\""
           }
         ]
       },
@@ -299,6 +299,138 @@
           {
             "type": "command",
             "command": "INPUT=$(cat | jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$INPUT\" | grep -qiE '(tlc|tla2tools|tlc2\\.TLC)'; then bash \"$CLAUDE_PROJECT_DIR/scripts/tlc-cleanup.sh\" 2>/dev/null; fi"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/repeat-failure-guard-hook.sh\"",
+            "statusMessage": "Checking repeat-failure attempt limit..."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Edit(**/*.md)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-changelog-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*README*)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-readme-skeleton-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/.gitignore)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gitignore-skeleton-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/.env*)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-dotenv-example-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.cs)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-n1-query-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.sql)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.cs)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/migrations/**)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/migrate/**)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.ts)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.js)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.tsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.jsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*ockerfile*)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-dockerfile-review-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.cs)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-async-audit-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.allium)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-allium-openq-hook.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git add *)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-commit-draft-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Bash(git push *)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-pr-draft-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh run *)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-run-view-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh pr *)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-pr-view-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh issue *)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-issue-view-hook.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-bash-tldr-hook.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-stacktrace-hook.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-tlc-translate-hook.sh\""
           }
         ]
       }
@@ -324,10 +456,13 @@
         ]
       },
       {
+        "matcher": "startup|resume",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-orientation-hook.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/template-autosync-hook.sh\"",
+            "statusMessage": "Checking template freshness...",
+            "timeout": 130
           }
         ]
       },
@@ -340,6 +475,18 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/scenario-map-orientation-hook.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/stack-marker-canary-hook.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-orientation-hook.sh\""
           }
         ]
       }

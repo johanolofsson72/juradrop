@@ -23,7 +23,7 @@ Not every spec needs the full pipeline. Classify the spec **before** Phase A and
 | **Non-behavior** — pure refactor, doc change, dependency bump, config tweak, cosmetic UI change, i18n, logging/observability only | **Spec only.** spec → `/speckit-clarify` → impl. No `.allium`, no `/tla`. Browser tests still apply if the user-facing surface changes. |
 | **Fix / hardening / security** with no new entities AND no new state transitions | **Spec only.** spec → `/speckit-clarify` → impl. Express the constraint as a test, not as an Allium invariant. If the fix introduces a new invariant or state, escalate to behavior-changing. |
 
-`/speckit-clarify` runs on every track immediately after `/speckit-specify` (auto-pick recommended via the settings.json hook). Skipping it is the canonical pipeline failure mode and is forbidden — see `feature-pipeline.md`.
+The **spec interview** (`.claude/rules/spec-interview.md`) runs on every track immediately after `/speckit-specify` and before `/speckit-clarify`: 15–25 questions recorded in `<spec-dir>/interview.md`. **By default (AUTO mode) Claude auto-answers the base with the recommended option** (escalating only genuinely-ambiguous questions to the developer), and asks the developer the **overflow** questions when it judges the spec large/advanced; a project can force fully-human answering with `SPEC_INTERVIEW_MODE=manual`. The `spec-interview-guard` PreToolUse hook hard-blocks source-code edits until ≥15 questions are answered — the anti-drift gate. `/speckit-clarify` then runs on every track (auto-pick recommended via the settings.json hook) to mop up residual trivia. Skipping either is a pipeline failure mode and is forbidden — see `feature-pipeline.md`.
 
 **When in doubt, ask once with `AskUserQuestion`.** Do not default to "full pipeline" — over-applying Allium produces fabricated `.allium` files that then show up as false drift in `/tla` and chew through the per-finding decision protocol for no gain.
 
@@ -33,9 +33,10 @@ After triage, follow the matching track:
 
 ### Phase A: Write the spec (all tracks)
 1. **Update the scenario map** — add this feature's actors and scenarios (happy / edge / adversarial / error / offline) to `specs/SCENARIOS.md`. If the map is missing or this behaviour isn't in it, run the scenario interview per `.claude/rules/scenarios.md` BEFORE writing the spec — a missed user-case here becomes a hole in the code later. The map is the source the inventory and destructive suite derive from.
-2. **Read `.claude/docs/testing.md`** — test layers (unit + integration + E2E always), risk-tiered destructive sizing, PBT, VRT, and the mutation-kill gate.
-3. **Read `.claude/docs/spec-testing-checklist.md`** — attack categories checklist.
-4. Write the spec with destructive browser tests included (if interactive UI applies), referencing the SC-ids from the scenario map.
+2. **Run the spec interview (every track)** — immediately after `/speckit-specify`, conduct the 15–25 question anti-drift interview per `.claude/rules/spec-interview.md` and record it in `<spec-dir>/interview.md`. By default (AUTO mode) auto-answer the base with the recommended option (tagged `**A (auto):**`), escalate only genuinely-ambiguous questions to the developer via `AskUserQuestion`, and ask the developer the overflow questions when the spec is large/advanced. Source-code edits stay hard-blocked until ≥15 questions are answered. This is distinct from the scenario interview (which maps user-cases) and from `/speckit-clarify` (which auto-picks) — it pins down scope, data model, edge/error/empty/loading states, authorization, integration points, and non-goals for THIS spec.
+3. **Read `.claude/docs/testing.md`** — test layers (unit + integration + E2E always), risk-tiered destructive sizing, PBT, VRT, and the mutation-kill gate.
+4. **Read `.claude/docs/spec-testing-checklist.md`** — attack categories checklist.
+5. Write the spec with destructive browser tests included (if interactive UI applies), referencing the SC-ids from the scenario map.
 
 ### Phase B: Sharpen with Allium (full / light pipelines only — BLOCKING for those)
 4. **Run `/allium:elicit`** on the spec to produce a formal `.allium` specification.

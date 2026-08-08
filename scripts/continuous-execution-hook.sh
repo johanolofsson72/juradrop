@@ -15,6 +15,17 @@
 set -u
 
 INPUT=$(cat)
+
+# Loop breaker (MANDATORY on every Stop hook that can exit 2). When a stop was
+# itself triggered by a stop-hook continuation, Claude Code sets
+# stop_hook_active=true. Blocking again from here is how a Stop hook turns into
+# an infinite loop: block → model re-answers → block → … . One block per stop
+# chain is the contract; after that we get out of the way and let the rule text
+# (already injected on the first block) do the work.
+if [ "$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)" = "true" ]; then
+  exit 0
+fi
+
 TRANSCRIPT=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 
 [ -z "$TRANSCRIPT" ] && exit 0

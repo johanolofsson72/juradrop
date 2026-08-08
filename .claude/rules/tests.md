@@ -58,7 +58,7 @@ AFTER functional coverage is complete, add a destructive suite **per interactive
 
 ### Don't forget the other layers
 
-E2E destructive tests are the top of the pyramid, not the whole of it. Every behaviour-changing feature also needs **unit + integration tests** (integration is where AI-written code most often breaks — units pass, the seams don't), and **property-based tests** for wide-input logic, **visual-regression baselines** for UI. The **mutation kill rate** (Stryker, nightly/on-demand) — not the test count — is the real proof the suite bites. See `.claude/docs/testing.md`.
+E2E destructive tests are the top of the pyramid, not the whole of it. Every behaviour-changing feature also needs **unit + integration tests** (integration is where AI-written code most often breaks — units pass, the seams don't), and **property-based tests** for wide-input logic, **visual-regression baselines** for UI. The **mutation kill rate** (Stryker, nightly/on-demand via `scripts/project-maintenance.sh --full` — an unscheduled "nightly" gate runs never) — not the test count — is the real proof the suite bites. See `.claude/docs/testing.md`.
 
 ## Coverage check before declaring done
 

@@ -8,7 +8,7 @@ This rule defines how Claude reads, executes, and updates the register. It inter
 
 When `specs/INDEX.md` exists in a project:
 
-1. **Read the register first.** Before doing any feature work, open `specs/INDEX.md` and identify the next unchecked spec.
+1. **Read the register first — targeted, not whole.** Before doing any feature work, identify the next unchecked spec. The SessionStart orientation hook already prints the next row, so on a fresh session you usually need no read at all. When you must open `specs/INDEX.md`, read only the `## Specs` list — **do not** load the `## Register history` section or `INDEX.history.md` into context; they are an audit trail, never an input to the current spec. On a large register, `grep -nE '^- \[[ /!]\]' specs/INDEX.md | head` finds the next row without swallowing the file. See **Keep the register lean** below.
 2. **Run the full pipeline for that one spec, end-to-end.** Triage per `specs.md`, run `/speckit-specify`, `/speckit-clarify` (all tracks, auto-pick), `/allium:elicit` if applicable, `/speckit-plan`, `/speckit-tasks`, `/speckit-analyze` (auto-apply), `/speckit-implement`, browser tests (functional + destructive), `/tla` if applicable. No stops between phases — this is one task per `continuous-execution.md`.
 3. **Commit and push to `main` directly.** Per `project_workflow` memory (solo, direct-push, no PRs), each spec finishes with `git add` + `git commit` + `git push origin main`. No feature branches, no merge step.
 4. **Tick the register.** Mark the spec as `[x]` in `specs/INDEX.md` and commit + push the register update along with (or immediately after) the spec's final commit.
@@ -55,6 +55,28 @@ Status markers:
 - `- [x]` — done, committed, pushed
 - `- [!]` — blocked or needs register rewrite (Claude sets this when surfacing a register-rewrite proposal)
 
+## Keep the register lean (BLOCKING — context-cost hygiene)
+
+The register is read (and often re-read) on essentially every spec. If it balloons, every spec pays for it. A 60-spec register with a paragraph of history per spec becomes tens of thousands of tokens that buy nothing — the live rows are all the pipeline needs; the history is an audit trail nobody reads in-flight. Keep it small:
+
+- **History entries are ONE line each.** `- YYYY-MM-DD — <one sentence>`. Not a paragraph. Not a retrospective. If a spec needs more explanation, that belongs in the spec's own `plan.md` / commit message, not the register. Writing a paragraph-long history entry is the self-reinforcing cost that this rule exists to stop — you write it once and then re-read it on every subsequent spec.
+- **Cap inline history at ~5 entries; archive the rest.** When `## Register history` grows past ~5 entries, move the older ones to `specs/INDEX.history.md` (a sibling file that is **never** read during the pipeline). Run `scripts/archive-spec-history.sh` — it does this mechanically and reversibly (`--keep 5` by default, `--dry-run` to preview). The live `INDEX.md` keeps only the current spec rows + the last handful of history lines.
+- **Never load the history section as pipeline input.** When you read the register to find the next row, read the `## Specs` list only. `INDEX.history.md` exists so it can be consulted *deliberately* (an audit question), not swallowed by default.
+- **Ticking a row is an Edit, not a rewrite.** Change `- [ ]` to `- [x]` on the one row with a surgical `Edit`; do not read-and-rewrite the whole register to tick one box.
+
+## Failure memory across `/clear` (`<spec-dir>/run-log.md`)
+
+The register says *which* spec is next; the on-disk artifacts (`spec.md`, `spec.allium`, `plan.md`, `tasks.md`) say *which phase* it reached. Neither remembers what went **wrong** getting there — and `.claude/rules/spec-hardening.md` actively tells you to resume big specs in a fresh session, which throws that memory away.
+
+`scripts/spec-run-log-hook.sh` keeps it: one line per event in `<spec-dir>/run-log.md`, appended automatically when a pipeline artifact is written, and manually for anything worth remembering:
+
+```bash
+bash scripts/spec-run-log-hook.sh --note "mutation gate FAILED — 41% on AuthService, tests are theatre"
+bash scripts/spec-run-log-hook.sh --note "Q7 authz escalated to developer — anonymous search deferred to a later spec"
+```
+
+Rules: **one line per entry, never a paragraph** (the same discipline as "Keep the register lean" — this file is read on resume). It is **not** pipeline input and nothing gates on it; the SessionStart hook surfaces only the last 5 lines, and only while the row is `- [/]`. Log the things a fresh session would otherwise rediscover the hard way: failed gates, escalated answers, deferred findings, a phase you had to redo.
+
 ## The status summary (the one stop per spec)
 
 When a spec is complete, Claude's stop message uses this exact shape:
@@ -65,16 +87,19 @@ When a spec is complete, Claude's stop message uses this exact shape:
 - Track: <full|light|spec-only>[ +hardened]
 - Commits: <count> (last: <short-sha> — "<commit subject>")
 - Push: origin/main <short-sha>
-- Pipeline: spec → <clarify status> → <allium status> → impl → <N> functional + <M> destructive browser tests → <tla status>
+- Pipeline: spec → interview (<I> answers, <interview mode>) → <clarify status> → <allium status> → impl → <N> functional + <M> destructive browser tests → <tla status>
 - Hardening: <hardening status>
 - Open findings: <count> (or "none")
 
 **Next: NNN — <slug>** (or "register complete")
 
+→ Before starting the next spec, run `/clear`. A spec is one self-contained unit of work; carrying this spec's transcript into the next one is the single biggest per-spec token cost (a long unbroken session re-bills the whole growing transcript every turn, and cache expires after ~5 min idle). Fresh context per spec is the cheap default — the register + orientation hook restore all the state the next spec needs.
+
 (Resume when ready.)
 ```
 
 Fields:
+- `<I> answers, <interview mode>` — the count of answered questions recorded in `interview.md` (must be ≥15, target 15–25, per `.claude/rules/spec-interview.md`; the `spec-interview-guard` hook blocks implementation below 15). `<interview mode>` is one of: `auto` (base auto-answered, not flagged) / `auto +N overflow` (flagged large/advanced, N human overflow questions) / `manual` (`SPEC_INTERVIEW_MODE=manual` or a `[interview:manual]` override — fully human).
 - `<clarify status>` — `clarify auto-picked N answers` / `clarify clean (no questions raised)` / `clarify deferred N questions to user`
 - `<allium status>` — `allium ok` / `allium skipped (spec-only track)` / `allium with N open questions surfaced`
 - `<tla status>` — `tla clean` / `tla skipped (spec-only or trivial state)` / `tla with N gaps surfaced`
@@ -117,6 +142,8 @@ The register is enforced deterministically — Claude cannot silently skip it be
 The walk in both hooks stops at the `.git` boundary so a parent directory's stray language marker (e.g. a `~/package.json` left over from some other project) cannot cause a false positive in an unrelated repo. The template repo itself trips no enforcement because it has no language marker at its `.git` root.
 
 ## Bootstrapping the register (new projects)
+
+**On a project that went through `/project-wizard`, the register already exists** — the wizard writes it in Phase 3D-3 from the inception interview, while it still holds the core modules, auth model, and risk surface in context. The steps below are the fallback for a project that never ran the wizard (or ran an older version of it). If you find yourself bootstrapping a register on a project whose wizard ran recently, that is a wizard bug worth reporting, not a routine step.
 
 When a new project starts and `specs/INDEX.md` does not yet exist:
 

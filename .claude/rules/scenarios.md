@@ -103,6 +103,17 @@ The map is touched during **every** behaviour-changing spec, as part of the pipe
 
 Updating the map is part of "done" for the spec, the same way ticking the spec register is.
 
+## Keep the map lean — read it targeted (BLOCKING — context-cost hygiene)
+
+`SCENARIOS.md` is the file most likely to balloon, because it grows with *every* behaviour-changing spec and the rule above says to touch it every time. "Surveyable" means a human can skim the diagrams — it does **not** mean you reload all 1000+ lines into context on every spec. On a mature project this single file can be 40k+ tokens; swallowing it whole each spec is the biggest avoidable per-spec cost. Discipline:
+
+- **Read only the slice you need.** When you touch the map for feature X, load only that feature's flowchart + its SC-id rows. Find them with a targeted read, not a whole-file read: `grep -nE 'Feature: <name>|SC-0[0-9]{2}' specs/SCENARIOS.md` to locate the block, then `Read` with `offset`/`limit` around it. You almost never need the whole map at once — the use-case diagram and other features' ledgers are not inputs to the spec in front of you.
+- **Edit surgically.** Add the new feature's rows/flowchart with `Edit` at the right location; do not read-and-rewrite the entire map to append a few rows.
+- **History is one line each, and it gets archived.** `## Scenario history` entries are `- YYYY-MM-DD — <one sentence>`, never paragraphs. When the section passes ~5 entries, move the older ones to `specs/SCENARIOS.history.md` (never read in-flight) with `scripts/archive-spec-history.sh`.
+- **When a project's map genuinely outgrows one file** (many actors × many features, and even targeted reads are awkward), split per feature: keep the use-case diagram + SC-id index in `SCENARIOS.md` and move each feature's flowchart + rows to `specs/scenarios/<NNN-slug>.md`. The map stays surveyable via the index; each spec loads only its own feature file. Do this as a deliberate refactor (note it in Scenario history), not silently.
+
+None of this weakens the "map everything / never invent silently" rules below — it changes *how much you load to work on the map*, not *what the map must contain*.
+
 ## Post-implementation validation (BLOCKING — every scenario must actually WORK)
 
 Allium and TLA+ harden the **spec**. They prove nothing about whether the **implementation** runs. After every implementation, each scenario must be validated at runtime — a `✓` in the map means the behaviour was *observed working*, not merely that a test file exists. This is the runtime mirror of the spec-side rigor: the spec can be perfect and the login still ship with no error message.

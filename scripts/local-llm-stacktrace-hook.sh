@@ -11,6 +11,9 @@
 
 set -uo pipefail
 
+# Latency/quality profile — see scripts/local-llm-detect.sh.
+export LOCAL_LLM_PROFILE="${LOCAL_LLM_PROFILE:-fast}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
 

@@ -183,4 +183,4 @@ for agent in dotnet-reviewer security-scanner test-runner db-agent; do
 done
 ```
 
-Alternatively, create agents with the `/agents` command and paste the content above.
+The `/agents` wizard was removed in the v2.1.2xx line — create agents by writing the file into `.claude/agents/` directly (or ask Claude to write it for you).

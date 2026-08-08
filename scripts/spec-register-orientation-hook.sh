@@ -90,9 +90,67 @@ if [ -n "$FOUND_REG" ]; then
       ;;
   esac
 
+  # Context-cost canary: INDEX.md and SCENARIOS.md are read (sometimes re-read)
+  # on every spec. When either balloons, every subsequent spec pays for it. Warn
+  # once at session start so the bloat is visible and gets archived, rather than
+  # silently re-billed. Threshold ~25 KB (~6k tokens). `wc -c` is portable.
+  SIZE_WARN=""
+  WARN_THRESH=25600
+  SCEN_FILE="${PROJECT_ROOT}/specs/SCENARIOS.md"
+  IDX_BYTES=$(wc -c < "$FOUND_REG" 2>/dev/null | tr -d ' ') || IDX_BYTES=0
+  SCEN_BYTES=0
+  [ -f "$SCEN_FILE" ] && { SCEN_BYTES=$(wc -c < "$SCEN_FILE" 2>/dev/null | tr -d ' ') || SCEN_BYTES=0; }
+  IDX_BYTES=${IDX_BYTES:-0}; SCEN_BYTES=${SCEN_BYTES:-0}
+  BLOATED=""
+  [ "$IDX_BYTES" -gt "$WARN_THRESH" ] && BLOATED="INDEX.md ($((IDX_BYTES/1024)) KB)"
+  if [ "$SCEN_BYTES" -gt "$WARN_THRESH" ]; then
+    [ -n "$BLOATED" ] && BLOATED="$BLOATED, SCENARIOS.md ($((SCEN_BYTES/1024)) KB)" || BLOATED="SCENARIOS.md ($((SCEN_BYTES/1024)) KB)"
+  fi
+  if [ -n "$BLOATED" ]; then
+    SIZE_WARN="
+⚠ CONTEXT-COST CANARY — large per-spec files: ${BLOATED}.
+  These are read every spec. Trim before continuing: run
+  scripts/archive-spec-history.sh (moves old history to *.history.md), and read
+  these files TARGETED (only the next row / the current feature's SC rows), never
+  whole. See 'Keep the register lean' / 'Keep the map lean' in .claude/rules/."
+  fi
+
+  # Failure memory for a resumed spec: when a row is mid-flight ("- [/]"), show
+  # the TAIL of its run log so a fresh session knows what already went wrong
+  # (escalated interview answer, failed gate, deferred finding) instead of
+  # rediscovering it. Tail only — the log is never pipeline input.
+  RUNLOG_TAIL=""
+  if [ "$PROG" -gt 0 ]; then
+    IP_ROW=$(grep -m1 -E '^- \[/\]' "$FOUND_REG" 2>/dev/null | sed -E 's/^- \[.\] *//')
+    IP_ID=$(printf '%s' "$IP_ROW" | awk '{print $1}')
+    IP_SLUG=$(printf '%s' "$IP_ROW" | awk -F' — ' '{print $2}' | tr -d ' ')
+    for cand in "${PROJECT_ROOT}/specs/${IP_ID}-${IP_SLUG}/run-log.md" "${PROJECT_ROOT}/.specify/specs/${IP_ID}-${IP_SLUG}/run-log.md"; do
+      if [ -f "$cand" ]; then
+        TAIL_LINES=$(grep -E '^- ' "$cand" 2>/dev/null | tail -5)
+        [ -n "$TAIL_LINES" ] && RUNLOG_TAIL="
+Run log (last 5, ${cand#$PROJECT_ROOT/}):
+${TAIL_LINES}"
+        break
+      fi
+    done
+  fi
+
+  # Quiet mode vs attention mode. A SessionStart advisory that prints the same
+  # paragraph every session is a fixed context tax on EVERY session, forever, and
+  # it trains the reader to skim past exactly the sessions where it matters. So:
+  # the full block prints only when something is actually actionable (checkpoint
+  # due / fresh-context banner / size canary / a blocked or in-flight row);
+  # otherwise the register collapses to a single line.
+  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}"
+  if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
+    MSG="Register: ${DONE}/${TOTAL} done · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
+    jq -n --arg m "$MSG" '{systemMessage: $m}'
+    exit 0
+  fi
+
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${CHECKPOINT_DUE}${CLEAR_BANNER}
+Next: ${NEXT_LINE}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit + push to main, tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   jq -n --arg m "$MSG" '{systemMessage: $m}'

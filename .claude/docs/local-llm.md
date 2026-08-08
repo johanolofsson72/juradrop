@@ -87,7 +87,7 @@ The humanize hook excludes Claude-internal markdown (`CLAUDE.md`, `.claude/skill
 
 `scripts/local-llm-detect.sh` is sourced by every hook script. It pings `${OLLAMA_HOST}/api/tags` with a 1-second timeout. On success it sets `LOCAL_LLM_AVAILABLE=1`; on failure it sets `0` and the hook exits without touching the network again.
 
-Detection is cheap. The expensive call is the `/api/generate` request inside each hook, which uses `LOCAL_LLM_TIMEOUT` (default 15s).
+Detection is cheap. The expensive call is the `/api/generate` request inside each hook, which uses `LOCAL_LLM_TIMEOUT` (from the active profile: fast 10s, standard 20s, deep 35s).
 
 ## Built-in token-saving optimizations
 
@@ -136,8 +136,12 @@ All env vars are optional. Set them in your shell profile or a project-local `.e
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | Ollama base URL. Defaults to IPv4 loopback explicitly to avoid Happy-Eyeballs routing to a different ollama instance when both IPv4 and IPv6 listeners exist on port 11434. |
-| `LOCAL_LLM_MODEL` | `llama3` | Model tag for `ollama pull`. Untagged resolves to whatever `llama3:latest` points to on the host (8B by default). |
-| `LOCAL_LLM_TIMEOUT` | `15` | Generation timeout in seconds. |
+| `LOCAL_LLM_MODEL` | auto | Explicit model tag; overrides profile auto-detection entirely. |
+| `LOCAL_LLM_PROFILE` | `standard` | `fast` \| `standard` \| `deep`. Picks the preference list and the default timeout. Hooks set it themselves; see the table below. |
+| `LOCAL_LLM_MODEL_PREF_ORDER` | `qwen3-coder:30b …` | Preference list for `standard`/`deep`. First installed tag wins. |
+| `LOCAL_LLM_MODEL_PREF_ORDER_FAST` | `qwen3-coder:30b qwen2.5-coder:7b …` | Preference list for `fast`. |
+| `LOCAL_LLM_TIMEOUT` | profile | Generation timeout in seconds — `fast` 10, `standard` 20, `deep` 35. Setting it explicitly overrides the profile. |
+| `LOCAL_LLM_KEEP_ALIVE` | `15m` | How long Ollama keeps the model resident. Ollama's own default is 5m, which makes an 18 GB model reload inside the next hook's timeout budget. Lower it on a memory-tight box. |
 | `LOCAL_LLM_DETECT_TIMEOUT` | `1` | Reachability ping timeout. |
 | `LOCAL_LLM_DISABLE` | unset | Set to `1` to force-disable every offload hook. |
 | `LOCAL_LLM_CLASSIFY_TIMEOUT` | `4` | Tighter timeout for the `UserPromptSubmit` classifier so the prompt path stays snappy. |
@@ -150,6 +154,39 @@ All env vars are optional. Set them in your shell profile or a project-local `.e
 | `LOCAL_LLM_TELEMETRY_DISABLE` | unset | Set to `1` to skip writing the telemetry row. |
 | Cache settings | see [Built-in token-saving optimizations](#response-cache) | `LOCAL_LLM_CACHE_TTL`, `LOCAL_LLM_CACHE_DISABLE`, `LOCAL_LLM_CACHE_DIR` |
 
+## Model selection — measured, not guessed
+
+Benchmarked 2026-07-28 on an M2 Max (64 GB) against the *actual* prompt sizes in `local-llm-fire.log`, wall-clock per call:
+
+| shape (prompt → output) | qwen2.5-coder:14b | qwen2.5-coder:7b | **qwen3-coder:30b** |
+|---|---|---|---|
+| classify (2 KB → 42 tok) | 3.93s | 1.40s | **1.26s** |
+| stacktrace (4 KB → 155 tok) | 21.34s ✗ | 13.40s | **6.87s** |
+| async-audit (8 KB → 15 tok) | 13.54s | 6.56s | **4.64s** |
+| n1-query (10 KB → 4 tok) | 17.45s ✗ | 7.83s | **5.88s** |
+| commit-draft (12 KB → 219 tok) | 22.67s ✗ | 12.35s | **10.46s** |
+| classify format compliance | 5/5 | 5/5 | **5/5** |
+
+**The bottleneck was prompt ingestion, not generation.** A dense 14B ingests at ~140 tok/s, so a 10 KB hook prompt costs ~17s *before the first output token* — which is why three of five shapes blew the old 15s timeout, and why the fleet logged 19.3 hours of blocked wall-clock on failures. `qwen3-coder:30b` is a 30B MoE with only 3.3B active parameters: it ingests at 420–550 tok/s and clears every shape.
+
+**Rejected, with reasons:**
+
+- `qwen3:4b` — fast (438–775 tok/s prompt) but scored **0/5** on the classify format. It is a reasoning model, and even with `think:false` it emits chain-of-thought as plain response text. With `think` left at its default it spent an entire 320-token budget thinking and returned a response of **zero characters** — a full-latency guaranteed failure.
+- `llama3.2:3b` — 1/5 format compliance. Confirms the 2026-05-13 finding recorded in the classify hook.
+- `gemma3:4b` — 3/5. Better, still not parseable often enough to trust.
+
+Speed is worthless when the output cannot be parsed. Any candidate model must pass the format test before it enters a preference list.
+
+### Profiles
+
+| profile | timeout | hooks |
+|---|---|---|
+| `fast` | 10s | classify, stacktrace, bash-tldr, orientation, gh-run/pr/issue-view, tlc-translate |
+| `standard` | 20s | async-audit, n1-query, react-deps, allium-openq, migration-safety, dockerfile-review, the skeleton hooks |
+| `deep` | 35s | commit-draft, pr-draft, changelog, plan-draft, tasks-draft |
+
+All three currently resolve to the same primary model — one resident model beats swapping 18 GB between hook fires. The profiles differ in timeout and in what they fall back to when the primary is not installed.
+
 ## Telemetry and ROI
 
 Every offload funnels through `local-llm-call.sh`, which appends one tab-separated row per attempt to `${LOCAL_LLM_TELEMETRY_LOG}`. The hook name is auto-derived from the parent process, so individual hooks need no changes.
@@ -158,10 +195,22 @@ Run `scripts/local-llm-stats.sh` to see fires / success-rate / avg latency / was
 
 ## Setup
 
-1. Install Ollama: `brew install ollama` (or your platform equivalent).
-2. Pull the model: `ollama pull llama3` (or set `LOCAL_LLM_MODEL` to whatever you have, e.g. `qwen2.5:7b`).
-3. Start the daemon: `ollama serve` (or just run it once; it stays warm in the background).
+1. Install Ollama — macOS `brew install ollama` · Debian/Ubuntu, Fedora, Arch `curl -fsSL https://ollama.com/install.sh | sh` (the official script covers all three; no Homebrew needed).
+2. Pull the model:
+
+   ```bash
+   ollama pull qwen3-coder:30b     # 18 GB, needs ~24 GB RAM/VRAM free. The measured best.
+   ollama pull qwen2.5-coder:7b    # 4.7 GB fallback for a smaller box — clears every hook shape under 15s
+   ```
+
+   On a machine that cannot hold 18 GB, pull only the 7B. The preference list falls through to whatever is installed, so nothing needs configuring; a box with neither simply runs the hooks as silent no-ops.
+3. Start the daemon: `ollama serve` (or just run it once; it stays warm in the background). On Linux the installer registers a systemd unit — `systemctl --user status ollama`.
 4. Verify: `curl -s http://127.0.0.1:11434/api/tags | jq '.models[].name'`.
+5. Confirm which model the hooks will actually use:
+
+   ```bash
+   bash -c 'source scripts/local-llm-detect.sh; echo "$LOCAL_LLM_PROFILE -> $LOCAL_LLM_MODEL (${LOCAL_LLM_TIMEOUT}s)"'
+   ```
 
 That is the entire setup. Hooks pick up Ollama on the next prompt.
 
