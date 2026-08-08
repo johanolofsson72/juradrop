@@ -132,6 +132,7 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `scripts/graphify-fire-hook.sh` (PostToolUse Bash hook — logs every `graphify query|path|explain|update` invocation to `.claude/graphify-fire.log` with response bytes + graph node/edge counts)
 - `scripts/graphify-stats.sh` (per-project Graphify ROI reporter — `--all` flag aggregates across `~/repos/*` and `~/Projects/*`)
 - `scripts/project-freshness.sh` (local "keep the project fresh" pass — trufflehog verified-secret scan + `npm audit` dependency report; **self-installs trufflehog if missing** (brew/scoop/official-script, `--no-install` to suppress); report-first, `--fix` opt-in runs `npm audit fix --force` + mandates build/test. LOCAL only — never a CI/scheduled Action per `.claude/rules/github-actions.md`)
+- `scripts/skill-audit.sh` (local "what skills am I loading?" pass — counts every `SKILL.md` under `~/.claude/skills` + `./.claude/skills`, estimates per-session baseline context cost, flags `[REVIEW]` bundles the project's stack does not use, warns past a soft ceiling. **REPORT-ONLY — never deletes** (global skills are shared; pruning is a developer decision). The complement to the install-only skill sync. LOCAL only — invoked in step 3c)
 
 Note: `scripts/local-llm-*-hook.sh` files are NOT hand-globbed here. Step 3.1 invokes `sync-local-llm-hooks.py`, which atomically mirrors both the wiring AND the hook script files on disk (copying new ones, deleting orphans, verifying no wired hook is missing its script). Hand-globbing this set used to be a prose instruction here and proved unreliable — the LLM short-circuited the glob and produced settings.json entries referencing scripts that did not exist on disk, generating "No such file or directory" errors on every Edit/Bash. The deterministic helper closed that gap.
 
@@ -284,6 +285,23 @@ This step is **report-first**: it does NOT mutate the tree. Surface the result t
 
 Do not auto-run `--fix` during a sync. Forced dependency upgrades are a user decision, not a silent side effect of syncing config.
 
+### 3c. Skill audit (ALWAYS RUNS — regardless of sync mode)
+
+The complement to the skill install: that step only ever *adds* skills, so a machine accretes globally-installed `SKILL.md` files over time, each costing baseline context at every session start. This step makes that cost visible on every sync. After `scripts/skill-audit.sh` has been copied (step 1) and made executable, run it from the project root:
+
+```bash
+chmod +x scripts/skill-audit.sh
+bash scripts/skill-audit.sh
+```
+
+It counts every skill under `~/.claude/skills` (global, shared) + `./.claude/skills` (project), estimates the per-session baseline-context cost (name + description only — full bodies load on fire), detects the project's stack (`.claude/.sync-stack`, else markers), and flags `[REVIEW]` bundles the stack plainly does not use. It is **report-only and NEVER deletes** — global skills are shared across all projects, so a bundle this project's stack does not use may still be needed by a sibling. Surface in the step-6 report:
+
+- **Total skill count + estimated baseline tokens** — the headline number.
+- **`[CEILING]`** — global count over the soft ceiling; note it and point the developer at the `[REVIEW]` bundles. Do NOT auto-remove anything.
+- **`[REVIEW]` bundles** — list as "stack-irrelevant to THIS project (review before removing — global/shared)".
+
+Pruning a global skill is a developer decision, exactly like `--fix` on the freshness pass — never a silent side effect of syncing.
+
 ### 4. CLAUDE.md handling
 
 Do NOT overwrite the project's CLAUDE.md. Instead:
@@ -304,6 +322,12 @@ Synced from template (YYYY-MM-DD):
 - [CREATED/UPDATED/SKIPPED] .claude/skills/code-review/SKILL.md
 - [CREATED/UPDATED/SKIPPED] .claude/agents/dotnet-reviewer.md
 - ...
+
+Skill audit (step 3c — report-only, nothing deleted):
+- Stack detected: web | mobile | hybrid | unknown
+- Skills installed: <N> (~<T>k tokens baseline context per session)
+- [REVIEW] stack-irrelevant bundles (global/shared — review before removing): <list or none>
+- Soft ceiling: within | EXCEEDED
 
 Project-specific files preserved:
 - .claude/agents/custom-agent.md

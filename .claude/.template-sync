@@ -1,5 +1,5 @@
-sha=95c92aafd027
-synced=2026-08-08T08:50:24Z
+sha=7105074bc6ad
+synced=2026-08-08T10:09:57Z
 source=/Users/jool/repos/Claude
 # manifest: sha256 of each file as written by the sync — a project file
 # whose hash no longer matches was edited locally and is never overwritten.
@@ -20,7 +20,7 @@ cbc91e3aa7e602aecac0729547cebfcee4bb79045c85f87079b0c93183a3d29d  .claude/docs/s
 c4a69d6ce188330c290641dbd4e3ad9a57628b023e5ac1b5d08059afab016f34  .claude/rules/allium.md
 c4ebe6cf869a2e66ef6e8be01d387191775e0f1e92fa2e8319601f3e0dffe56a  .claude/rules/continuous-execution.md
 ed65ad4f7eb5b68e2d958256927abb37d03384ddbb9e0bb4c67104ce84c630d4  .claude/rules/design-references.md
-caca6d1aa28af58a13b26c5da2df58f8c31a89137e7a1aed6956396566f79389  .claude/rules/feature-pipeline.md
+d1ee5dc43bbd8f2ceda8fd9c278994166396b09083035a93d99f29155fbcc6f2  .claude/rules/feature-pipeline.md
 ec3259c952f4a3ae744b92367c5df0b4abe446e20ed592b89730cbe0bce8f840  .claude/rules/frontend.md
 edf109f09944d42926fd565bbacc56afb64976c853051aa69987771d132a0b7f  .claude/rules/github-actions.md
 2c0091aa5663d02bec17e7ce38032be257d9f9a2ce766e52196d73466193069a  .claude/rules/project-workflow.md
@@ -32,6 +32,47 @@ edf109f09944d42926fd565bbacc56afb64976c853051aa69987771d132a0b7f  .claude/rules/
 a11babd37bd1a99ea983707f42ae62c046e7ff65830e959471b6b6e4ed77f33e  .claude/rules/specs.md
 290fd315ec6dd188cdec147f5fa329c9f72184e2515985ddd67569857bbed052  .claude/rules/tests.md
 eefbd7d4f4d10f2550a658848cccbb1df1cc674942871a188e8fe12e07ab8a23  .claude/rules/validation-followup.md
+835cb721cd4a3a44e403deb5d45b4aea7d8f5fc7ac6f5498b6f6e359a437970a  .claude/skills/allium/SKILL.md
+f922414dda2db51714d56b697252d3d663c080985fe5b0ef9113fc4ef615d384  .claude/skills/code-review/SKILL.md
+377e436ce39442585d73f0e0deab9072adc99153a2160e4445babc65506434de  .claude/skills/deploy-checklist/SKILL.md
+ba5ae700df6e8a0684d2dad00812d70689f58ae1557e171fe44bc1869e55ca72  .claude/skills/explore-codebase/SKILL.md
+0bb3d503915e7873ebe61c529a90d5818bf020b7ef528e82385b90c6a94d1792  .claude/skills/project-update/SKILL.md
+8f6a7d061b00f4ae3b3c965adc94face3d49b7af18d8ce69f11cf2b9ae9c713f  .claude/skills/project-wizard/install.sh
+093417e5e90afaf80eba45c356c3c7a4b08ac8fad0161d7c8af7b1fc32f53a5a  .claude/skills/project-wizard/SKILL.md
+c62376d3d906b7889723aed2f6c2b726e5f81c1c8d1de558584206631c405242  .claude/skills/sync-template/SKILL.md
+3009608769694f77043999ce77bbb15fd1bd45930d5e291bd21db592f468a807  .claude/skills/tla/SKILL.md
+b754c0efffcf54cb889114a9314be1d5af6ceebe65c4c436d713b52018e752c9  .claude/skills/ui-ux-pro-max/data/charts.csv
+4cc0df2785f340b8bd0ace50bd4068dc13a7c4c6fa4d9d2723271244ce904614  .claude/skills/ui-ux-pro-max/data/colors.csv
+351fe61ba45b8146c66de6ea7d67297654639d79a94f537b4d0bad570058c28f  .claude/skills/ui-ux-pro-max/data/icons.csv
+010e1e46db271b94e0af6f18973bea86ddba62feeccd62aeeaa6ed40e2ae2db1  .claude/skills/ui-ux-pro-max/data/landing.csv
+5359e3037dcb84e99c792ea13dd44f5b78ab6a53557afb309cf19140512aaf5b  .claude/skills/ui-ux-pro-max/data/products.csv
+904c8afcda229629545912dde0e8ac37503757131f0169f80b016f1f58c4fd3f  .claude/skills/ui-ux-pro-max/data/react-performance.csv
+ad18dae3ab6d148d37d144592df80dc1825b6c9e86d9d2d68fdda77434206a37  .claude/skills/ui-ux-pro-max/data/stacks/astro.csv
+e470e6bc2bcd8562667cc764d1e1afb0be0a30ca4dc9ec12fa18b19d46f156bd  .claude/skills/ui-ux-pro-max/data/stacks/flutter.csv
+1f004891dd189f6bc2a7717401e3100244326e7e2f3963a79bf7b2349d85e091  .claude/skills/ui-ux-pro-max/data/stacks/html-tailwind.csv
+6c8fd4b0391c342c12b0af15610cd5becbeccaef0bbe8dcfc01d928c3195d93e  .claude/skills/ui-ux-pro-max/data/stacks/jetpack-compose.csv
+06a8e8c13bd44696c6ebb4cb6c4d8dea440e3de8cce77616512529ed29258f0c  .claude/skills/ui-ux-pro-max/data/stacks/nextjs.csv
+05d6e74501b2b6a636faed32450622759f49a5bcafad971f5f4e7eba0eb7be71  .claude/skills/ui-ux-pro-max/data/stacks/nuxt-ui.csv
+f7a3f2d9542856d00199f85c6c023b7c284cc698e2e6e12d61afce2edacb24d6  .claude/skills/ui-ux-pro-max/data/stacks/nuxtjs.csv
+a08ca77fcf6b6d9531982dce465366296013bfcf12d2938ac72ad57cf0c4f085  .claude/skills/ui-ux-pro-max/data/stacks/react-native.csv
+b6e3eb0e4c9c01bd00ffb951d5ca224a19d488b4544c75436f48cf92ff12bf45  .claude/skills/ui-ux-pro-max/data/stacks/react.csv
+395c2e415ef6f48a474acccdc8eb2c7258a6ed751a5037ba171a2d8823e02ded  .claude/skills/ui-ux-pro-max/data/stacks/shadcn.csv
+bc8d158994a8bdf412830a9dd5e5a5534edd2f367a6e50e0ebd4d76f592dfa3f  .claude/skills/ui-ux-pro-max/data/stacks/svelte.csv
+e87cb9eee208bb753bdab96d4a261c7f830c4317ee90ec098316b248fc32be85  .claude/skills/ui-ux-pro-max/data/stacks/swiftui.csv
+9b793c3f4eec85f77a758c09322f2b62f3b3ca549bb713ccf0849ef885934395  .claude/skills/ui-ux-pro-max/data/stacks/vue.csv
+ad3c3236134d833bda01a2faf31ddeaaa1dbd5005fa430dec571fa91b26e5fea  .claude/skills/ui-ux-pro-max/data/styles.csv
+64695e05ac335ba534aff396c4ba9241c642f80ea53b424251d2669b71c4772b  .claude/skills/ui-ux-pro-max/data/typography.csv
+58fc52fff69f62709f8c7dd460de6f6693699ea820f24287f3301a427c2b554e  .claude/skills/ui-ux-pro-max/data/ui-reasoning.csv
+1870ee048f2a2bdd60709f8f7adf7f3b6dcad560bc005c8b2915a8ac8639820d  .claude/skills/ui-ux-pro-max/data/ux-guidelines.csv
+10bfc24e09a6a15db8309e6ef9b6881e1d4af97dffb7c99418aefb8e30df7d54  .claude/skills/ui-ux-pro-max/data/web-interface.csv
+f48bad01daeb2f69ad374fcd0ea69e137f4b3d8e2c68489ac1d82054e5a02217  .claude/skills/ui-ux-pro-max/scripts/__pycache__/core.cpython-314.pyc
+4bd10a5f5c270d162a7392dc502e3a2b66688d15d0fdfc7ff64076a2d5f4ad61  .claude/skills/ui-ux-pro-max/scripts/__pycache__/design_system.cpython-314.pyc
+73bde4bb8508dbe8206e7bbc3719bb953f83b2e47b37439d3f607aa670e8d189  .claude/skills/ui-ux-pro-max/scripts/__pycache__/search.cpython-314.pyc
+5459d1f04eea03dfb913742d0c03edc5065ac67f6227e4807fa87699662588cb  .claude/skills/ui-ux-pro-max/scripts/core.py
+4da1d341f3c7749df51b51db4a543a48a427c3c746eb0e9882a1ab86acf3bb54  .claude/skills/ui-ux-pro-max/scripts/design_system.py
+a449e57060ef5134e98e62fd11f6e240153afd68c27dab89cbb72a3ce55f1498  .claude/skills/ui-ux-pro-max/scripts/search.py
+7e59b0e50d5979d76ef2f4aa5f115c90d1a8d6b7a2ed196b9efd417b0399288c  .claude/skills/ui-ux-pro-max/SKILL.md
+f620e7c8a70259cda8d8b5a2f259f72936db27975749fb3bf179dd94de2a76a7  .claude/skills/update-template/SKILL.md
 edf81c89506de713dcbc922f0f0eadb73ab6ff0552ea7aedc48d3be140aaa5ef  scripts/after-specify-hook.sh
 e66316975852bb278c5bf3491befc5e3352b33cb377d67be9dfc6a89f918d96f  scripts/allium-hook.sh
 f05392cf0d03aa63eafc2fa5f538f40b7ce6b2da75de2214bc8f256e2b111ec6  scripts/archive-spec-history.sh
@@ -90,6 +131,7 @@ efddcdfc3e7f8113b5b5f271dcaa504818f6189c10da566cc8f32a91241e1786  scripts/pipeli
 14938393a8cc5f1fc73e026b9a9549a166b8cb84e3417f24a1d7fcde83b01bd5  scripts/pipeline-trigger-match.sh
 8c4e9018c1e2e93fc354f02213515e79252f6f9acb2b034296933bbfafc523bf  scripts/project-freshness.sh
 b1100c04bf505d6087e37319d0e2d8e753be70b624b4e63440705a8ac7254894  scripts/project-maintenance.sh
+bd2a91d9009612c4a979a1217dd0889ec8ba6eba33dd75ec35669ecce4a4c292  scripts/prune-agent-worktrees.sh
 7348079f611809e03d29a9b720f2098ded89fde278282f64c02d1e870cf17c88  scripts/prune-dangling-hooks.py
 ede276edaa56ff964658cfa905e4b4f389b1a802776d9ded03e79ebc245956f7  scripts/repeat-failure-guard-hook.sh
 2c31d2e03056c5ced29c80563fdaef9c9a2aa221c339366d65281af050601fc8  scripts/scenario-map-orientation-hook.sh
@@ -100,6 +142,7 @@ b5c79b6d89181eb6a83d2e485fcc21e0f2adde1f21815dee250288b905664ac3  scripts/spec-m
 8738b760c49d079428e16a5c20052e56fd18f495b051ad4cb63bd21b30cbc518  scripts/spec-register-guard-hook.sh
 4b228aff632036a03ed6890d382d805527a80b0461eed8d60f75fd590d072b6d  scripts/spec-register-orientation-hook.sh
 ece0af09b5df92e69f0674d6f2edbc8731958374f1c3cdbce630fce511ee856c  scripts/spec-run-log-hook.sh
+d3420e4b02a447cb4d38ecfa34063f0a5c4771d760bd293e4bffd88fb99d0f28  scripts/speckit-extension-policy.sh
 2a8b55ff05c4862a29e161f1cc132c5e57da314f014b09dd0734cb0cfe74b4be  scripts/sqlite-nfs-safety-hook.sh
 2f2c8ed576640c8da32f4453b48b0ee3241419ab3660fad01b7df9492dd94f9d  scripts/stack-marker-canary-hook.sh
 2bf7b9bf89e6873efab09bf6b7154af68eb366a8c26903319458881d30b6fe83  scripts/stop-validation-hook.sh
@@ -107,7 +150,7 @@ ece0af09b5df92e69f0674d6f2edbc8731958374f1c3cdbce630fce511ee856c  scripts/spec-r
 4084ba6c27aded1abaacf5470a32afc71691e344970361c45e94ee5539a299ba  scripts/sync-graphify-wiring.py
 8e5ad4f9a55b3030e680c74df280d4f17b569ceb935b7a7582431ca6f3230c04  scripts/sync-local-llm-hooks.py
 efd780b15720be33b7928b0a1d0dc078270cdf3c19ec3742978d080a0d5af10a  scripts/template-autosync-hook.sh
-702276ae7182d3216eaa720b7ce95b6583e67f78eea2032c2ed6e9b0e9d9348d  scripts/template-autosync.sh
+240fe9d135cfdaf57ed042a0dacd4b45b624d21c050ea102189dfd1027d44473  scripts/template-autosync.sh
 7e81c90c5d582250d7f97b7743f0034b37d755311731c3c6f2fe88cf7b715a1e  scripts/test-coverage-hook.sh
 c904596432259d36c6f13e6dbf8c84572e95d54b60963353ead081173276384d  scripts/test-pipeline-hooks.sh
 49fc1247a55f58457df9f9e0ecfcddfb6c362ebc0b67a4fab49de609e045cc78  scripts/tla-hook.sh

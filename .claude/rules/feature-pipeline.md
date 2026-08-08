@@ -15,16 +15,26 @@ Every developer request that is **not** a trivial one-file fix MUST go through t
                 (15–25 Q, base       (auto-pick     (full/light                              (auto-applies         │
                  AUTO-answered w/     recommended,   tracks only)                             all suggested         │
                  recommended;         residual                                                remediations)         ▼
-                 human overflow if                                                    browser tests (functional + destructive)
-                 flagged; every spec)  only)
+                 human overflow if                                                              /speckit-converge
+                 flagged; every spec)  only)                                          (unbuilt work → tasks.md; loop
+                                                                                       back to implement if any)
+                                                                                             │
+                                                                                             ▼
+                                                                                    browser tests (functional + destructive)
                                                                                              │
                                                                                              ▼
                                                                                     /tla (distill + drift + invariants)
 ```
 
-> **Command names (spec-kit v0.10.0+ — current release v0.14.2 as of July 2026 — with `--integration claude`).** The hyphenated skill names below have been stable since the v0.10 line; v0.11–v0.14 normalized hyphenation across integrations, moved Claude Code files from `.claude/commands/` to `.claude/skills/`, and added a `py` script type (v0.14.0) alongside `sh`/`ps`. The install commands in `/project-wizard` and `/project-update` pull from `git+…/spec-kit.git` (i.e. whatever `main` is that day) — pin a tag (`uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v0.14.2`) when two developers need identical phases.
+**`/speckit-converge` is mandatory after `/speckit-implement`** (spec-kit 0.16+). It assesses the codebase against the spec, plan and tasks, and appends any remaining unbuilt work to `tasks.md`. If it appends anything, go back and implement it — then converge again, until it appends nothing. This is the phase that catches "the spec described twelve behaviours and nine got built", which is the same failure the functional-coverage inventory exists to prevent, caught one stage earlier and mechanically rather than by eye. It complements `/allium:distill` (semantic drift between spec and code) by working at task granularity. Skip only on the spec-only track.
+
+> **Extension policy (BLOCKING).** spec-kit 0.16.x ships extensions that `specify init --here --force` enables by default. The **`git` extension is disabled in these projects** — its five skills (`speckit-git-feature`, `-git-validate`, `-git-commit`, `-git-remote`, `-git-initialize`) create numbered feature branches, enforce branch naming, and auto-commit after every phase, all of which contradict `.claude/rules/spec-register.md` (one spec → one commit → direct push, no branches, no merge step). `specify init --force` re-enables them on every run, so `scripts/speckit-extension-policy.sh` runs after every init in both `/project-wizard` and `/project-update` to switch it back off. `agent-context` stays enabled. Do not invoke the `speckit-git-*` skills; if you find them enabled, run the policy script.
+>
+> **Command names (spec-kit v0.10.0+ — 0.16.2 as of August 2026 — with `--integration claude`).** The hyphenated skill names below have been stable since the v0.10 line; v0.11–v0.14 normalized hyphenation across integrations, moved Claude Code files from `.claude/commands/` to `.claude/skills/`, and added a `py` script type (v0.14.0) alongside `sh`/`ps`. The install commands in `/project-wizard` and `/project-update` pull from `git+…/spec-kit.git` (i.e. whatever `main` is that day) — pin a tag (`uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v0.14.2`) when two developers need identical phases.
 >
 > **Skill names.** `specify init` installs these phases as **skills** with hyphenated names: `/speckit-specify`, `/speckit-clarify`, `/speckit-plan`, `/speckit-tasks`, `/speckit-analyze`, `/speckit-implement` (plus `/speckit-constitution` and `/speckit-checklist`). Earlier spec-kit used bare `/specify` etc. — those no longer match the installed skills, so always use the `/speckit-` prefix. `/allium:elicit` and `/tla` are this project's OWN skills (not spec-kit) and keep their names.
+>
+> **Other phases 0.16.2 installs, and what we do with them:** `/speckit-converge` is **in** the chain (above). `/speckit-agent-context-update` refreshes the managed Spec Kit section of the agent context file — harmless, run it when that section goes stale. `/speckit-taskstoissues` converts tasks into GitHub issues and is **not used**: these are solo, direct-push projects with no issue workflow (`.claude/rules/project-workflow.md`), and it adds GitHub surface for nothing. The five `speckit-git-*` skills are disabled per the extension policy above.
 >
 > **Two spec-kit phases sit outside the per-spec blocking chain above:**
 > - **`/speckit-constitution`** — establishes the project's principles. Runs **once at project init** (the `/project-wizard` skill generates the constitution), not per spec. Re-run only when amending principles.

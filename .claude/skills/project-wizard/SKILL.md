@@ -68,9 +68,17 @@ else
 fi
 ```
 
+**Step 4.5 — Apply the spec-kit extension policy (after every `specify init --force`):**
+
+```bash
+bash scripts/speckit-extension-policy.sh 2>/dev/null || true   # installed by the sync in Step 5; re-run there if missing
+```
+
+spec-kit 0.16.x enables its `git` extension by default, registering five skills that create feature branches, enforce branch naming, and auto-commit per phase — all of which contradict `.claude/rules/spec-register.md` (one spec → one commit → direct push). Disable it here, and again after Step 5 if the script only landed during the sync. `agent-context` stays enabled.
+
 **Step 5 — Run the COMPLETE template sync (identical to `/project-update`):**
 
-This single step puts **everything** in place — every skill (`allium`, `tla`, `code-review`, `explore-codebase`, `deploy-checklist`, `sync-template`, `update-template`), every rule (`allium.md`, `specs.md`, `continuous-execution.md`, `validation-followup.md`, `feature-pipeline.md`, `spec-register.md`, `spec-hardening.md`, the stack rules), every doc, every hook script, the deterministic local-LLM wiring, AND the Graphify wiring + bootstrap. **After this step the project is fully configured. The wizard IS the full sync — there is no separate `/project-update` pass required afterward.** If you ever catch yourself about to tell the user "now run `/project-update` to get allium/graphify", you skipped part of this step — go back and finish it. That handoff is the exact bug this step exists to kill.
+This single step puts **everything** in place — every skill (`allium`, `tla`, `code-review`, `explore-codebase`, `deploy-checklist`, `sync-template`, `update-template`), every rule (`allium.md`, `specs.md`, `continuous-execution.md`, `validation-followup.md`, `feature-pipeline.md`, `spec-interview.md`, `spec-register.md`, `spec-hardening.md`, the stack rules), every doc, every hook script (including the `spec-interview-guard` that hard-blocks implementation until each spec has its 15–25 anti-drift questions answered — base auto-answered with the recommended option by default, human overflow when a spec is flagged large/advanced), the deterministic local-LLM wiring, AND the Graphify wiring + bootstrap. **After this step the project is fully configured. The wizard IS the full sync — there is no separate `/project-update` pass required afterward.** If you ever catch yourself about to tell the user "now run `/project-update` to get allium/graphify", you skipped part of this step — go back and finish it. That handoff is the exact bug this step exists to kill.
 
 The wizard does NOT paraphrase the sync into a summary and curl files one at a time — that approach reliably dropped `allium`, the pipeline rules, and the graphify wiring on the floor. Instead it resolves the template **locally** (cloning once if absent, which is far more reliable than ~50 individual HTTP fetches) and executes the canonical `sync-prompt.md` verbatim — the exact same instruction set `/project-update` runs. Single source of truth, zero drift.
 
@@ -120,6 +128,7 @@ for f in \
   .claude/rules/validation-followup.md \
   .claude/rules/feature-pipeline.md \
   .claude/rules/spec-register.md \
+  .claude/rules/spec-interview.md \
   .claude/rules/spec-hardening.md \
   .claude/rules/github-actions.md \
   .claude/rules/scenarios.md \
@@ -127,6 +136,7 @@ for f in \
   .claude/docs/design-reference-library.md \
   scripts/allium-hook.sh \
   scripts/tla-hook.sh \
+  scripts/spec-interview-guard-hook.sh \
   scripts/scenario-map-reminder-hook.sh \
   scripts/sync-graphify-wiring.py \
   scripts/sync-core-hooks.py \
@@ -134,9 +144,12 @@ for f in \
   [ -e "$f" ] || { echo "[MISSING] $f"; fail=1; }
 done
 python3 -m json.tool .claude/settings.json >/dev/null 2>&1 || { echo "[INVALID] settings.json is not valid JSON"; fail=1; }
-# Core-hook wiring gate: any core hook whose script is on disk MUST be wired (catches the prose-merge gap)
-for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook; do
-  if [ -f "scripts/$s.sh" ] && ! grep -q "$s.sh" .claude/settings.json; then echo "[UNWIRED] core hook $s present on disk but not wired — run sync-core-hooks.py"; fail=1; fi
+# Core-hook gate: every mandatory enforcement script must EXIST *and* be wired.
+# Checking only "present → wired" reports green on a project where the script was
+# never copied at all — i.e. a project with no guards.
+for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook; do
+  if [ ! -f "scripts/$s.sh" ]; then echo "[MISSING] scripts/$s.sh never copied — re-run the core-script mirror in sync-prompt.md Step 5c"; fail=1;
+  elif ! grep -q "$s.sh" .claude/settings.json; then echo "[UNWIRED] core hook $s present on disk but not wired — run sync-core-hooks.py"; fail=1; fi
 done
 # Graphify is only enforced on eligible (>=30 source-file) projects; the bootstrap self-gates below threshold.
 if bash scripts/graphify-bootstrap.sh --eligibility-check >/dev/null 2>&1; then
@@ -164,6 +177,7 @@ After the sync completes, present a brief summary:
 **Sync-prompt**: fetched from johanolofsson72/Claude (main)
 **Files synced**: [count created] created, [count updated] updated, [count skipped] skipped
 **Constitution**: [preserved from backup / fresh from speckit / not found]
+**Skill audit** (sync-prompt Step 8e, report-only): [N] skills installed (~[T]k tokens baseline); stack-gated installs skipped: [bundles or none]; [REVIEW]/[CEILING]: [summary or "within ceiling"]. (On a fresh project the stack is not yet decided, so Step 6 installs all bundles and the audit flags any that turn out irrelevant once the stack is set.)
 
 ⚠️ **IMPORTANT**: Speckit skills (`/speckit-specify`, `/speckit-plan`, etc.) were installed to `.claude/skills/` but are NOT available as slash commands in this session. Claude Code loads skills at session start — new skills installed mid-session require a restart. After this wizard completes, exit Claude and start a new session to use the speckit commands.
 
@@ -1009,6 +1023,49 @@ flowchart TD
 
 Seed the use-case diagram + a user-flow flowchart + at least the happy + one edge/error row per core module (all `☐ mapped` at inception). Note in the Phase 4 summary that the map was seeded as a diagram-led artifact, that every future spec extends it (a gap triggers an interview, not a guess), and that scenarios only reach `✓` once observed working at runtime with all four states (success / specific error / empty / loading).
 
+#### 3D-3: Write the spec register (`specs/INDEX.md`) — MANDATORY, no project leaves this wizard without one
+
+**This is the step the wizard used to skip, and skipping it broke the very next session.** `.claude/rules/spec-register.md` requires the register to exist before any development, and `scripts/spec-register-guard-hook.sh` **hard-denies the first source-code edit** until it does. So a wizard that ends without a register hands the developer a project whose first edit gets blocked — and the register then gets reconstructed by an agent that no longer has a single interview answer in context. You are the only run that knows the core modules, the tech stack, the auth model, and the risk surface. Write the register here, while you still know all of it.
+
+Derive the rows from what the interview already told you:
+
+1. **One row per core module** from Category 1 (vision / core modules) and the features you just seeded into `specs/SCENARIOS.md`. The register and the scenario map must agree — every feature with SC-ids gets a row.
+2. **Order by dependency, not by excitement.** Auth and the data model come before the screens that need them. If module B cannot be demonstrated without module A, A gets the lower number.
+3. **Triage each row's track** per `.claude/rules/specs.md`: `full` (new entity / state machine / concurrency / new API surface), `light` (single-actor UI, CRUD, search/filter), `spec-only` (refactor, config, docs).
+4. **Tag `[hardened]`** per `.claude/rules/spec-hardening.md` — auth/authorization, payments, PII or secrets, file upload/parsing, a new external API surface, a full-track state machine, a new entity, or ≥6 files. Category 4 (auth/multi-tenancy) and Category 7 (infrastructure/integrations) answers are where these usually hide. When in doubt, tag it: hardening only ever adds verification.
+5. **Insert an `H1` integration-hardening checkpoint row after the 5th spec row**, per the every-5 cadence. Add `H2` after the 10th if the register is that long.
+
+Create `specs/INDEX.md`:
+
+```markdown
+# Spec register
+
+Order of execution. Tick when done. Append new specs to the end unless renumbering is justified.
+
+## Specs
+
+- [ ] 001 — [slug] — full track [hardened] — [one-line goal from the interview]
+- [ ] 002 — [slug] — light track — [one-line goal]
+- [ ] 003 — [slug] — full track — [one-line goal]
+- [ ] 004 — [slug] — light track — [one-line goal]
+- [ ] 005 — [slug] — full track — [one-line goal]
+- [ ] H1 — integration-hardening — checkpoint — full-system regression + security sweep after spec 005
+
+## Register history
+
+- [today's date] — initial register seeded from the inception interview ([N] specs identified)
+```
+
+Rules for the rows: 3-digit ids, kebab-case slugs that will match the spec folder names, one line each. The one-line goal is a goal, not a requirement — the requirement lives in the spec that `/speckit-specify` will write later. Keep the history entry to **one line** (`.claude/rules/spec-register.md` → "Keep the register lean"); a paragraph here gets re-read on every spec for the life of the project.
+
+Then commit it with the other foundation documents so the project's first session opens on a real register:
+
+```bash
+git add specs/INDEX.md specs/SCENARIOS.md && git commit -m "chore: seed spec register and scenario map from inception interview"
+```
+
+Do NOT start spec 001 in this session — the speckit skills are not loaded yet (see the Phase 4 restart note). The register is the handoff.
+
 #### 3E: Scaffold the native E2E test harness (MOBILE PROJECTS ONLY — React Native / Expo · Flutter)
 
 > Skip this subsection entirely for web/.NET projects — they already get the Playwright harness from the template sync. This subsection exists so a mobile project starts with a real destructive-flow directory instead of a blank page, giving Maestro/Patrol exact parity with web's Playwright setup. The destructive scenarios (sized per interactive UI function from its input domain — not a flat quota, not one batch per spec — per `.claude/docs/spec-testing-checklist.md`, which on a mobile project is the mobile variant) live HERE, as native E2E flows — NOT as widget tests.
@@ -1090,6 +1147,8 @@ After writing all files, present:
 
 **Files created/updated:**
 - `CLAUDE.md` — [created/updated] ([X] sections, [Y] lines)
+- `specs/INDEX.md` — spec register seeded: [N] specs + [M] hardening checkpoint(s), first row `001 — [slug]`
+- `specs/SCENARIOS.md` — scenario map seeded (use-case diagram + [N] features + SC-id ledger)
 - `.specify/memory/constitution.md` — [X] core principles ratified (v1.0.0)
 - `design-system/MASTER.md` — visual identity locked down [if generated]
 - `.maestro/` or `integration_test/` — native E2E destructive-flow harness scaffolded [mobile projects only; Maestro for RN, Patrol for Flutter — parity with web's Playwright]
@@ -1109,10 +1168,13 @@ II. [Principle name]
 **Next steps:**
 1. Review the constitution — are the principles correct and complete?
 2. Review CLAUDE.md — does it match how you want Claude to work in this project?
-3. **Exit this Claude session and start a new one** — speckit skills (`/speckit-specify`, `/speckit-plan`, `/speckit-tasks`, etc.) were installed during this session but Claude Code only loads skills at session start. They will not work as slash commands until you restart.
-4. In the new session, start writing feature specs with `/speckit-specify`
+3. Review `specs/INDEX.md` — is the spec order right, and are the tracks/`[hardened]` tags correct? Reordering is cheap now and expensive later.
+4. **Exit this Claude session and start a new one** — speckit skills (`/speckit-specify`, `/speckit-plan`, `/speckit-tasks`, etc.) were installed during this session but Claude Code only loads skills at session start. They will not work as slash commands until you restart.
+5. In the new session the SessionStart hook will announce spec `001` from the register. Work that one row end-to-end through the pipeline, then stop with the status summary — one spec per run, per `.claude/rules/spec-register.md`.
 
 The project DNA is now in place. Every Claude session in this project will know the core principles, tech stack, and constraints before a single feature spec is written.
+
+> **This inception interview scopes the PROJECT, not any single spec.** Every spec you build from the register will ALSO run its own **15–25 question anti-drift interview** (`.claude/rules/spec-interview.md`) right after `/speckit-specify`, recorded in `<spec-dir>/interview.md`. By default (AUTO mode) Claude auto-answers the base with the recommended option and only asks you the **overflow** questions when it judges a spec large/advanced — so routine specs cost you nothing while risky ones still get your eyes. (A project can force fully-human answering with `SPEC_INTERVIEW_MODE=manual`.) The `spec-interview-guard` hook hard-blocks source code until each spec's interview is done. That is by design: this wizard decides *what the project is*; the per-spec interview decides *exactly how each feature behaves* so the implementation can't drift from your intent.
 ```
 
 ## Rules
@@ -1133,3 +1195,4 @@ The project DNA is now in place. Every Claude session in this project will know 
 14. The constitution version always starts at 1.0.0 for a new project.
 15. All dates in generated files must use the actual current date, not placeholders.
 16. If sibling projects use the same stack, reference their patterns (e.g., "Reference `/Users/jool/repos/matchgrid/` for GitHub deploy patterns").
+17. **NEVER finish without `specs/INDEX.md`** (Phase 3D-3). It is not optional and not "the next session's job" — `spec-register-guard` denies the first source edit without it, and you are the only run that holds the interview answers the rows are derived from. A wizard that ends with no register has handed the developer a blocked project.

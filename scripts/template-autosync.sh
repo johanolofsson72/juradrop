@@ -170,7 +170,8 @@ spec-register-guard-hook.sh spec-register-orientation-hook.sh pipeline-state-gua
 spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-reminder-hook.sh
 scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
 repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
-detect-stack.sh prune-dangling-hooks.py
+detect-stack.sh prune-dangling-hooks.py prune-agent-worktrees.sh
+speckit-extension-policy.sh
 archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 project-maintenance.sh project-freshness.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
@@ -243,9 +244,12 @@ copy_file() {
     [ "$MODE_CHECK" -eq 1 ] || atomic_copy "$SRC" "$DEST"
     WROTE="$WROTE $REL"
   else
-    # New file: only add CORE machinery. A doc/rule the project deliberately
-    # removed (wordpress.md on a .NET project) must stay removed.
-    is_core "$BASE" "$CLASS" || return 0
+    # New file: only add CORE machinery, plus template-owned SKILLS. A doc/rule
+    # the project deliberately removed (wordpress.md on a .NET project) must stay
+    # removed — but a missing skill is never a decision, it is just a project that
+    # predates the skill. Skills are add-if-missing yet manifest-protected on
+    # update (they are not in the CORE set), so a customized skill is still safe.
+    is_core "$BASE" "$CLASS" || [ "$CLASS" = "skills" ] || return 0
     [ "$MODE_CHECK" -eq 1 ] || { mkdir -p "$(dirname "$DEST")"; atomic_copy "$SRC" "$DEST"; }
     ADDED="$ADDED $REL"
   fi
@@ -266,6 +270,18 @@ for f in "$TEMPLATE_DIR"/.claude/agents/*.md; do
   [ -f "$f" ] || continue
   copy_file "$f" ".claude/agents/$(basename "$f")" agents
 done
+
+# Template-owned skills. Until this existed the sync shipped rules, docs, scripts
+# and agents but never skills — so a fix to /project-wizard or /project-update sat
+# in the template while 35 projects kept running the old copy. Since those two
+# skills are what bootstrap and update a project, a stale copy reproduces bugs
+# that were fixed months earlier. `find`, not a glob: skills carry nested files
+# (ui-ux-pro-max/data/*.csv, project-wizard/install.sh).
+if [ -d "$TEMPLATE_DIR/.claude/skills" ]; then
+  for rel in $(cd "$TEMPLATE_DIR/.claude/skills" && find . -type f 2>/dev/null | sed 's#^\./##'); do
+    copy_file "$TEMPLATE_DIR/.claude/skills/$rel" ".claude/skills/$rel" skills
+  done
+fi
 
 for f in "$TEMPLATE_DIR"/.claude/docs/*.md; do
   [ -f "$f" ] || continue
@@ -398,6 +414,19 @@ if [ -f "$PROJECT_ROOT/scripts/sync-local-llm-hooks.py" ] && [ -f "$TEMPLATE_DIR
   fi
 fi
 
+# ------------------------------------- pick up the helper-owned script mirrors
+# sync-local-llm-hooks.py and sync-graphify-wiring.py mirror their own script
+# families as a side effect of wiring, outside the copy loop above — so those
+# writes never entered $WROTE and silently escaped the commit, leaving the repo
+# permanently dirty with files identical to the template. Same class of bug as
+# the re-exec dropping its file list; fold them in before staging.
+for _f in $(git -C "$PROJECT_ROOT" status --porcelain -- scripts 2>/dev/null | awk '{print $2}'); do
+  case "$_f" in
+    scripts/local-llm-*|scripts/graphify-*|scripts/sync-local-llm-hooks.py|scripts/sync-graphify-wiring.py)
+      case " $WROTE $ADDED " in *" $_f "*) ;; *) WROTE="$WROTE $_f" ;; esac ;;
+  esac
+done
+
 # --------------------------------------------------- prune dangling hook refs
 # settings.json can reference scripts the project never received — the graphify
 # and local-LLM families are owned by other helpers and are stack/opt-in gated,
@@ -412,6 +441,19 @@ if [ -f "$PROJECT_ROOT/scripts/prune-dangling-hooks.py" ] && command -v python3 
       case " $WROTE " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
       ;;
   esac
+fi
+
+# ------------------------------------------- spec-kit extension policy
+# `specify init --force` re-enables the git extension every time it runs, and it
+# runs outside this sync (via /project-update or by hand). Re-assert the policy
+# here so a project cannot silently regain feature-branch + auto-commit skills
+# that contradict spec-register.md. Idempotent and silent when already correct.
+if [ -f "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" ]; then
+  POL=$(bash "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" --repo "$PROJECT_ROOT" 2>/dev/null | head -1)
+  if [ -n "$POL" ]; then
+    say "[speckit] $POL"
+    case " $WROTE " in *" .specify/extensions/.registry "*) ;; *) WROTE="$WROTE .specify/extensions/.registry" ;; esac
+  fi
 fi
 
 # ------------------------------------------------- stack marker (derive if absent)
