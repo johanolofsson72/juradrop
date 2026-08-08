@@ -170,6 +170,7 @@ spec-register-guard-hook.sh spec-register-orientation-hook.sh pipeline-state-gua
 spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-reminder-hook.sh
 scenario-map-orientation-hook.sh continuous-execution-hook.sh stop-validation-hook.sh
 repeat-failure-guard-hook.sh spec-run-log-hook.sh stack-marker-canary-hook.sh
+detect-stack.sh prune-dangling-hooks.py
 archive-spec-history.sh skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
 project-maintenance.sh project-freshness.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
@@ -330,6 +331,23 @@ fi
 
 # ------------------------------------------------------- core-hook re-wiring
 HOOKS_NOTE=""
+
+# A project with .claude/ but no settings.json has the rules and the scripts and
+# runs NONE of it — every hook lives in settings.json, so the whole deterministic
+# layer is simply absent. The wiring helpers then fail with "project settings not
+# found", which the block below used to report as a rollback, implying damage
+# where there was nothing to roll back. Seed it from the template instead; this is
+# what /project-update's settings.json merge prescribes for a file that does not
+# exist yet ("File does NOT exist in this project → copy from template").
+if [ ! -f "$PROJECT_ROOT/.claude/settings.json" ] && [ -f "$TEMPLATE_DIR/.claude/settings.json" ]; then
+  atomic_copy "$TEMPLATE_DIR/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json"
+  ADDED="$ADDED .claude/settings.json"
+  HOOKS_NOTE="settings.json seeded from template (project had none)"
+  warn "[note] $PROJECT_ROOT had no .claude/settings.json — seeded from the template."
+  warn "       Enforcement hooks are now ACTIVE here. If this project has source code"
+  warn "       but no specs/INDEX.md, spec-register-guard will block source edits until"
+  warn "       you create the register (the deny message explains how)."
+fi
 if [ -f "$PROJECT_ROOT/scripts/sync-core-hooks.py" ] && [ -f "$TEMPLATE_DIR/.claude/settings.json" ] \
    && command -v python3 >/dev/null 2>&1; then
   cp "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.autosync-bak" 2>/dev/null
@@ -377,6 +395,37 @@ if [ -f "$PROJECT_ROOT/scripts/sync-local-llm-hooks.py" ] && [ -f "$TEMPLATE_DIR
       mv "$PROJECT_ROOT/.claude/settings.json.autosync-bak" "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null
       HOOKS_NOTE="$HOOKS_NOTE · local-LLM rewiring FAILED (rolled back)"
     fi
+  fi
+fi
+
+# --------------------------------------------------- prune dangling hook refs
+# settings.json can reference scripts the project never received — the graphify
+# and local-LLM families are owned by other helpers and are stack/opt-in gated,
+# and a wholesale seed brings their wiring along regardless. A hook pointing at a
+# missing script never errors; it silently does nothing while every "is it wired?"
+# audit reports green. Unwire what is not there.
+if [ -f "$PROJECT_ROOT/scripts/prune-dangling-hooks.py" ] && command -v python3 >/dev/null 2>&1; then
+  PRUNED=$( (cd "$PROJECT_ROOT" && python3 scripts/prune-dangling-hooks.py 2>/dev/null) | tail -1)
+  case "$PRUNED" in
+    *"removed"*)
+      HOOKS_NOTE="${HOOKS_NOTE:+$HOOKS_NOTE · }$PRUNED"
+      case " $WROTE " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+      ;;
+  esac
+fi
+
+# ------------------------------------------------- stack marker (derive if absent)
+# `.claude/.sync-stack` gates which testing docs this project receives. When it is
+# missing the doc gate has nothing to go on and stamps BOTH the web and the mobile
+# set, so the project carries instructions for a platform it does not ship. Derive
+# it once, from the same detector the canary uses, and only when the answer is
+# unambiguous (detect-stack.sh prints nothing when it cannot tell).
+if [ ! -f "$PROJECT_ROOT/.claude/.sync-stack" ] && [ -f "$PROJECT_ROOT/scripts/detect-stack.sh" ]; then
+  DETECTED=$(bash "$PROJECT_ROOT/scripts/detect-stack.sh" "$PROJECT_ROOT" 2>/dev/null | sed -n '1p')
+  if [ -n "$DETECTED" ]; then
+    printf 'testing=%s\n' "$DETECTED" > "$PROJECT_ROOT/.claude/.sync-stack"
+    ADDED="$ADDED .claude/.sync-stack"
+    say "[stack] no .sync-stack marker — derived testing=$DETECTED from the project's manifests"
   fi
 fi
 

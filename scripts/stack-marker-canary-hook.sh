@@ -36,52 +36,15 @@ done
 [ -n "$ROOT" ] || exit 0
 [ -d "$ROOT/.claude" ] || exit 0
 
-# Manifests worth inspecting: up to 3 levels deep (web/package.json,
-# src/Api/Api.csproj, mobile/pubspec.yaml), never inside vendored trees.
-find_manifests() {
-  find "$ROOT" -maxdepth 3 -name "$1" \
-    -not -path '*/node_modules/*' -not -path '*/.git/*' \
-    -not -path '*/bin/*' -not -path '*/obj/*' -not -path '*/dist/*' \
-    -not -path '*/build/*' -not -path '*/.claude/worktrees/*' 2>/dev/null
-}
-
-NATIVE=""; WEB=""
-
-# ---------------------------------------------------------------- native side
-# Match dependency KEYS, not substrings: a web app carrying `react-native-web`
-# must not read as a native app.
-for pj in $(find_manifests package.json); do
-  if grep -qE '"(expo|react-native)"[[:space:]]*:' "$pj" 2>/dev/null; then NATIVE="react-native"; break; fi
-done
-if [ -z "$NATIVE" ]; then
-  for f in $(find_manifests eas.json) $(find_manifests app.config.js) $(find_manifests app.config.ts); do
-    [ -f "$f" ] && { NATIVE="react-native"; break; }
-  done
-fi
-if [ -z "$NATIVE" ]; then
-  for pub in $(find_manifests pubspec.yaml); do
-    if grep -qE '^[[:space:]]*(sdk:[[:space:]]*flutter|flutter:)' "$pub" 2>/dev/null; then NATIVE="flutter"; break; fi
-  done
-fi
-
-# ------------------------------------------------------------------- web side
-# Browser-specific signals only. `react-dom` alone is deliberately NOT enough:
-# an Expo project doing Expo-web would otherwise misread as hybrid.
-for f in $(find_manifests '*.csproj') $(find_manifests '*.sln'); do
-  [ -f "$f" ] && { WEB="dotnet"; break; }
-done
-if [ -z "$WEB" ]; then
-  for pj in $(find_manifests package.json); do
-    if grep -qE '"(vite|next|@playwright/test|svelte|astro|nuxt|@angular/core|vue)"[[:space:]]*:' "$pj" 2>/dev/null; then WEB="web"; break; fi
-  done
-fi
-
-# ------------------------------------------------------------------- verdict
-if [ -n "$NATIVE" ] && [ -n "$WEB" ]; then EXPECTED="hybrid"
-elif [ -n "$NATIVE" ];                 then EXPECTED="mobile"
-elif [ -n "$WEB" ];                    then EXPECTED="web"
-else exit 0                            # nothing recognizable — say nothing
-fi
+# Detection lives in scripts/detect-stack.sh — shared with template-autosync.sh,
+# which uses it to WRITE a missing marker. One implementation, so the writer and
+# the checker can never disagree.
+DETECT="$(dirname "$0")/detect-stack.sh"
+[ -f "$DETECT" ] || exit 0
+DET=$(bash "$DETECT" "$ROOT" 2>/dev/null)
+EXPECTED=$(printf '%s' "$DET" | sed -n '1p')
+EVIDENCE=$(printf '%s' "$DET" | sed -n '2p')
+[ -n "$EXPECTED" ] || exit 0            # nothing recognizable — say nothing
 
 MARKER_FILE="$ROOT/.claude/.sync-stack"
 ACTUAL=$(sed -n 's/^testing=//p' "$MARKER_FILE" 2>/dev/null | head -1 | tr -d '[:space:]')
@@ -92,10 +55,6 @@ ACTUAL=$(sed -n 's/^testing=//p' "$MARKER_FILE" 2>/dev/null | head -1 | tr -d '[
 # repo where only one side is detectable is a deliberate choice, not drift
 # (the other client may simply not live in this repo yet).
 [ "$ACTUAL" = "hybrid" ] && exit 0
-
-EVIDENCE=""
-[ -n "$NATIVE" ] && EVIDENCE="native client: $NATIVE"
-[ -n "$WEB" ] && EVIDENCE="${EVIDENCE:+$EVIDENCE · }web/backend: $WEB"
 
 if [ -z "$ACTUAL" ]; then
   MSG="STACK MARKER MISSING — .claude/.sync-stack does not exist (or has no testing= line), but this project looks like: ${EXPECTED} (${EVIDENCE}).

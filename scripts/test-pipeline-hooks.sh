@@ -437,6 +437,47 @@ CT=$(mktemp -d); mkdir -p "$CT/.git" "$CT/.claude"
 _canary "unrecognizable stack → silent"            silent ""
 rm -rf "$CT"
 
+echo
+echo "── detect-stack.sh + prune-dangling-hooks.py ──────────"
+echo
+
+_detect() {  # $1 name, $2 expected, $3 setup dir
+  local got; got=$(bash scripts/detect-stack.sh "$3" 2>/dev/null | sed -n '1p')
+  [ "$got" = "$2" ] && _record "$1" 0 || _record "$1 (expected '$2', got '${got:-<empty>}')" 1
+}
+DT=$(mktemp -d); touch "$DT/App.csproj";                                   _detect "detect: csproj → web"        web    "$DT"
+DT2=$(mktemp -d); echo '{"dependencies":{"expo":"51"}}' > "$DT2/package.json"; _detect "detect: expo → mobile"    mobile "$DT2"
+DT3=$(mktemp -d); mkdir -p "$DT3/api" "$DT3/app"; touch "$DT3/api/A.csproj"
+echo '{"dependencies":{"expo":"51"}}' > "$DT3/app/package.json";            _detect "detect: csproj+expo → hybrid" hybrid "$DT3"
+DT4=$(mktemp -d);                                                          _detect "detect: empty dir → nothing" ""     "$DT4"
+DT5=$(mktemp -d); printf 'name: x\ndependencies:\n  flutter:\n    sdk: flutter\n' > "$DT5/pubspec.yaml"
+_detect "detect: flutter sdk → mobile" mobile "$DT5"
+rm -rf "$DT" "$DT2" "$DT3" "$DT4" "$DT5"
+
+# prune-dangling-hooks: a hook pointing at a missing script is a silent no-op
+PD=$(mktemp -d); mkdir -p "$PD/.claude" "$PD/scripts"
+cat > "$PD/scripts/present.sh" <<'SH'
+#!/bin/bash
+exit 0
+SH
+cat > "$PD/.claude/settings.json" <<'JSON'
+{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[
+  {"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR/scripts/present.sh\""},
+  {"type":"command","command":"bash \"$CLAUDE_PROJECT_DIR/scripts/absent.sh\""},
+  {"type":"command","command":"echo inline-hook-no-script"}
+]}]}}
+JSON
+(cd "$PD" && python3 "$ROOT/scripts/prune-dangling-hooks.py" >/dev/null 2>&1)
+LEFT=$(grep -c 'scripts/' "$PD/.claude/settings.json")
+INLINE=$(grep -c 'inline-hook-no-script' "$PD/.claude/settings.json")
+[ "$LEFT" -eq 1 ] && _record "prune: removes the hook with the missing script" 0 \
+                  || _record "prune: removes the hook with the missing script (script refs left: $LEFT)" 1
+[ "$INLINE" -eq 1 ] && _record "prune: keeps inline hooks (no script reference)" 0 \
+                    || _record "prune: keeps inline hooks (no script reference)" 1
+python3 -m json.tool "$PD/.claude/settings.json" >/dev/null 2>&1 \
+  && _record "prune: leaves valid JSON" 0 || _record "prune: leaves valid JSON" 1
+rm -rf "$PD"
+
 # ─── totals ───────────────────────────────────────────────────────────────
 
 echo
