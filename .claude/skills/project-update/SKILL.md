@@ -10,6 +10,8 @@ allowed-tools: Read, Write, Edit, Bash, AskUserQuestion, Glob, Grep
 
 You are updating an existing project's speckit installation and Claude Code configuration to the latest version from the template repo.
 
+**`/project-update` is sufficient on its own.** No `git pull` of the template beforehand, on any machine, from any starting state. Step 4 fetches the sync instructions fresh from GitHub, and their Step -1 finds the template clone, **clones one if the machine has none**, and **fast-forwards it to `origin/main`** before any later step reads a file from it. That refresh is the whole reason the guarantee holds: the instructions come from GitHub but the files come off the local clone, so a clone left behind would deliver months-old content while reporting success. Covered by `scripts/test-sync-prompt-bootstrap.sh`.
+
 This skill does NOT run the project wizard interview, and it does NOT run a spec's per-spec interview. It only syncs infrastructure and tooling. (It DOES install/refresh the enforcement that *requires* the per-spec interview — see the spec-interview gate note in Step 5.)
 
 ## Input
@@ -84,6 +86,8 @@ spec-kit 0.16.x enables its `git` extension by default, and that extension regis
 If `$ARGUMENTS` is `speckit-only`, skip to Step 7.
 
 ### Step 4: Fetch sync-prompt from template repo
+
+Fetched fresh every run, so the instructions below are always current even when everything on disk is not:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/sync-prompt.md

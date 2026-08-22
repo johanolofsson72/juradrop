@@ -44,39 +44,56 @@ case "$EXT_LC" in
     ;;
 esac
 
-# 3) Walk up from the file's dir collecting markers; stop at .git boundary
+# 3) Walk up from the file's dir to the .git boundary, collecting three separate
+#    things. They are separate on purpose: this hook used to conflate the first
+#    two and pinned the "project root" to whichever directory happened to hold a
+#    language marker. On the template's own recommended .NET layout — a solution
+#    with src/<Project>/<Project>.csproj — that is the csproj directory, so a repo
+#    with a perfectly good specs/INDEX.md at its root got every source edit under
+#    src/ denied, with instructions to create a SECOND register at
+#    src/<Project>/specs/INDEX.md. An agent that followed them produced exactly
+#    the nested bogus register the message asked for.
+#
+#      LANG_MARKER  is this a real project at all (anywhere in the walk)
+#      REGISTER     a specs/INDEX.md anywhere between the file and the git root
+#      GIT_ROOT     where a register belongs when there is none
+#
+#    pipeline-state-guard and spec-interview-guard already resolve it this way,
+#    and .claude/rules/spec-register.md requires all three to agree — three gates
+#    that disagree about which spec you are on block work for opposite reasons.
 DIR=$(dirname "$FILE")
 LANG_MARKER=""
-PROJECT_ROOT=""
-REPO_FOUND=0
+REGISTER=""
+GIT_ROOT=""
 while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
   if [ -z "$LANG_MARKER" ]; then
     for marker in package.json Cargo.toml go.mod pyproject.toml requirements.txt composer.json Gemfile build.gradle build.gradle.kts pom.xml pubspec.yaml; do
-      if [ -f "$DIR/$marker" ]; then LANG_MARKER="$marker"; PROJECT_ROOT="$DIR"; break; fi
+      if [ -f "$DIR/$marker" ]; then LANG_MARKER="$marker"; break; fi
     done
   fi
   if [ -z "$LANG_MARKER" ]; then
-    if ls "$DIR"/*.csproj >/dev/null 2>&1; then LANG_MARKER="*.csproj"; PROJECT_ROOT="$DIR"; fi
+    if ls "$DIR"/*.csproj >/dev/null 2>&1; then LANG_MARKER="*.csproj"; fi
   fi
   if [ -z "$LANG_MARKER" ]; then
-    if ls "$DIR"/*.sln >/dev/null 2>&1; then LANG_MARKER="*.sln"; PROJECT_ROOT="$DIR"; fi
+    if ls "$DIR"/*.sln >/dev/null 2>&1; then LANG_MARKER="*.sln"; fi
   fi
-  if [ -d "$DIR/.git" ]; then
-    REPO_FOUND=1
-    [ -z "$PROJECT_ROOT" ] && PROJECT_ROOT="$DIR"
-    break
-  fi
+  if [ -z "$REGISTER" ] && [ -f "$DIR/specs/INDEX.md" ]; then REGISTER="$DIR/specs/INDEX.md"; fi
+  if [ -d "$DIR/.git" ]; then GIT_ROOT="$DIR"; break; fi
   DIR=$(dirname "$DIR")
 done
 
 # Not in a git repo OR no language marker in this repo → silent (template/scratch)
-[ "$REPO_FOUND" -eq 0 ] && exit 0
+[ -z "$GIT_ROOT" ] && exit 0
 [ -z "$LANG_MARKER" ] && exit 0
 
-# 4) Register check
-if [ -f "$PROJECT_ROOT/specs/INDEX.md" ]; then
+# 4) Register check — any register between the file and the git root satisfies it.
+if [ -n "$REGISTER" ]; then
   exit 0
 fi
+
+# There is none, so name the place it belongs: the repo root, never whichever
+# subdirectory happened to carry the language marker.
+PROJECT_ROOT="$GIT_ROOT"
 
 # 5) Block — no register, but this is a code project and a code file edit
 REASON="BLOCKED — no spec register at ${PROJECT_ROOT}/specs/INDEX.md. Per .claude/rules/spec-register.md, a register MUST exist BEFORE any development. This project has a language marker (${LANG_MARKER}) and you are about to edit a source file (${FILE}).

@@ -1,5 +1,5 @@
-sha=74e5de9c592a
-synced=2026-08-22T09:37:50Z
+sha=1db028653b98
+synced=2026-08-22T10:03:55Z
 source=/Users/jool/repos/Claude
 # manifest: sha256 of each file as written by the sync — a project file
 # whose hash no longer matches was edited locally and is never overwritten.
@@ -36,7 +36,7 @@ eefbd7d4f4d10f2550a658848cccbb1df1cc674942871a188e8fe12e07ab8a23  .claude/rules/
 f922414dda2db51714d56b697252d3d663c080985fe5b0ef9113fc4ef615d384  .claude/skills/code-review/SKILL.md
 377e436ce39442585d73f0e0deab9072adc99153a2160e4445babc65506434de  .claude/skills/deploy-checklist/SKILL.md
 a8feba369132e24945643955d727d09e21b2fffde2ba7817feb5cbcd134f6fdb  .claude/skills/explore-codebase/SKILL.md
-5f465a866910971540a6874dcb82df3fa4ceff2a31d8800c81d1f9153a98d035  .claude/skills/project-update/SKILL.md
+1457047205385f08c4126a122f5566c7248848d8bb01197636adfbb5d4817fa3  .claude/skills/project-update/SKILL.md
 8f6a7d061b00f4ae3b3c965adc94face3d49b7af18d8ce69f11cf2b9ae9c713f  .claude/skills/project-wizard/install.sh
 1c59177eae865bd41becb571690a5573c3a772948a2254fdaa689e4c8150bced  .claude/skills/project-wizard/SKILL.md
 81bea7df7e73d668fa66afe7ee265d00e7a86b8a7940814c04030d443c70bb85  .claude/skills/sync-template/SKILL.md
@@ -103,6 +103,7 @@ d9793434a6f9ba655daff388d12133e30bd0efe544b39ab3d45d43b94571fea2  scripts/local-
 bbc55b3979d04e93f7a870829c6ef0627735327a57c386968e29fa3c901baa2f  scripts/local-llm-gh-pr-view-hook.sh
 374b4990d8010a1ef3b08d45eb0154ef0b4ab4abcf0c35ed7fc200b4858412d8  scripts/local-llm-gh-run-view-hook.sh
 df30fea80aefc4cdf44aad38862341436c30a5af55de37607a54630c4ac7a473  scripts/local-llm-gitignore-skeleton-hook.sh
+10922a784dc8a325c89f72ef38400fe89a6b0feb02d8ca1e98a53349947772e9  scripts/local-llm-humanize-hook.sh
 3e44fd0df9a074b3901dad39757ca4b4174bf0a184cc4cea850ba674194dbfa9  scripts/local-llm-linq-perf-hook.sh
 35e1db64845bf6c7ff77535c1d5e6755356ddaaa1e7aef0d1a81c1eaa6165740  scripts/local-llm-migration-safety-hook.sh
 354f226ce92e1af8c45ef25b83c5489ec9e39e7ddab3b34509665967fea22446  scripts/local-llm-n1-query-hook.sh
@@ -141,7 +142,7 @@ e854a8e492e2f9dd2b37fa8f35bd5c702ef906bba349124be6bd23b8a4250fe2  scripts/repeat
 ee346b13d76ed20523af0927994067c20326b7c35f00854e3a817c01259a30f1  scripts/spec_active.py
 ff49a8802190668b0fd37f9dd289b8048ed1b20528fcc345b2968ed98031f830  scripts/spec-interview-guard-hook.sh
 b5c79b6d89181eb6a83d2e485fcc21e0f2adde1f21815dee250288b905664ac3  scripts/spec-md-coverage-reminder-hook.sh
-8738b760c49d079428e16a5c20052e56fd18f495b051ad4cb63bd21b30cbc518  scripts/spec-register-guard-hook.sh
+2d60ea12d3418d1c95b691804fcdf3b1ed434dd11d2dc34e01e99877a6c5f917  scripts/spec-register-guard-hook.sh
 66a498ea10c4c161f6d53754f50f32e55bae0d8d8105c636e823f17ae0b27845  scripts/spec-register-orientation-hook.sh
 7883201beb9691c035defc90aaec34921223b0612a5dc4e0265ea768fcffb27f  scripts/spec-run-log-hook.sh
 4382ee8098e9f429ba03aa469560c26b363f1d6ff609edbe4bb8170e1c08636a  scripts/speckit-extension-policy.sh
@@ -154,7 +155,7 @@ c35a2d563144b04720dd91bd4fa7aea820656dd7867691b76ea0c09246c1c42c  scripts/sync-f
 8e5ad4f9a55b3030e680c74df280d4f17b569ceb935b7a7582431ca6f3230c04  scripts/sync-local-llm-hooks.py
 c12690308282f3c197b9728e25ff42203380b656ea345170aee391cf7279cab2  scripts/template-autosync-hook.sh
 e1fd23fad28af8c5d433778ae6b91fc0a9f00eb15fc4985feadac12f7e1b0324  scripts/template-autosync.sh
-9e19600e4e1a1d87180343c67fb433d8841e956d9202a4501f0623b2e573067d  scripts/test-active-spec-resolution.sh
+6d1e7c13be6e929306841791a1757f6720e82134ea57b0c231018f5d008698b2  scripts/test-active-spec-resolution.sh
 4e71ca6a2428aa918436532cc3e76e6eb6c82bc55bbbb353743b393b98b6f579  scripts/test-archive-spec-history.sh
 7e81c90c5d582250d7f97b7743f0034b37d755311731c3c6f2fe88cf7b715a1e  scripts/test-coverage-hook.sh
 dbc50b47c2ff1c16cc7abb5a10dc38433eb2dea7f30bbccd7a80a7ae160ff856  scripts/test-pipeline-hooks.sh

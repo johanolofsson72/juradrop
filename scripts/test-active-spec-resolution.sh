@@ -49,6 +49,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 GUARD_STATE="$GUARD_DIR/pipeline-state-guard-hook.sh"
 GUARD_INTERVIEW="$GUARD_DIR/spec-interview-guard-hook.sh"
+GUARD_REGISTER="$GUARD_DIR/spec-register-guard-hook.sh"
 
 for g in "$GUARD_STATE" "$GUARD_INTERVIEW"; do
   [ -f "$g" ] || { echo "HARNESS ERROR: guard not found: $g" >&2; exit 2; }
@@ -280,6 +281,57 @@ if want missingdir; then
     check "interview-guard" "$I" deny "007q"
   fi
 fi
+
+# ---------------------------------------------------------------------------
+# spec-register-guard must resolve the PROJECT ROOT the same way the other two
+# do. It used to pin the root to whichever directory held a language marker, so
+# on the template's own recommended .NET layout — a solution with
+# src/<Project>/<Project>.csproj — a repo with a perfectly good
+# specs/INDEX.md at its root had every source edit under src/ denied, and the
+# deny message told the agent to create a SECOND register at
+# src/<Project>/specs/INDEX.md. Three guards that disagree about the project
+# root block work for opposite reasons; .claude/rules/spec-register.md requires
+# them to agree.
+echo
+echo "FIXTURE nested-marker — register at the repo root, .csproj in a subdirectory"
+NESTED="$WORK/nested"
+mkdir -p "$NESTED/.git" "$NESTED/src/App" "$NESTED/specs"
+: > "$NESTED/App.sln"
+printf '<Project Sdk="Microsoft.NET.Sdk"></Project>\n' > "$NESTED/src/App/App.csproj"
+printf '# Spec register\n\n## Specs\n\n- [x] 001 — done — full track — finished\n' > "$NESTED/specs/INDEX.md"
+
+nested_guard() {
+  _out=$(printf '{"tool_input":{"file_path":"%s"}}' "$1" | bash "$GUARD_REGISTER" 2>/dev/null)
+  [ -z "$_out" ] && { printf 'ALLOW'; return 0; }
+  printf '%s' "$_out" | python3 -c '
+import json,sys
+try:
+    d=json.load(sys.stdin); h=d.get("hookSpecificOutput",{})
+    r=h.get("permissionDecisionReason","").splitlines()
+    print(h.get("permissionDecision","?").upper()+" "+(r[0] if r else ""))
+except Exception: print("ALLOW")'
+}
+
+check "register-guard — src/App/Program.cs with a root register" \
+      "$(nested_guard "$NESTED/src/App/Program.cs")" allow
+check "register-guard — a root-level source file" \
+      "$(nested_guard "$NESTED/Root.cs")" allow
+
+# With no register anywhere it must still deny, and must name the REPO ROOT as
+# the place the register belongs — never the csproj subdirectory.
+mv "$NESTED/specs/INDEX.md" "$NESTED/specs/INDEX.off"
+NESTED_DENY=$(nested_guard "$NESTED/src/App/Program.cs")
+check "register-guard — denies when there is genuinely no register" \
+      "$NESTED_DENY" deny "$NESTED/specs/INDEX.md"
+case "$NESTED_DENY" in
+  *"$NESTED/src/App/specs/INDEX.md"*)
+    CHECKS=$((CHECKS + 1)); FAILURES=$((FAILURES + 1))
+    printf '  ✗ register-guard — deny names the csproj subdir, not the repo root\n' ;;
+  *)
+    CHECKS=$((CHECKS + 1))
+    printf '  ✓ register-guard — deny points at the repo root, not the csproj subdir\n' ;;
+esac
+mv "$NESTED/specs/INDEX.off" "$NESTED/specs/INDEX.md"
 
 echo
 if [ "$FAILURES" -eq 0 ]; then
