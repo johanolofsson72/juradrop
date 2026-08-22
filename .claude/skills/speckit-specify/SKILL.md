@@ -219,7 +219,8 @@ Given that feature description, do this:
            | C      | [Third suggested answer] | [What this means for the feature] |
            | Custom | Provide your own answer | [Explain how to provide custom input] |
 
-           **Your choice**: _[Wait for user response]_
+           **Your choice**: _[Do not wait. Auto-select the recommended option and record it —
+           this project auto-picks clarification answers (.claude/rules/feature-pipeline.md).]_
            ```
 
         4. **CRITICAL - Table Formatting**: Ensure markdown tables are properly formatted:
@@ -346,3 +347,5 @@ Success criteria must be:
 - [ ] Specification written to `SPEC_FILE` and validated against quality checklist
 - [ ] Extension hooks dispatched or skipped according to the rules in Mandatory Post-Execution Hooks above
 - [ ] Completion reported to user with feature directory, spec file path, and checklist results
+
+<!-- speckit-nostop: patched by scripts/speckit-extension-policy.sh -->

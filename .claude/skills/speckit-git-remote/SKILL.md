@@ -6,7 +6,7 @@ metadata:
   author: github-spec-kit
   source: extension:git
 user-invocable: true
-disable-model-invocation: false
+disable-model-invocation: true
 ---
 
 # Git Remote Skill
