@@ -81,7 +81,7 @@ fi
 bash scripts/speckit-extension-policy.sh
 ```
 
-spec-kit 0.16.x enables its `git` extension by default, and that extension registers five skills — `speckit-git-feature`, `-git-validate`, `-git-commit`, `-git-remote`, `-git-initialize` — which create numbered feature branches, enforce branch naming, and auto-commit after every phase. All three contradict `.claude/rules/spec-register.md` (one spec → one commit → direct push, no branches, no merge step). The script switches `git` off and leaves `agent-context` on. It is idempotent and silent when the policy already holds. Report its output in Step 8; if the script is missing, the sync in Step 5 will install it — run it then.
+**On spec-kit 1.0.x (2026-08-21+) extensions are opt-in (`--extension`)**, so there is no registry and no `speckit-git-*` skills, and this script is a confirmation rather than a repair — it exits silently. Keep the step: 0.16.x projects still exist and it is the only thing holding them. On 0.16.x, spec-kit enables its `git` extension by default, and that extension registers five skills — `speckit-git-feature`, `-git-validate`, `-git-commit`, `-git-remote`, `-git-initialize` — which create numbered feature branches, enforce branch naming, and auto-commit after every phase. All three contradict `.claude/rules/spec-register.md` (one spec → one commit → direct push, no branches, no merge step). The script switches `git` off and leaves `agent-context` on. It is idempotent and silent when the policy already holds. Report its output in Step 8; if the script is missing, the sync in Step 5 will install it — run it then.
 
 If `$ARGUMENTS` is `speckit-only`, skip to Step 7.
 

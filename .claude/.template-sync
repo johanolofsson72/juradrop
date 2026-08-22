@@ -1,5 +1,5 @@
-sha=a164ba55baec
-synced=2026-08-22T11:53:25Z
+sha=423b8f55eb67
+synced=2026-08-22T12:02:27Z
 source=/Users/jool/repos/Claude
 # manifest: sha256 of each file as written by the sync — a project file
 # whose hash no longer matches was edited locally and is never overwritten.
@@ -18,9 +18,9 @@ cbc91e3aa7e602aecac0729547cebfcee4bb79045c85f87079b0c93183a3d29d  .claude/docs/s
 84c393d9e7c9054cce5085c27ba974ca047b767ff5b2d175d049f823b5da93f6  .claude/docs/stress-testing.md
 e538cc29f8e01b992c74657563d4945418001bb7a65e3b31d7b4814ccd0a07f4  .claude/docs/workflows.md
 e14b08dd42acb3d4012e2626204c88d2f5f400da90beef62fe56127723cce340  .claude/rules/allium.md
-2eea7f6dfa0e4e6b59c39247f12487f486d2870b0dd62f456b958189a68141ed  .claude/rules/continuous-execution.md
+292512e2e4325bcc0bc14a6539ad5fea828d993a02004a837a81b8e684e550e2  .claude/rules/continuous-execution.md
 13fca6c7c05889a9ce0ed54cba6505b92d4c0e1ad58f2bf1b52a3b9796b5b954  .claude/rules/design-references.md
-e96e746bc0e270f923b52cf4ad1823c15ab4a2d19460930b7e36907fe5921ebd  .claude/rules/feature-pipeline.md
+ddaed50b0c524f3ca0fb8ee8690ba28a57c00a61a4719d0ac33f3e35ac769183  .claude/rules/feature-pipeline.md
 521e007189905519314f8d1f39b3ffdbd06be152b99fbe48041665c1ff199421  .claude/rules/frontend.md
 edf109f09944d42926fd565bbacc56afb64976c853051aa69987771d132a0b7f  .claude/rules/github-actions.md
 2c0091aa5663d02bec17e7ce38032be257d9f9a2ce766e52196d73466193069a  .claude/rules/project-workflow.md
@@ -36,7 +36,7 @@ eefbd7d4f4d10f2550a658848cccbb1df1cc674942871a188e8fe12e07ab8a23  .claude/rules/
 f922414dda2db51714d56b697252d3d663c080985fe5b0ef9113fc4ef615d384  .claude/skills/code-review/SKILL.md
 377e436ce39442585d73f0e0deab9072adc99153a2160e4445babc65506434de  .claude/skills/deploy-checklist/SKILL.md
 a8feba369132e24945643955d727d09e21b2fffde2ba7817feb5cbcd134f6fdb  .claude/skills/explore-codebase/SKILL.md
-1457047205385f08c4126a122f5566c7248848d8bb01197636adfbb5d4817fa3  .claude/skills/project-update/SKILL.md
+baa7ba47e3bbae55e9f1d5a2c4ca80ad31fbc886bf961aaebccf76fa68d95061  .claude/skills/project-update/SKILL.md
 8f6a7d061b00f4ae3b3c965adc94face3d49b7af18d8ce69f11cf2b9ae9c713f  .claude/skills/project-wizard/install.sh
 1c59177eae865bd41becb571690a5573c3a772948a2254fdaa689e4c8150bced  .claude/skills/project-wizard/SKILL.md
 81bea7df7e73d668fa66afe7ee265d00e7a86b8a7940814c04030d443c70bb85  .claude/skills/sync-template/SKILL.md
@@ -145,7 +145,7 @@ b5c79b6d89181eb6a83d2e485fcc21e0f2adde1f21815dee250288b905664ac3  scripts/spec-m
 2d60ea12d3418d1c95b691804fcdf3b1ed434dd11d2dc34e01e99877a6c5f917  scripts/spec-register-guard-hook.sh
 bc347aebfa365545a712c1299d7d39b96608ca3ecf2874bcba1d63049f9b4957  scripts/spec-register-orientation-hook.sh
 7883201beb9691c035defc90aaec34921223b0612a5dc4e0265ea768fcffb27f  scripts/spec-run-log-hook.sh
-4382ee8098e9f429ba03aa469560c26b363f1d6ff609edbe4bb8170e1c08636a  scripts/speckit-extension-policy.sh
+4bd5ce27f4855e97c7733858a7d7b72385203dc5393b061338c500fb8b1d0102  scripts/speckit-extension-policy.sh
 2a8b55ff05c4862a29e161f1cc132c5e57da314f014b09dd0734cb0cfe74b4be  scripts/sqlite-nfs-safety-hook.sh
 2f2c8ed576640c8da32f4453b48b0ee3241419ab3660fad01b7df9492dd94f9d  scripts/stack-marker-canary-hook.sh
 4dd3c56934a937d3274df6324b8dbb70a1358419edbf465c911e2571e514c86e  scripts/stop-validation-hook.sh

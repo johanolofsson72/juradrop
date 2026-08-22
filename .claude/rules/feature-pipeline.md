@@ -40,9 +40,42 @@ in the pipeline enforces it: converge proves the work is *complete*, the tests p
 behaviour got built three times in three shapes. Run it before the test phase, so the tests are written against the code that will
 actually ship rather than against a draft you are about to restructure. Skip on the spec-only track.
 
-> **Extension policy (BLOCKING).** spec-kit 0.16.x ships extensions that `specify init --here --force` enables by default. The **`git` extension is disabled in these projects** — its five skills (`speckit-git-feature`, `-git-validate`, `-git-commit`, `-git-remote`, `-git-initialize`) create numbered feature branches, enforce branch naming, and auto-commit after every phase, all of which contradict `.claude/rules/spec-register.md` (one spec → one commit → direct push, no branches, no merge step). `specify init --force` re-enables them on every run, so `scripts/speckit-extension-policy.sh` runs after every init in both `/project-wizard` and `/project-update` to switch it back off. `agent-context` stays enabled. Do not invoke the `speckit-git-*` skills; if you find them enabled, run the policy script.
+> **spec-kit 1.0 (released 2026-08-21) — what changed for us.** Both `/project-wizard` and `/project-update` install from
+> `git+https://github.com/github/spec-kit.git`, i.e. whatever `main` is that day, so a project updated after 2026-08-21 lands on
+> **1.0.x** and one updated before it stays on 0.16.x. Verify with `.specify/init-options.json` → `speckit_version`. Three
+> consequences:
 >
-> **Command names (spec-kit v0.10.0+ — 0.16.2 as of August 2026 — with `--integration claude`).** The hyphenated skill names below have been stable since the v0.10 line; v0.11–v0.14 normalized hyphenation across integrations, moved Claude Code files from `.claude/commands/` to `.claude/skills/`, and added a `py` script type (v0.14.0) alongside `sh`/`ps`. The install commands in `/project-wizard` and `/project-update` pull from `git+…/spec-kit.git` (i.e. whatever `main` is that day) — pin a tag (`uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v0.14.2`) when two developers need identical phases.
+> 1. **Extensions are opt-in (`--extension`), not default-on.** The git extension no longer re-enables itself on every
+>    `specify init --force`, and a 1.0 project has no `.specify/extensions/` at all. `scripts/speckit-extension-policy.sh` is
+>    therefore a **confirmation** on 1.0.x rather than a repair — it exits silently when there is no registry. Keep running it:
+>    0.16.x projects still exist (rocky carries five neutralized `speckit-git-*` skills) and it is the only thing holding them.
+> 2. **`/speckit-specify` now maintains a built-in `checklists/requirements.md`.** That is spec-kit's own requirements-quality
+>    checklist, distinct from the optional `/speckit-checklist` artifacts and from this project's `spec-testing-checklist.md`.
+> 3. **`/speckit-implement` halts on unchecked checklist items** — see the override immediately below, because as shipped it
+>    breaks a BLOCKING rule.
+>
+> **Override (BLOCKING) — the 1.0 checklist stop is not a permission gate.** `/speckit-implement` counts unchecked items across
+> the checklists and, when any are unchecked, instructs: *"STOP and ask: Some checklists have unchecked items. Do you want to
+> proceed with implementation anyway? (yes/no)"*. That is precisely the anti-pattern `.claude/rules/continuous-execution.md`
+> forbids — a permission-check mid-pipeline on work the developer already authorized. **Do not ask it.** Instead:
+>
+> - **Read the unchecked items and judge them.** Tick the ones already satisfied.
+> - **Record the rest; do not stop for them.** An unchecked item that names a real gap — a missing acceptance criterion, an
+>   unanswered authorization question, an absent error state — goes into the spec and into `<spec-dir>/run-log.md`, and is
+>   reported in the **per-spec status summary**. That summary is the one stop this pipeline has (`.claude/rules/spec-register.md`),
+>   and it is where the developer sees what was left unchecked — after the work, not instead of it.
+> - **Never relay the prompt, in any form.** Not as a yes/no question, and not converted into an `AskUserQuestion`. There is no
+>   version of this gate that is allowed to halt the run.
+>
+> This is enforced deterministically, not just in prose: `scripts/speckit-extension-policy.sh` rewrites the STOP block in
+> `speckit-implement/SKILL.md` (and the `_[Wait for user response]_` line in `speckit-specify/SKILL.md`) after every
+> `specify init`, stamping a marker so re-runs are no-ops. It fires on the verbatim upstream text and, when spec-kit changes its
+> wording, warns instead of half-editing — at which point this rule is what governs.
+>
+> The stop lives in spec-kit's own SKILL.md, which `specify init --force` regenerates on every update, so patching that file does
+> not survive — the same lesson the git extension taught. This rule is the durable override.
+
+> **Command names (spec-kit v0.10.0+ — **1.0.2 as of August 2026**, see the 1.0 note above — with `--integration claude`).** The hyphenated skill names below have been stable since the v0.10 line; v0.11–v0.14 normalized hyphenation across integrations, moved Claude Code files from `.claude/commands/` to `.claude/skills/`, and added a `py` script type (v0.14.0) alongside `sh`/`ps`. The install commands in `/project-wizard` and `/project-update` pull from `git+…/spec-kit.git` (i.e. whatever `main` is that day) — pin a tag (`uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v0.14.2`) when two developers need identical phases.
 >
 > **Skill names.** `specify init` installs these phases as **skills** with hyphenated names: `/speckit-specify`, `/speckit-clarify`, `/speckit-plan`, `/speckit-tasks`, `/speckit-analyze`, `/speckit-implement` (plus `/speckit-constitution` and `/speckit-checklist`). Earlier spec-kit used bare `/specify` etc. — those no longer match the installed skills, so always use the `/speckit-` prefix. `/allium:elicit` and `/tla` are this project's OWN skills (not spec-kit) and keep their names.
 >

@@ -19,6 +19,7 @@ The following are explicit anti-patterns. Each one is a rule violation:
 - Stopping after every item in the active task list to confirm the next one
 - Stopping after Allium elicitation to ask "ready to implement?" — the spec → implementation handoff is part of the same pipeline
 - Stopping after browser tests to ask "ready to run TLA+?" — the testing → verification handoff is part of the same pipeline
+- Relaying spec-kit 1.0's `/speckit-implement` prompt — *"Some checklists have unchecked items. Do you want to proceed with implementation anyway? (yes/no)"* — to the developer. It is a permission-check on work already authorized, shipped inside a third-party skill. Judge the unchecked items instead: tick what is satisfied, record any real gap in the spec and `<spec-dir>/run-log.md`, and report it in the per-spec status summary — the one stop this pipeline has. Never relay the prompt, and never convert it into an `AskUserQuestion`. `scripts/speckit-extension-policy.sh` rewrites the stop out of the skill after every `specify init`. See the override in `.claude/rules/feature-pipeline.md`.
 
 If the user has already said "build feature X" and you wrote a plan covering Phases A/B/C, then asking "ready for Phase B?" after finishing Phase A is asking the same question twice. The user already answered. Keep going.
 
