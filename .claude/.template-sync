@@ -1,5 +1,5 @@
-sha=1db028653b98
-synced=2026-08-22T10:03:55Z
+sha=a164ba55baec
+synced=2026-08-22T11:53:25Z
 source=/Users/jool/repos/Claude
 # manifest: sha256 of each file as written by the sync — a project file
 # whose hash no longer matches was edited locally and is never overwritten.
@@ -143,7 +143,7 @@ ee346b13d76ed20523af0927994067c20326b7c35f00854e3a817c01259a30f1  scripts/spec_a
 ff49a8802190668b0fd37f9dd289b8048ed1b20528fcc345b2968ed98031f830  scripts/spec-interview-guard-hook.sh
 b5c79b6d89181eb6a83d2e485fcc21e0f2adde1f21815dee250288b905664ac3  scripts/spec-md-coverage-reminder-hook.sh
 2d60ea12d3418d1c95b691804fcdf3b1ed434dd11d2dc34e01e99877a6c5f917  scripts/spec-register-guard-hook.sh
-66a498ea10c4c161f6d53754f50f32e55bae0d8d8105c636e823f17ae0b27845  scripts/spec-register-orientation-hook.sh
+bc347aebfa365545a712c1299d7d39b96608ca3ecf2874bcba1d63049f9b4957  scripts/spec-register-orientation-hook.sh
 7883201beb9691c035defc90aaec34921223b0612a5dc4e0265ea768fcffb27f  scripts/spec-run-log-hook.sh
 4382ee8098e9f429ba03aa469560c26b363f1d6ff609edbe4bb8170e1c08636a  scripts/speckit-extension-policy.sh
 2a8b55ff05c4862a29e161f1cc132c5e57da314f014b09dd0734cb0cfe74b4be  scripts/sqlite-nfs-safety-hook.sh
