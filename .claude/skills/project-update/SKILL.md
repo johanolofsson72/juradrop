@@ -124,7 +124,7 @@ Execute all instructions between the `---` markers in the fetched sync-prompt. S
    - **Web/.NET project** → normal web `testing.md` / `spec-testing-checklist.md`; remove any stray `-mobile` files. Write `testing=web`.
    - This is the exact mechanism in sync-prompt Step 7c — follow it. Re-stamping browser docs onto a native app is the documented failure that left rundan/iskvalp reading "browser back mid-flow" instructions for an app with no browser.
 
-6. **settings.json merge** — UNION of hooks and permissions.deny. Hooks are wired DETERMINISTICALLY via the three helper scripts (`sync-local-llm-hooks.py`, `sync-graphify-wiring.py`, `sync-core-hooks.py`), NOT by hand. Preserve project-specific hooks.
+6. **settings.json merge** — UNION of hooks and permissions.deny, plus `"outputStyle": "Proactive"` when the project sets none (sync-prompt Step 4). Hooks are wired DETERMINISTICALLY via the three helper scripts (`sync-local-llm-hooks.py`, `sync-graphify-wiring.py`, `sync-core-hooks.py`), NOT by hand. Preserve project-specific hooks.
 
 7. **Verify spec testing pipeline** — Ensure rules/specs.md, docs/spec-testing-checklist.md, and the PostToolUse prompt-hook all exist.
 

@@ -233,6 +233,7 @@ For everything else in `settings.json`:
 - MERGE `permissions.allow` lists (union of both) — the template's allow list has expanded git/gh entries (`git push:*`, `git pull:*`, `git fetch:*`, `git checkout:*`, `git switch:*`, `git branch:*`, `git merge:*`, `git rebase:*`, `git stash:*`, `git tag:*`, `git restore:*`, `git cherry-pick:*`, `git status:*`, `git diff:*`, `git log:*`, `git show:*`, `git blame:*`, `git remote:*`, `git config --get:*`, `git config --list:*`, `gh pr:*`, `gh issue:*`, `gh repo view:*`, `gh run view:*`) which the project should pick up.
 - If `permissions.ask` contains `Bash(git push *)`, REMOVE it (the template has moved this to allow). Other `permissions.ask` entries are preserved.
 - MERGE non-local-LLM `hooks` entries — add missing hooks from the template, preserve existing custom hooks.
+- SET `"outputStyle": "Proactive"` if the project has no `outputStyle` key. A built-in style (v2.1.237+) that modifies the **system prompt**, where CLAUDE.md only adds a user message after it — so this is the strongest place the autonomy rules in `.claude/rules/continuous-execution.md` can live. If the project already sets an `outputStyle`, leave it: someone chose that on purpose. Do **not** set `Concise` — it fights the per-finding surfacing in `.claude/rules/validation-followup.md` and the per-spec status summary, both of which are verbose by design.
 - Preserve any project-specific settings not in the template.
 
 **Step 3.2.1 — inline-hook OVERWRITE exceptions (the template version wins):**

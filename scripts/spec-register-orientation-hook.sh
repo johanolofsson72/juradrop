@@ -14,6 +14,16 @@
 
 set -u
 
+# H6s2 finding 1 — the resolver is a sibling of THIS FILE, not of the project
+# being oriented. Looked up under "$PROJECT_ROOT/scripts/" it went missing in any
+# project whose scripts/ does not carry it (a truncated autosync: the .py pass
+# runs after every .sh), and both consequences were silent — the run-log tail,
+# which is the whole point of a run log for a freshly-cleared session, simply did
+# not appear, and --sync-feature-json did not run, leaving spec-kit's
+# feature.json naming the PREVIOUS spec. That last one is the defect 007m exists
+# to prevent, re-entering through the lookup path rather than the parser.
+_ORIENT_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+
 DIR="$PWD"
 FOUND_REG=""
 LANG_MARKER=""
@@ -54,8 +64,61 @@ if [ -n "$FOUND_REG" ]; then
   TOTAL=$((DONE + PROG + BLOCK + TODO))
   [ "$TOTAL" -eq 0 ] && exit 0
 
-  NEXT_LINE=$(grep -m1 -E '^- \[[ /!]\]' "$FOUND_REG" 2>/dev/null | sed -E 's/^- \[[ /!]\] //' || true)
-  [ -z "$NEXT_LINE" ] && NEXT_LINE="(register complete — all ${TOTAL} specs done)"
+  # Lane ownership. Two developers share one register, so "next" is per-lane: a row
+  # carries a trailing "@name" tag and SPEC_OWNER (per machine, .claude/settings.local.json)
+  # says which lane this session is in. Same rule as the two PreToolUse guards, and it has
+  # to stay the same — an orientation line pointing at a row the guards will refuse to
+  # unlock is worse than no orientation line. Unset SPEC_OWNER = every row, as before.
+  # Untagged rows belong to nobody and stay visible in both lanes.
+  LANE=$(printf '%s' "${SPEC_OWNER:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+
+  # Pick this lane's row, in priority order: my in-progress row → my next row → an unowned
+  # in-progress row → the next unowned row. A row assigned to me beats an unowned one that
+  # sits higher in the register: the order is dependency-driven, so the top of the shared
+  # tail is usually blocked behind the OTHER lane's current row. Same resolution as the two
+  # PreToolUse guards — an orientation line pointing at a row the guards will refuse to
+  # unlock is worse than no orientation line at all.
+  # $1 = "prog" to consider only in-progress rows. Empty LANE → nothing is "mine", which
+  # collapses to first-[/]-else-first-[ ]: the old single-lane behaviour, unchanged.
+  pick_row() {
+    awk -v lane="$LANE" -v only_prog="${1:-}" '
+      # "- [!]" is deliberately NOT here. A held row is one somebody stopped for a reason the
+      # register cannot express as a dependency, and pointing a fresh session at it is how the
+      # decision gets quietly overruled by a banner. pipeline-state-guard and
+      # spec-interview-guard already match only "- [/]" and "- [ ]", so this is the line that
+      # was out of step with them rather than a new rule.
+      /^- \[[ \/]\]/ {
+        inprog = ($0 ~ /^- \[\/\]/)
+        if (only_prog != "" && !inprog) next
+        owner = ""
+        if (match($0, /—[[:space:]]*@[A-Za-z0-9._-]+[[:space:]]*$/)) {
+          owner = substr($0, RSTART, RLENGTH)
+          sub(/^—[[:space:]]*@/, "", owner); gsub(/[[:space:]]/, "", owner)
+          owner = tolower(owner)
+        }
+        if (lane != "" && owner != "" && owner != lane) next
+        mine = (lane != "" && owner == lane)
+        if (mine) { if (inprog) { if (oa == "") oa = $0 } else { if (op == "") op = $0 } }
+        else      { if (inprog) { if (fa == "") fa = $0 } else { if (fp == "") fp = $0 } }
+      }
+      END {
+        if (oa != "") print oa; else if (op != "") print op
+        else if (fa != "") print fa; else if (fp != "") print fp
+      }' "$FOUND_REG" 2>/dev/null
+  }
+
+  NEXT_LINE=$(pick_row | sed -E 's/^- \[[ /!]\] //' || true)
+  if [ -z "$NEXT_LINE" ]; then
+    if [ -n "$LANE" ]; then
+      NEXT_LINE="(no unfinished row owned by @${LANE} — the other lane has the rest; pick one up or tag one)"
+    else
+      NEXT_LINE="(register complete — all ${TOTAL} specs done)"
+    fi
+  fi
+  LANE_NOTE=""
+  [ -n "$LANE" ] && LANE_NOTE="
+Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from this
+  session's guards. Two developers, one register — see 'Två spår' in specs/INDEX.md."
 
   # Big-spec context hygiene: full-track / hardened / checkpoint rows want a
   # fresh session. A hook cannot run /clear (it is a harness built-in), so we
@@ -119,13 +182,32 @@ if [ -n "$FOUND_REG" ]; then
   # the TAIL of its run log so a fresh session knows what already went wrong
   # (escalated interview answer, failed gate, deferred finding) instead of
   # rediscovering it. Tail only — the log is never pipeline input.
+  # Spec 007m — resolve the in-progress spec's directory through the ONE
+  # canonical resolver, and refresh .specify/feature.json from it while here.
+  #
+  # The refresh is the fix for the fourth resolver. spec-kit's
+  # check-prerequisites.sh reads .specify/feature.json, which is written once by
+  # /speckit-specify and never updated — so for the whole of every spec it named
+  # the PREVIOUS spec, and /speckit-analyze would have analysed that spec's
+  # spec.md/plan.md/tasks.md while reporting clean. We deliberately do NOT patch
+  # check-prerequisites.sh or common.sh: `specify init --force` regenerates them,
+  # which is the same clobber trap that reverted spec 004a's fix. Instead we keep
+  # spec-kit's own documented input correct, demoting feature.json from a rival
+  # source of truth to a cache of the register's answer.
   RUNLOG_TAIL=""
   if [ "$PROG" -gt 0 ]; then
-    IP_ROW=$(grep -m1 -E '^- \[/\]' "$FOUND_REG" 2>/dev/null | sed -E 's/^- \[.\] *//')
-    IP_ID=$(printf '%s' "$IP_ROW" | awk '{print $1}')
-    IP_SLUG=$(printf '%s' "$IP_ROW" | awk -F' — ' '{print $2}' | tr -d ' ')
-    for cand in "${PROJECT_ROOT}/specs/${IP_ID}-${IP_SLUG}/run-log.md" "${PROJECT_ROOT}/.specify/specs/${IP_ID}-${IP_SLUG}/run-log.md"; do
-      if [ -f "$cand" ]; then
+    # Spec 007q — the --sync-feature-json flag USED to be on this call, and that
+    # was the defect: this block only runs when PROG>0 (an in-progress "- [/]"
+    # row exists), because it exists to print the run-log tail. At the start of
+    # every spec the row is still "- [ ]", so the refresh never ran and the cache
+    # went on naming the PREVIOUS spec — the very thing H6s2's note above says it
+    # costs, reached by gating instead of by lookup. The refresh now lives in
+    # scripts/sync-feature-json-hook.sh, wired to SessionStart unconditionally.
+    # Do not re-add the flag here; this call is only for the run-log tail.
+    IP_JSON=$(bash "${_ORIENT_SCRIPT_DIR}/resolve-active-spec.sh" --root "$PROJECT_ROOT" 2>/dev/null)
+    IP_DIR=$(printf '%s' "$IP_JSON" | sed -n 's/.*"dir": *"\([^"]*\)".*/\1/p')
+    for cand in "${PROJECT_ROOT}/${IP_DIR}/run-log.md"; do
+      if [ -n "$IP_DIR" ] && [ -f "$cand" ]; then
         TAIL_LINES=$(grep -E '^- ' "$cand" 2>/dev/null | tail -5)
         [ -n "$TAIL_LINES" ] && RUNLOG_TAIL="
 Run log (last 5, ${cand#$PROJECT_ROOT/}):
@@ -143,16 +225,16 @@ ${TAIL_LINES}"
   # otherwise the register collapses to a single line.
   ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
-    MSG="Register: ${DONE}/${TOTAL} done · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
+    MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
     jq -n --arg m "$MSG" '{systemMessage: $m}'
     exit 0
   fi
 
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
+Next: ${NEXT_LINE}${LANE_NOTE}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
 
-Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit + push to main, tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
+Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit on the spec's own branch (spec/<id>-<slug>), open a PR into main and merge it, tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   jq -n --arg m "$MSG" '{systemMessage: $m}'
   exit 0
 fi

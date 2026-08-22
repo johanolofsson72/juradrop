@@ -24,6 +24,7 @@ Allium is the preferred specification language for this project. It sits between
                                        (auto-pick recommended via settings.json hook; all tracks)
 3. /allium:elicit                    → sharpens clarified spec into .allium (refuses vague requirements)
 4. Implementation                    → code written
+4b. /speckit-converge + /simplify    → unbuilt work back to tasks.md; then a quality-only pass
 5. Tests                             → unit + integration + PBT (wide input); E2E functional +
                                        risk-tiered destructive (sized per UI function) + visual regression;
                                        mutation kill rate is the gate, not the count

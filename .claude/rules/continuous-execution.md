@@ -16,7 +16,7 @@ The following are explicit anti-patterns. Each one is a rule violation:
 - "Step 3 of 7 complete. Shall I move on to step 4?"
 - "Want me to proceed with the next item in the plan?"
 - "The first task is done. Continue with the rest?"
-- Stopping after every TodoWrite item to confirm the next one
+- Stopping after every item in the active task list to confirm the next one
 - Stopping after Allium elicitation to ask "ready to implement?" — the spec → implementation handoff is part of the same pipeline
 - Stopping after browser tests to ask "ready to run TLA+?" — the testing → verification handoff is part of the same pipeline
 
@@ -41,7 +41,7 @@ Before composing a stop message, check yourself:
 
 - Am I about to ask "should I continue with X?" where X is already in the plan? → **Do not stop. Just do X.**
 - Am I about to ask "want me to also do Y?" where Y was implicit in the original request? → **Do not stop. Just do Y.**
-- Is there an unfinished item in the active TodoWrite list / tasks.md / plan? → **Do not stop. Continue.**
+- Is there an unfinished item in the active task list / `tasks.md` / plan? → **Do not stop. Continue.**
 - Did I just complete a "phase" but the overall task is not done? → **Do not stop. Start the next phase.**
 
 The stop button is for completion or for blocking ambiguity, not for permission-checking.

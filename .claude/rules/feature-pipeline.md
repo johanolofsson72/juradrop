@@ -20,6 +20,11 @@ Every developer request that is **not** a trivial one-file fix MUST go through t
                                                                                        back to implement if any)
                                                                                              │
                                                                                              ▼
+                                                                                            /simplify
+                                                                                  (quality-only pass on the
+                                                                                   changed code; no bug hunt)
+                                                                                             │
+                                                                                             ▼
                                                                                     browser tests (functional + destructive)
                                                                                              │
                                                                                              ▼
@@ -27,6 +32,13 @@ Every developer request that is **not** a trivial one-file fix MUST go through t
 ```
 
 **`/speckit-converge` is mandatory after `/speckit-implement`** (spec-kit 0.16+). It assesses the codebase against the spec, plan and tasks, and appends any remaining unbuilt work to `tasks.md`. If it appends anything, go back and implement it — then converge again, until it appends nothing. This is the phase that catches "the spec described twelve behaviours and nine got built", which is the same failure the functional-coverage inventory exists to prevent, caught one stage earlier and mechanically rather than by eye. It complements `/allium:distill` (semantic drift between spec and code) by working at task granularity. Skip only on the spec-only track.
+
+**After converge stops appending, run `/simplify` on the changed code.** It is a built-in, quality-only pass — reuse,
+simplification, efficiency, altitude — and it does not hunt for bugs, so it never substitutes for `/code-review` or the test
+matrix. It exists in this chain because "Simplicity — minimum necessary complexity" is priority 3 in `CLAUDE.md` and nothing else
+in the pipeline enforces it: converge proves the work is *complete*, the tests prove it is *correct*, and neither notices that a
+behaviour got built three times in three shapes. Run it before the test phase, so the tests are written against the code that will
+actually ship rather than against a draft you are about to restructure. Skip on the spec-only track.
 
 > **Extension policy (BLOCKING).** spec-kit 0.16.x ships extensions that `specify init --here --force` enables by default. The **`git` extension is disabled in these projects** — its five skills (`speckit-git-feature`, `-git-validate`, `-git-commit`, `-git-remote`, `-git-initialize`) create numbered feature branches, enforce branch naming, and auto-commit after every phase, all of which contradict `.claude/rules/spec-register.md` (one spec → one commit → direct push, no branches, no merge step). `specify init --force` re-enables them on every run, so `scripts/speckit-extension-policy.sh` runs after every init in both `/project-wizard` and `/project-update` to switch it back off. `agent-context` stays enabled. Do not invoke the `speckit-git-*` skills; if you find them enabled, run the policy script.
 >

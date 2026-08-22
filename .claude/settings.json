@@ -304,6 +304,19 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/repeat-failure-guard-hook.sh\"",
             "statusMessage": "Checking repeat-failure attempt limit..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/sync-feature-json-hook.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/sync-feature-json-hook.sh\""
           }
         ]
       },
@@ -479,6 +492,11 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/stack-marker-canary-hook.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/sync-feature-json-hook.sh\"",
+            "statusMessage": "Syncing .specify/feature.json with the register..."
           }
         ]
       },
@@ -537,5 +555,6 @@
       }
     ]
   },
-  "language": "english"
+  "language": "english",
+  "outputStyle": "Proactive"
 }

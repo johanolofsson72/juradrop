@@ -31,14 +31,35 @@ Whenever a design request carries a brand/vibe/aesthetic reference, decompile it
 
 After decompiling, also feed the keywords into `ui-ux-pro-max` (its palette/font-pairing/style datasets) where available, then let the brand decomposition override any conflicting automated pick.
 
+### Optional fourth tier — draw it before you build it (`/design`)
+
+Decompiling settles *what the primitives are*; it does not settle *what the screen looks like*. When the layout is genuinely
+undecided and comparing options beats arguing about them, `/design` (bundled skill, research preview since 2026-08-17) renders
+several editable artboards on one canvas, published as an Artifact. It reads the repo's existing components and tokens, so the
+artboards come back already speaking MASTER.md's colors, fonts, radii and spacing rather than inventing a parallel language.
+
+Order matters, and it is the same order this rule already enforces: **decompile → MASTER.md → `/design` → pick → `frontend-design`
+→ code.** Running `/design` on an empty MASTER.md just moves the slop upstream — the artboards inherit nothing, and you end up
+decompiling a canvas instead of a brand.
+
+`/design-sync` (and the `DesignSync` tool behind it) closes the loop the other way: it keeps a local component library and a
+Claude Design **design-system project** in step in both directions, incrementally and plan-gated, one component at a time. Use it
+when the project has a real component library worth pushing to the canvas — and re-run it after tokens move, because it does not
+watch the repo.
+
+Neither is a gate. `frontend-design` remains the only BLOCKING design step (`.claude/rules/frontend.md`); these two are upstream
+conveniences that feed it.
+
 ## Write it down, then build
 
 - The decompiled primitives go into `design-system/MASTER.md` (the single source of truth `frontend-design` reads). Note the source reference in MASTER.md so future edits know where the values came from.
 - Every screen then inherits hex values and named fonts — the brand can no longer drift to slop between components.
-- If the design is shaped upstream in **Claude Design** (the `claude.ai/design` canvas), its handoff must still be reconciled into MASTER.md — the canvas is an input, MASTER.md stays authoritative.
+- If the design is shaped upstream on the canvas — `/design` in-session, or `claude.ai/design` by hand — the result is reconciled **into** MASTER.md. The canvas is an input; MASTER.md stays authoritative.
 
 ## What this rule forbids
 
 - Passing a raw vibe/brand reference to `frontend-design` without decompiling it into MASTER.md first.
 - Inventing primitives for a known brand instead of using the library (or the live site) — guesswork is how "Spotify" becomes generic.
 - Treating an ambiguous reference as unambiguous — if the brand has multiple feelings, ask which one.
+- Running `/design` before MASTER.md holds the decompiled primitives — the artboards then inherit nothing and the vibe evaporates one stage earlier.
+- Treating a `/design` artboard or a `/design-sync` pull as the new source of truth. They are inputs to MASTER.md; anything that contradicts it is drift to reconcile.

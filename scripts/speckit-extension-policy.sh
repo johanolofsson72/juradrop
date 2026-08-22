@@ -49,6 +49,30 @@ command -v python3 >/dev/null 2>&1 || exit 0
 # Extensions this project refuses to run. Space-separated.
 DISABLE="${SPECKIT_DISABLED_EXTENSIONS:-git}"
 
+# Flipping the registry flag is only half the job. `enabled: false` governs what
+# SPEC-KIT wires; it does not delete the skill files, and Claude Code discovers
+# skills by file presence. The five speckit-git-* SKILL.md files ship with
+# `disable-model-invocation: false`, so Claude can still reach for
+# /speckit-git-feature on a disabled extension. Flip that frontmatter too:
+# `user-invocable: true` is left alone, so a human can still run one
+# deliberately — the model just cannot pick it up on its own.
+neutralize_skills() {
+  _root="$1"; _n=0
+  for _sk in "$_root"/.claude/skills/speckit-git-*/SKILL.md; do
+    [ -f "$_sk" ] || continue
+    grep -q '^disable-model-invocation: false' "$_sk" 2>/dev/null || continue
+    [ "$DRY" = "1" ] && { _n=$((_n + 1)); continue; }
+    _tmp="$_sk.tmp.$$"
+    sed 's/^disable-model-invocation: false/disable-model-invocation: true/' "$_sk" > "$_tmp" 2>/dev/null \
+      && mv "$_tmp" "$_sk" && _n=$((_n + 1))
+    rm -f "$_tmp" 2>/dev/null
+  done
+  [ "$_n" -gt 0 ] && printf 'speckit-extension-policy: %s disable-model-invocation on %s speckit-git-* skill(s)\n' \
+    "$([ "$DRY" = "1" ] && echo 'would set' || echo 'set')" "$_n"
+  return 0
+}
+neutralize_skills "$REPO"
+
 python3 - "$REG" "$DISABLE" "$DRY" <<'PY'
 import json, sys
 path, disable, dry = sys.argv[1], sys.argv[2].split(), sys.argv[3] == "1"

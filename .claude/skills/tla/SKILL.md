@@ -1,6 +1,6 @@
 ---
 name: tla
-description: TLA+ formal verification — extracts invariants, models state machines, checks for race conditions. Use after browser tests or manually. Triggers: verify, formal, invariant, TLA, race condition.
+description: "TLA+ formal verification — extracts invariants, models state machines, checks for race conditions. Use after browser tests or manually. Triggers: verify, formal, invariant, TLA, race condition."
 allowed-tools: Read, Grep, Glob, Bash, Write, Edit
 user-invocable: true
 argument-hint: "[spec-file-or-feature-name]"

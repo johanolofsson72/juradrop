@@ -799,6 +799,17 @@ If the user wants a persisted design system, create `design-system/MASTER.md` wi
 
 **Decompile any brand/vibe reference FIRST (per `.claude/rules/design-references.md`).** If the user described the look as a feeling or a brand ("the feeling of Spotify", "like Linear", "Apple-clean") in Q25/Q30, do NOT store it as a vague note — compile it into the concrete primitives below: look it up in `.claude/docs/design-reference-library.md` (instant for ~12 known aesthetics), `WebFetch` the live brand for anything not seeded, and run a short `AskUserQuestion` if the reference is multi-faceted (Spotify = dark immersion *and* green energy *and* dense browse — ask which). Fill the Color/Typography/Layout/Motion/Mood/Anti-pattern sections with the decompiled hex values and named fonts, and record the source reference. The whole point: `frontend-design` must inherit primitives, never a feeling.
 
+**Then, optionally, draw it (`/design`).** Once MASTER.md holds real primitives, `/design` (bundled skill, research preview) can
+render several editable artboards for the first screen or two on a single canvas, reading the tokens you just wrote so the options
+come back in the project's own colors and type rather than a stock palette. Offer it when Category 6 left the *layout* open — the
+user picked a mood and a palette but nobody has seen a screen yet. It is optional and never a gate: the artboard is a pick, and the
+picked screen is still built through the `frontend-design` skill (BLOCKING, per `.claude/rules/frontend.md`). Do not run it before
+MASTER.md exists — artboards drawn against an empty design system inherit nothing.
+
+If the project will grow a real component library, mention `/design-sync` as the later two-way bridge between that library and a
+Claude Design design-system project (incremental, plan-gated, one component at a time; re-run after tokens move — it does not watch
+the repo). Do not run it during inception; there is nothing to sync yet.
+
 ```markdown
 # [Project Name] — Design System
 

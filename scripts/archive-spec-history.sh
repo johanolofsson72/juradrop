@@ -12,13 +12,30 @@
 # SC-id ledger are never touched.
 #
 # Safe by construction:
-#   - Operates only on the "## Register history" / "## Scenario history" section
-#     (the LAST "## " heading in each file). Everything above it is copied
-#     verbatim.
+#   - The history region is everything BELOW the last "## ... history" heading,
+#     and it admits ONLY two things: "- YYYY-MM-DD ..." entries (one line each,
+#     per .claude/rules/spec-register.md and .claude/rules/scenarios.md) and
+#     blank lines. Anything else is a ledger block that was appended in the wrong
+#     place, and the script REFUSES the file rather than moving it (exit 3).
+#     This guard is why the section header no longer claims the script "operates
+#     only on the history section" — it used to say that, and it was false: the
+#     split is positional, so four scenario ledger blocks appended below the
+#     heading were swept as if they were history. Measured before the fix: 155
+#     lines and 76 live "✓ validated" SC-ids relocated into the archive, with
+#     validate-scenario-traceability.sh reporting 100% and exit 0 throughout,
+#     because it reads both files. That silence is the K5 violation; row H5j.
 #   - Reversible — the repo is git-tracked; `git diff` shows exactly what moved,
 #     `git checkout -- <file>` undoes it.
 #   - Idempotent — re-running with the same KEEP just re-confirms; nothing is
 #     lost or duplicated (archived entries are prepended once, newest-first).
+#
+# Exit codes:
+#   0  success (or nothing to do)
+#   1  no specs/ directory found
+#   2  usage error (unknown arg, non-numeric --keep)
+#   3  REFUSED — a history region contained something that is not a history
+#      entry. Nothing was written. Distinct from 1/2 so a test asserting the
+#      refusal cannot pass because the script died of an unrelated fault.
 #
 # Usage:
 #   scripts/archive-spec-history.sh                 # cleans ./specs/*, KEEP=5
@@ -33,6 +50,12 @@ set -eu
 KEEP=5
 SPECS_DIR=""
 DRY_RUN=0
+# Set to 1 by archive_history() when a file is refused. The function itself
+# always returns 0 — `set -e` is live, so returning non-zero would kill the
+# script at that call and a refused INDEX.md would stop SCENARIOS.md from ever
+# being examined (silently breaking the "a clean sibling is still processed"
+# guarantee). The refusal is reported per file and settled once, at the end.
+REFUSED=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -79,6 +102,39 @@ archive_history() {
     echo "  skip: $(basename "$live") — no history section (nothing to archive)"
     return 0
   fi
+
+  # ---- GUARD -------------------------------------------------------------
+  # The region below the heading admits ONLY dated history entries and blank
+  # lines. Anything else (a heading, a table row, a mermaid fence, a horizontal
+  # rule, an undated bullet) is ledger content sitting in the wrong place;
+  # moving it would make proven scenarios invisible to the next spec.
+  #
+  # Checked over the WHOLE region and BEFORE the keep/move partition below, so
+  # the verdict never depends on --keep. A guard evaluated after partitioning
+  # would pass at --keep 20 and fail at --keep 5 on the same file, which teaches
+  # people the fault is spurious.
+  #
+  # Anchored at line start, so a history entry whose prose quotes '#', '|' or a
+  # date is admitted normally — the real entries do all three.
+  foreign=$(awk -v h="$hdr_line" '
+    NR<=h                                            { next }
+    /^[[:space:]]*$/                                 { next }
+    /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/  { next }
+                                                     { printf "%d:%.120s", NR, $0; exit }
+  ' "$live") || true
+
+  if [ -n "$foreign" ]; then
+    fl=${foreign%%:*}; ft=${foreign#*:}
+    echo "  FAULT: $(basename "$live") — line $fl below '$(awk -v h="$hdr_line" 'NR==h' "$live")' is not a history entry:"
+    echo "           $ft"
+    echo "         That region admits ONLY '- YYYY-MM-DD ...' entries (one line each) and blank lines."
+    echo "         Scenario/ledger blocks belong ABOVE the heading — everything below it is treated as"
+    echo "         archivable history, and archived history is never read during the pipeline."
+    echo "         Nothing was moved; $(basename "$live") is unchanged."
+    REFUSED=1
+    return 0
+  fi
+  # ---- end GUARD ---------------------------------------------------------
 
   tmp_body=$(mktemp); tmp_keep=$(mktemp); tmp_move=$(mktemp)
   trap 'rm -f "$tmp_body" "$tmp_keep" "$tmp_move"' RETURN
@@ -156,4 +212,11 @@ archive_history() {
 echo "Archiving spec history in: $SPECS_DIR (keep newest $KEEP inline)$([ "$DRY_RUN" -eq 1 ] && echo '  [DRY RUN]')"
 archive_history "$SPECS_DIR/INDEX.md"     "$SPECS_DIR/INDEX.history.md"     '^#+ .*register history'
 archive_history "$SPECS_DIR/SCENARIOS.md" "$SPECS_DIR/SCENARIOS.history.md" '^#+ .*scenario history'
+
+if [ "$REFUSED" -ne 0 ]; then
+  echo "REFUSED: at least one history region held content that is not a history entry. Nothing was"
+  echo "moved for that file. Move the offending block ABOVE its history heading and re-run."
+  exit 3
+fi
+
 echo "Done. Review with 'git diff', undo with 'git checkout -- $SPECS_DIR'."

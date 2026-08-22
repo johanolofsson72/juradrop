@@ -113,14 +113,15 @@ done
 # 4) Parse register + count answered interview questions in Python.
 MIN_QUESTIONS="${SPEC_INTERVIEW_MIN:-15}"
 INTERVIEW_MODE="${SPEC_INTERVIEW_MODE:-auto}"
-RESULT=$(REGISTER_PATH="$REGISTER" PROJECT_ROOT_PATH="$PROJECT_ROOT" MIN_Q="$MIN_QUESTIONS" MODE="$INTERVIEW_MODE" python3 <<'PY' 2>/dev/null
+HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+RESULT=$(PROJECT_ROOT_PATH="$PROJECT_ROOT" MIN_Q="$MIN_QUESTIONS" MODE="$INTERVIEW_MODE" HOOK_DIR="$HOOK_DIR" python3 <<'PY' 2>/dev/null
 import glob
 import json
 import os
 import re
 import sys
 
-reg_path = os.environ["REGISTER_PATH"]
 root = os.environ["PROJECT_ROOT_PATH"]
 try:
     min_q = int(os.environ.get("MIN_Q", "15"))
@@ -132,54 +133,54 @@ mode = os.environ.get("MODE", "auto").strip().lower()
 if mode != "manual":
     mode = "auto"
 
-# Register row, tolerant form. Accepts the canonical
-#   "- [x] 003 — search — full track — short goal"
-# AND heavily-formatted real-world rows like
-#   "- [ ] **364 — inbound-reply (mail / Slack)** — full [hardened] — NOT STARTED"
-# We only need the checkbox state + the leading spec id; the id is extracted
-# separately (stripping markdown ** and whitespace), and the spec directory is
-# resolved by globbing "<id>-*" rather than reconstructing "<id>-<slug>" from a
-# possibly-messy slug. Same parser is used by pipeline-state-guard-hook.sh.
-row_re = re.compile(r"^-\s+\[([ xX/!])\]\s+(.+?)\s+—\s+.*$")
-id_re = re.compile(r"^\**\s*([0-9]+)\b")  # numeric spec ids only — H1/checkpoint rows are skipped
 
-active = None
-pending = []
+# Spec 007m — resolve the active spec through the ONE canonical resolver.
+#
+# This block used to carry its own copy of the register parser, and its id regex
+# was numeric-only:  r"^\**\s*([0-9]+)\b".  "\b" is a word boundary and there is
+# none between "7" and "m", so "007m" matched NOTHING and every letter-suffixed
+# row (004a, 007a..007o) was skipped exactly like an H1 checkpoint. The loop then
+# settled on the next NUMERIC row and demanded ITS artifacts, so when that later
+# spec's artifacts happened to exist this guard APPROVED source edits for a spec
+# that had none. Fixed once (spec 004a, 9e32986) and reverted by a template
+# autosync (e17fd50) because this file is in CORE_SCRIPTS — each guard carrying
+# its own copy is what made the revert invisible. The lane-ownership rules moved
+# into the module with it, so both guards and the orientation hook share one
+# implementation and cannot drift apart again.
+#
+# Imported into THIS interpreter rather than shelled out to: `python3 -c pass`
+# costs ~50 ms and this hook fires on every source edit; resolution is ~2 ms.
+sys.path.insert(0, os.environ["HOOK_DIR"])
 try:
-    with open(reg_path, "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            m = row_re.match(line.rstrip())
-            if not m:
-                continue
-            status = m.group(1)
-            idm = id_re.match(m.group(2).strip())
-            if not idm:
-                # Non-numeric id (e.g. "H1" integration-hardening checkpoint) —
-                # not a spec, no interview required.
-                continue
-            spec_id = idm.group(1)
-            if status == "/":
-                active = spec_id
-                break
-            if status == " ":
-                pending.append(spec_id)
+    from spec_active import RegisterUnreadable, resolve
 except Exception:
+    # A gate that cannot establish what it is guarding must NOT allow.
+    sys.exit(98)
+
+try:
+    info = resolve(root)
+except RegisterUnreadable:
+    sys.exit(98)
+
+kind = info["kind"]
+
+# "No active row" is an ANSWER (every row ticked), not a resolution failure.
+if kind == "none":
     sys.exit(0)
 
-if active is None and pending:
-    active = pending[0]
-if active is None:
-    # All done or unparseable register — allow.
+# A checkpoint (H1) is not a spec. The old code's comment claimed this exemption,
+# but `continue` meant "keep looking", so the loop landed on the next numeric
+# spec and demanded ITS artifacts — an H1 checkpoint denied every edit while
+# citing a spec nobody was working on.
+if kind == "checkpoint":
     sys.exit(0)
 
-spec_id = active
+if kind == "unparseable":
+    sys.exit(98)
 
-# Resolve spec dir by globbing "<id>-*" so a parenthesized / bold slug in the
-# register doesn't break dir resolution.
-candidates = sorted(glob.glob(os.path.join(root, "specs", f"{spec_id}-*"))) + \
-             sorted(glob.glob(os.path.join(root, ".specify", "specs", f"{spec_id}-*")))
-spec_dir = next((c for c in candidates if os.path.isdir(c)), None)
-slug = os.path.basename(spec_dir)[len(spec_id) + 1:] if spec_dir else "(not created — run /speckit-specify)"
+spec_id = info["id"]
+spec_dir = os.path.join(root, info["dir"]) if info["dir"] else None
+slug = info["slug"] if info["found"] else "(not created — run /speckit-specify)"
 num = spec_id
 
 interview = os.path.join(spec_dir, "interview.md") if spec_dir else None
@@ -231,7 +232,26 @@ PY
 )
 RC=$?
 
-# Allow on any unexpected exit (fail-open — never break the user's workflow
+# Fail CLOSED when resolution itself fails (spec 007m FR-007m-04).
+#
+# A register exists and names an active spec, but we could not work out which
+# spec that is (shared resolver missing/unimportable, or a malformed register).
+# A gate that cannot establish what it is guarding must not wave work through.
+# Note the deliberate asymmetry: "the resolver answered NONE" (every row ticked)
+# is an answer and allows; only "the resolver could not answer" denies.
+if [ "$RC" -eq 98 ]; then
+  cat <<JSON
+{
+  "hookSpecificOutput": {
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "BLOCKED — cannot determine which spec is active.\n\nA spec register exists at $REGISTER, but the canonical resolver (scripts/spec_active.py) could not be loaded or the register could not be parsed.\n\nThis guard fails CLOSED on resolution failure by design: a gate that cannot establish what it is guarding must not allow edits. Before this, a resolution failure silently allowed everything — which is how a numeric-only spec-id parser approved source edits for specs with zero artifacts, unnoticed, for ten days.\n\nTo fix:\n  1. Confirm scripts/spec_active.py exists next to this hook and is readable.\n     (If a template sync removed it, re-run the sync — it is in CORE_SCRIPTS.)\n  2. Check specs/INDEX.md parses: bash scripts/resolve-active-spec.sh\n     Exit 0 = resolved · 3 = no active row (fine) · 4 = cannot answer.\n  3. Confirm the active row matches the register format:\n     - [/] 007m — prereq-spec-resolution — spec-only track — goal\n\nMarkdown, config, .claude/**, scripts/** and specs/** edits remain allowed, so you can fix the tooling or the register right now."
+  }
+}
+JSON
+  exit 0
+fi
+
+# Allow on any other unexpected exit (fail-open — never break the user's workflow
 # because of a tooling bug in this hook).
 if [ "$RC" -ne 99 ]; then
   exit 0

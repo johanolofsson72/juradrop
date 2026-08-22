@@ -122,7 +122,7 @@ Consider Claude Code hooks (`.claude/settings.json`) for rules that MUST be foll
 
 > **Cross-platform warning (Windows without Git Bash).** Since v2.1.120 Git for Windows is no longer required, and Claude Code falls back to **PowerShell** as the shell tool when Bash is absent. Every hook in this template's `settings.json` is shell-form `bash "$CLAUDE_PROJECT_DIR/scripts/..."`, which only works if `bash` is on `PATH`. On a Windows box with no Git Bash / WSL, those shell-form command hooks run under PowerShell and `bash` is not found, so **every script-backed hook silently no-ops**. This is a base-requirement gap (macOS + Linux + Windows). Mitigations: (1) keep Git Bash or WSL installed and on `PATH` on Windows — the simplest fix; (2) for hooks that must survive a bash-less Windows, use the exec form (`"command": "bash", "args": [...]`) so a missing `bash` surfaces as a clear spawn error instead of a silent PowerShell fall-through, or provide a `.ps1` sibling and branch on `shell`. Verify after setup with `bash --version` in the same shell Claude Code launches.
 
-### Hook events (30)
+### Hook events (31)
 
 | Hook event | When triggered |
 | --- | --- |
@@ -153,6 +153,7 @@ Consider Claude Code hooks (`.claude/settings.json`) for rules that MUST be foll
 | `ConfigChange` | Configuration file changes during session — can block the change |
 | `InstructionsLoaded` | Instructions (CLAUDE.md, skills) loaded — can inject extra context |
 | `CwdChanged` | Working directory changes — reactive environment management (e.g., direnv) |
+| `DirectoryAdded` | A working directory is added mid-session via `/add-dir` or the SDK's `register_repo_root` |
 | `FileChanged` | A file changes on disk — reactive monitoring |
 | `WorktreeCreate` | Git worktree created |
 | `WorktreeRemove` | Git worktree removed |
@@ -304,10 +305,66 @@ Ask Claude to write a workflow and it orchestrates work across dozens to hundred
 
 Official Anthropic plugin that reviews Claude's own changes for vulnerabilities as it works. It overlaps this template's `security-scanner` agent. We keep `security-scanner` because it is project-scoped (knows our .NET/SQLite/React conventions, our `security.md` rules, and runs inside our pipeline), whereas the plugin is a general-purpose pass. They compose fine — run the plugin as a second, model-agnostic opinion on top of the project agent. Install with `/plugin install security-guidance@claude-plugins-official` if you want both.
 
+### Output styles — where the autonomy contract actually belongs (v2.1.237+)
+
+An output style modifies the **system prompt**. CLAUDE.md adds a user message *after* it. That difference is why the template now
+ships `"outputStyle": "Proactive"` in `.claude/settings.json`: **Proactive** ("executes immediately, makes reasonable assumptions
+instead of pausing for routine decisions, prefers action over planning") is the platform's own version of what
+`.claude/rules/continuous-execution.md` and CLAUDE.md's autonomous-mode section argue for in prose — and it says it one layer
+higher up, where it outranks everything else.
+
+Notes:
+- It is orthogonal to permission mode. Proactive changes what Claude *decides to do*; the permission mode still decides what runs
+  without asking. Auto mode and Proactive compose.
+- It applies to the **main conversation only** — a subagent runs its own system prompt. A `fork` is the exception; it inherits the
+  parent's.
+- **Concise is deliberately not used here.** It leads with the result and skips narration, which fights the per-finding surfacing
+  required by `.claude/rules/validation-followup.md` and the per-spec status summary in `.claude/rules/spec-register.md`. Both are
+  verbose on purpose. Set it per-developer in `.claude/settings.local.json` if you want it for a scratch session, not project-wide.
+- A style change only takes effect after `/clear` or a new session — the system prompt is read once at session start.
+- Custom styles live in `.claude/output-styles/*.md` with `keep-coding-instructions: true` when Claude should still behave like an
+  engineer. The template does not ship one: a built-in covers the need, and a custom style would silently replace Claude Code's
+  built-in engineering instructions for anyone who forgot that flag.
+
+### Auto mode rules — the deny list that project settings cannot reach (per-developer)
+
+`permissions.deny` in `.claude/settings.json` is project-scoped and this template ships a curated one. Auto mode's classifier reads
+a **separate** set of natural-language rules that live in **user** settings (`~/.claude/settings.json`) precisely so a project
+cannot overwrite them, and they persist across every project:
+
+```json
+{
+  "autoMode": {
+    "soft_deny": [
+      "$defaults",
+      "Never run database migrations outside the migrations CLI"
+    ],
+    "hard_deny": [
+      "$defaults",
+      "Never send repository contents to third-party code-review APIs"
+    ]
+  }
+}
+```
+
+`hard_deny` blocks unconditionally; `soft_deny` blocks unless a direct request or an allow entry overrides it; `"$defaults"` keeps
+the built-in rules — drop it and you replace them instead of extending them. Check your wording with `claude auto-mode critique`,
+which reports entries that are ambiguous, redundant, or likely to produce false positives.
+
+This is a **per-developer** setup step, not something the template can install. Worth doing once per machine.
+
+> **Sharp edge:** launching via an alias that carries `--dangerously-skip-permissions` bypasses permission checking altogether —
+> auto mode rules and this template's `permissions.deny` block both stop applying. If that is how you start Claude Code, the deny
+> lists are documentation, not enforcement. The hook-based gates (`spec-register-guard`, `pipeline-state-guard`,
+> `spec-interview-guard`) still fire, because hooks are not permission rules.
+
 ### Other recent settings
 
 - **`worktree.baseRef`** (v2.1.128+) — controls whether a new git worktree branches from the remote default branch or local `HEAD`. Relevant when running agents with `isolation: worktree`; set it in `settings.json` if your worktree agents should branch from `origin/main` rather than your dirty local `HEAD`.
 - **Plugins from `.zip` and URLs** (v2.1.128+) — `--plugin-dir` accepts `.zip` archives and `--plugin-url` fetches a plugin archive for the current session, so a project can pin a plugin without a marketplace.
+- **`ANTHROPIC_DEFAULT_MODEL`** (v2.1.236+) — sets the model new sessions start on when nothing else selects one. `--model`, `ANTHROPIC_MODEL`, a saved `/model` choice and an organization default all outrank it. The template does not set it: model choice is a per-developer and per-budget call, not a property of the project.
+- **Auto-continue on usage-limit reset** (v2.1.234+) — Claude picks the interrupted turn back up when the limit resets. On by default in the CLI, switchable in `/config`. Relevant here because the pipeline runs long, uninterrupted specs; without it a limit hit mid-`/speckit-implement` ends the run.
+- **Todo/task tools are unavailable on Opus 4.8, Sonnet 5, Fable 5 and Mythos 5+** (v2.1.233). Any rule text that tells the agent to consult "the TodoWrite list" is a dead reference on those models — `.claude/rules/continuous-execution.md` was reworded to "the active task list / `tasks.md` / plan" for this reason. Keep new rules model-neutral.
 
 ## Subagents
 

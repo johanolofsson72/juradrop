@@ -14,7 +14,35 @@ When `specs/INDEX.md` exists in a project:
 4. **Tick the register.** Mark the spec as `[x]` in `specs/INDEX.md` and commit + push the register update along with (or immediately after) the spec's final commit.
 5. **Stop with a status summary.** This is the **only** legitimate stop between specs. The summary follows the template in this rule. The user resumes the next spec when ready.
 
-Specs run **one at a time**. Claude does not chain multiple specs in a single execution unless the user explicitly says so ("run specs 003 and 004 back to back", "do the whole register in one go"). The default is one spec per run.
+Specs run **one at a time per lane**. Claude does not chain multiple specs in a single execution unless the user explicitly says so ("run specs 003 and 004 back to back", "do the whole register in one go"). The default is one spec per run.
+
+## Two lanes (owner tags — only when a project runs more than one developer)
+
+The default is one lane, and on a one-lane project nothing below applies. **When a project does run two developers against the same register**, a row may carry an **owner**: a trailing `@name` tag, last on the line.
+
+```
+- [ ] 004 — properties — full track — own object model, the upstream feed … — @alex
+- [ ] 017 — mfa — full track [hardened] — two-factor, platform admins first … — @sam
+- [ ] 009 — public-site — full track [hardened] — the agency's own website …
+```
+
+Each machine names its own lane in `.claude/settings.local.json` (gitignored, per machine):
+
+```json
+{ "env": { "SPEC_OWNER": "sam", "CLAUDE_TEMPLATE_AUTOSYNC": "0" } }
+```
+
+**Template sync belongs to one machine.** `template-autosync-hook.sh` fires at every session start and, when the template has moved, syncs the config, commits it and pushes to the current branch. With two developers that becomes duplicate config commits and a push from whichever session opened first. The second lane sets `CLAUDE_TEMPLATE_AUTOSYNC=0`; the owning machine keeps it on and the change reaches the other lane the normal way, by pulling.
+
+**Three hooks read it** — `spec-register-orientation`, `pipeline-state-guard`, `spec-interview-guard` — and they resolve "the active spec" identically, in this priority: **my in-progress row → my next row → an unowned in-progress row → the next unowned row.** Two guards that disagree about which spec a developer is on would block work for opposite reasons, so if you change the resolution in one, change it in all three.
+
+- **A row assigned to me beats an unowned row higher up the register.** The order is dependency-driven, so the top of the shared tail is usually blocked behind the *other* lane's current row. Without this, the second developer is pointed straight at a spec they cannot start.
+- **Unowned rows stay visible in both lanes.** The bulk of a register needs no tags; tag a row when someone actually takes it.
+- **With `SPEC_OWNER` unset, everything behaves exactly as it did with one developer.** The lane logic is additive — it never changes single-lane behaviour, which is why it ships enabled and costs one-lane projects nothing.
+- **Ordering still rules inside a lane.** Parallel work needs two rows that do not depend on each other; on a dependency-ordered register those are rare and usually live in the tail. Working a tail row early is a deliberate, recorded exception (a Register history line), not a reordering of everything in front of it.
+- **The other lane's row is not yours to tick, start, or renumber.** A register-rewrite proposal that touches the other developer's in-flight row is a conversation with the user first.
+
+**A held row (`- [!]`) is never offered as the active row.** Held means somebody stopped for a reason the register cannot express as a dependency, and pointing a fresh session at it is how that decision gets quietly overruled by a banner. The two PreToolUse guards already match only `- [/]` and `- [ ]`; the orientation hook was the one out of step, and now matches them.
 
 ## The register format
 

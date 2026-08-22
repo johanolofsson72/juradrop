@@ -37,14 +37,34 @@ set -u
 
 [ "${RUNLOG_DISABLE:-0}" = "1" ] && exit 0
 
+# Spec H6s2 — code comes from beside THIS FILE, data comes from the project.
+#
+# The resolver used to be looked up under the project root being inspected
+# ("$ROOT/scripts/resolve-active-spec.sh"), i.e. the hook went looking for its own
+# sibling inside the directory of the data it was asked to read. Wherever that
+# root is not also a checkout of this template — a test fixture, a project whose
+# autosync was cut short before the .py pass, a bare directory — the lookup found
+# nothing and the note was dropped in silence. Same split resolve-active-spec.sh
+# already makes against spec_active.py, and the two PreToolUse guards against the
+# module they import.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+RESOLVER="$SCRIPT_DIR/resolve-active-spec.sh"
+
 MAX="${RUNLOG_MAX:-60}"
 STAMP=$(date -u +%Y-%m-%dT%H:%MZ 2>/dev/null || echo "unknown")
 
 # ---------------------------------------------------------------- append core
 # $1 = spec dir, $2 = line body
+# Returns 0 when the line is on disk (or was deduped away against the previous
+# line, which is the same outcome for the caller: the log already says it), and
+# non-zero when the write did not happen. It used to `return 0` on every failure
+# path, so a read-only or full disk produced the same observable as a successful
+# log — H6s2 finding 2, the same shape as the CLI branch below and on the one
+# path the resolver never reaches. Hook mode still ignores the return value and
+# still ends on an explicit `exit 0`: nothing here can block a session.
 append_line() {
   _dir="$1"; _body="$2"
-  [ -d "$_dir" ] || return 0
+  [ -d "$_dir" ] || return 1
   _log="$_dir/run-log.md"
   _slug=$(basename "$_dir")
 
@@ -53,7 +73,7 @@ append_line() {
       printf '# Run log — %s\n\n' "$_slug"
       printf 'One line per event. Failure memory for a spec resumed in a fresh session.\n'
       printf 'Append-only, deduped, capped. NOT pipeline input — read the tail, never the whole file.\n\n'
-    } > "$_log" 2>/dev/null || return 0
+    } > "$_log" 2>/dev/null || return 1
   fi
 
   # Dedupe: identical body as the last entry → no new line (guards that deny
@@ -61,7 +81,7 @@ append_line() {
   _last=$(grep -E '^- ' "$_log" 2>/dev/null | tail -1 | sed 's/^- [^·]*· //')
   [ "$_last" = "$_body" ] && return 0
 
-  printf -- '- %s · %s\n' "$STAMP" "$_body" >> "$_log" 2>/dev/null || return 0
+  printf -- '- %s · %s\n' "$STAMP" "$_body" >> "$_log" 2>/dev/null || return 1
 
   # Cap: keep the header + the newest $MAX entries.
   _count=$(grep -cE '^- ' "$_log" 2>/dev/null | tr -dc '0-9')
@@ -74,6 +94,9 @@ append_line() {
     } > "$_tmp" 2>/dev/null && mv "$_tmp" "$_log" 2>/dev/null
     rm -f "$_tmp" 2>/dev/null
   fi
+  # NOTE: a failed cap is deliberately NOT a failure. The line is already on
+  # disk; the file is merely longer than MAX. The caller asked for the note to be
+  # recorded and it was.
   return 0
 }
 
@@ -100,12 +123,38 @@ spec_dir_of() {
 }
 
 # ------------------------------------------------------------------- CLI mode
+#
+# Spec H6s2 — this branch has three outcomes and used to report one.
+#
+# "Never errors out loud" (see the header) is a rule about the PostToolUse path,
+# where a hook that interferes is worse than a hook that misses. It was applied
+# here too, and a CLI a human or an agent typed has no other channel: not writing
+# the note looked exactly like writing it — exit 0, no output — in the one script
+# whose whole purpose is failure memory across /clear.
+#
+#   exit 0  the note was recorded (or deduped against the previous line)
+#   exit 3  an ANSWER, nothing to record: no register, or every row ticked
+#   exit 4  cannot answer: no resolver, no python3, unreadable register, no dir
+#
+# The codes are spec_active.py's own contract rather than a second grammar, and
+# every non-zero path says on stderr WHICH of them fired — "could not log" has no
+# fix, "spec_active.py missing" has one. Nothing here writes to stdout, and
+# nothing here blocks: stderr and an exit code cannot stop a session.
+_note_stop() {  # $1 message, $2 exit code
+  printf 'spec-run-log-hook: %s\n' "$1" >&2
+  exit "$2"
+}
+
 if [ "${1:-}" = "--note" ]; then
   NOTE="${2:-}"
-  [ -z "$NOTE" ] && exit 0
+  [ -z "$NOTE" ] && exit 0        # caller passed no text; nothing was asked of us
   DIR=""
   [ "${3:-}" = "--spec" ] && DIR="${4:-}"
-  if [ -z "$DIR" ]; then
+  if [ -n "$DIR" ]; then
+    # append_line answers a missing directory with a silent `return 0`, which is
+    # right for hook mode and wrong for a hand-typed path with a typo in it.
+    [ -d "$DIR" ] || _note_stop "spec directory does not exist: $DIR — note NOT recorded" 4
+  else
     # Resolve the active spec from the register: the "- [/]" row, else the first "- [ ]".
     ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
     while [ "$ROOT" != "/" ] && [ -n "$ROOT" ]; do
@@ -113,16 +162,34 @@ if [ "${1:-}" = "--note" ]; then
       ROOT=$(dirname "$ROOT")
     done
     REG="$ROOT/specs/INDEX.md"
-    [ -f "$REG" ] || exit 0
-    ROW=$(grep -m1 -E '^- \[/\]' "$REG" 2>/dev/null || grep -m1 -E '^- \[ \]' "$REG" 2>/dev/null)
-    ID=$(printf '%s' "$ROW" | sed -E 's/^- \[.\] *//' | awk '{print $1}')
-    SLUG=$(printf '%s' "$ROW" | awk -F' — ' '{print $2}' | tr -d ' ')
-    [ -z "$ID" ] && exit 0
-    for cand in "$ROOT/specs/$ID-$SLUG" "$ROOT/.specify/specs/$ID-$SLUG"; do
-      [ -d "$cand" ] && DIR="$cand" && break
-    done
+    [ -f "$REG" ] || _note_stop "no specs/INDEX.md under $ROOT — note NOT recorded" 3
+    [ -f "$RESOLVER" ] || _note_stop \
+      "cannot resolve the active spec: $RESOLVER not found — note NOT recorded" 4
+    # Spec 007m — resolve through the ONE canonical resolver instead of parsing
+    # the register here. This block used to rebuild the path as "$ID-$SLUG",
+    # which is a fifth independent opinion about which spec is active and breaks
+    # on any row whose slug is formatted (bold, parenthesised). The resolver
+    # globs "<id>-*" and is the same code the guards use.
+    #
+    # Deliberately NO fallback to inline parsing when the resolver cannot answer:
+    # that is the fifth opinion coming back through the side door, silent and
+    # reachable only on the degraded path. Say you cannot answer instead.
+    RC=0
+    OUT=$(bash "$RESOLVER" --root "$ROOT" 2>&1) || RC=$?
+    case "$RC" in
+      0) : ;;
+      3) _note_stop "no active spec row in $REG (every row ticked) — note NOT recorded" 3 ;;
+      *) _note_stop "cannot resolve the active spec (resolver exit $RC): ${OUT:-no output} — note NOT recorded" 4 ;;
+    esac
+    DIR_REL=$(printf '%s' "$OUT" | sed -n 's/.*"dir": *"\([^"]*\)".*/\1/p')
+    [ -z "$DIR_REL" ] && _note_stop \
+      "cannot resolve the active spec: resolver named no directory — note NOT recorded" 4
+    [ -d "$ROOT/$DIR_REL" ] || _note_stop \
+      "spec directory does not exist: $ROOT/$DIR_REL — note NOT recorded" 4
+    DIR="$ROOT/$DIR_REL"
   fi
-  [ -n "$DIR" ] && append_line "$DIR" "$NOTE"
+  append_line "$DIR" "$NOTE" \
+    || _note_stop "could not write the note to $DIR/run-log.md — note NOT recorded" 4
   exit 0
 fi
 
@@ -146,4 +213,29 @@ esac
 
 SPEC_DIR=$(spec_dir_of "$FILE")
 [ -n "$SPEC_DIR" ] && append_line "$SPEC_DIR" "$EVENT"
+
+# Spec 007m FR-007m-05 — refresh .specify/feature.json from the register.
+#
+# A pipeline artifact was just written, which is exactly the moment a spec
+# becomes "the active one". Session start covers the usual case; this covers a
+# spec started MID-session, so spec-kit's check-prerequisites.sh cannot spend
+# the rest of the spec pointing at the previous one — the defect register row
+# 007m was opened for. Idempotent: writes only when it disagrees.
+_RL_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+while [ "$_RL_ROOT" != "/" ] && [ -n "$_RL_ROOT" ]; do
+  [ -d "$_RL_ROOT/.git" ] && break
+  _RL_ROOT=$(dirname "$_RL_ROOT")
+done
+# Spec 007q — the refresh that used to sit here has moved out.
+#
+# H6s2 fixed WHERE this call looked for the resolver. 007q is about WHEN it was
+# reached at all: everything above returns early unless the written basename is
+# one of five, so a spec.md produced by a heredoc, a script, an editor outside
+# the session, or a git checkout refreshed nothing. A refresh bolted to the tail
+# of a LOGGING hook is a refresh nobody audits — which is how it kept both a
+# gating bug and a coverage bug in plain sight.
+#
+# It now has its own file: scripts/sync-feature-json-hook.sh, wired to
+# SessionStart and to PostToolUse for Write/Edit AND Bash. Do not re-add it here;
+# this hook keeps one job, which is the run log.
 exit 0

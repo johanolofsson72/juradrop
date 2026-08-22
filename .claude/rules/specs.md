@@ -114,7 +114,7 @@ After implementation is complete AND browser tests are written:
 
 ```
 Scenario map (SCENARIOS.md) → Spec (markdown) → /speckit-clarify → /allium:elicit → .allium spec →
-Implementation → Tests (unit + integration + PBT where apt) →
+Implementation → /speckit-converge → /simplify → Tests (unit + integration + PBT where apt) →
 Browser/native E2E (functional + risk-tiered destructive + visual regression) →
 Mutation gate (nightly/on-demand) → /tla (distill + drift + invariants) → Done
 ```
