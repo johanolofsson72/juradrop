@@ -1,5 +1,5 @@
-sha=158757fdebe7
-synced=2026-08-22T12:10:09Z
+sha=03bdfcefd027
+synced=2026-08-22T12:52:13Z
 source=/Users/jool/repos/Claude
 # manifest: sha256 of each file as written by the sync — a project file
 # whose hash no longer matches was edited locally and is never overwritten.
@@ -36,7 +36,7 @@ eefbd7d4f4d10f2550a658848cccbb1df1cc674942871a188e8fe12e07ab8a23  .claude/rules/
 f922414dda2db51714d56b697252d3d663c080985fe5b0ef9113fc4ef615d384  .claude/skills/code-review/SKILL.md
 377e436ce39442585d73f0e0deab9072adc99153a2160e4445babc65506434de  .claude/skills/deploy-checklist/SKILL.md
 a8feba369132e24945643955d727d09e21b2fffde2ba7817feb5cbcd134f6fdb  .claude/skills/explore-codebase/SKILL.md
-baa7ba47e3bbae55e9f1d5a2c4ca80ad31fbc886bf961aaebccf76fa68d95061  .claude/skills/project-update/SKILL.md
+7a4bca2eadb3116a46862d8727c773e970be498b826f43028841dc996e1dd00a  .claude/skills/project-update/SKILL.md
 8f6a7d061b00f4ae3b3c965adc94face3d49b7af18d8ce69f11cf2b9ae9c713f  .claude/skills/project-wizard/install.sh
 1c59177eae865bd41becb571690a5573c3a772948a2254fdaa689e4c8150bced  .claude/skills/project-wizard/SKILL.md
 81bea7df7e73d668fa66afe7ee265d00e7a86b8a7940814c04030d443c70bb85  .claude/skills/sync-template/SKILL.md
@@ -154,7 +154,7 @@ c35a2d563144b04720dd91bd4fa7aea820656dd7867691b76ea0c09246c1c42c  scripts/sync-f
 4084ba6c27aded1abaacf5470a32afc71691e344970361c45e94ee5539a299ba  scripts/sync-graphify-wiring.py
 8e5ad4f9a55b3030e680c74df280d4f17b569ceb935b7a7582431ca6f3230c04  scripts/sync-local-llm-hooks.py
 c12690308282f3c197b9728e25ff42203380b656ea345170aee391cf7279cab2  scripts/template-autosync-hook.sh
-e1fd23fad28af8c5d433778ae6b91fc0a9f00eb15fc4985feadac12f7e1b0324  scripts/template-autosync.sh
+bb1edbcd415161457769fb05697d401e44b5162e5f8500f6dc41a34489da3a5e  scripts/template-autosync.sh
 6d1e7c13be6e929306841791a1757f6720e82134ea57b0c231018f5d008698b2  scripts/test-active-spec-resolution.sh
 4e71ca6a2428aa918436532cc3e76e6eb6c82bc55bbbb353743b393b98b6f579  scripts/test-archive-spec-history.sh
 7e81c90c5d582250d7f97b7743f0034b37d755311731c3c6f2fe88cf7b715a1e  scripts/test-coverage-hook.sh

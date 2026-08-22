@@ -56,11 +56,30 @@ else
 fi
 ```
 
-**Reinitialize speckit:**
+**Reinitialize speckit — but only when it is actually out of date:**
+
+`specify init --here --force` is **not idempotent**. On an already-current project it regenerates
+`speckit-implement/SKILL.md` and `speckit-specify/SKILL.md` — putting spec-kit 1.0's two pipeline stops straight back — and
+rewrites `.specify/integrations/claude.manifest.json` because the regenerated skills hash differently from the patched ones.
+Step 3's own extension-policy call then strips the stops again, so an unconditional re-init churns three files on every run and
+`/project-update` can never be a no-op on a healthy project.
+
+So compare first, and skip when they match:
 
 ```bash
-specify init --here --force --integration claude
+CLI_VER=$(specify --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([._a-z0-9]*)?' | head -1)
+PROJ_VER=$(python3 -c 'import json;print(json.load(open(".specify/init-options.json")).get("speckit_version",""))' 2>/dev/null)
+
+if [ -n "$CLI_VER" ] && [ "$CLI_VER" = "$PROJ_VER" ]; then
+  echo "[SKIP] spec-kit already at $PROJ_VER — not re-initialising (init is not idempotent; it would restore the pipeline stops)"
+else
+  echo "[INIT] spec-kit $PROJ_VER -> $CLI_VER"
+  specify init --here --force --integration claude
+fi
 ```
+
+When the versions match, the constitution backup/restore around this step is a no-op too — nothing was regenerated to overwrite it.
+Force a re-init deliberately (a corrupted `.specify/`, a changed integration) by deleting `.specify/init-options.json` first.
 
 > **NOTE**: The `--ai` flag was **removed in spec-kit v0.10.0** (deprecated in the v0.9.x line) — it no longer exists. Always use `--integration claude` (this matches `/project-wizard`'s bootstrap — the two skills must stay in sync).
 
@@ -75,7 +94,7 @@ else
 fi
 ```
 
-**Apply the extension policy (MANDATORY — `specify init --force` just re-enabled everything):**
+**Apply the extension policy (MANDATORY whenever the init above actually ran — it re-enables everything and restores the 1.0 pipeline stops; harmless and silent when it was skipped):**
 
 ```bash
 bash scripts/speckit-extension-policy.sh

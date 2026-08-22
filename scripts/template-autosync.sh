@@ -754,6 +754,51 @@ if [ -f "$PROJECT_ROOT/scripts/sync-local-llm-hooks.py" ] && [ -f "$TEMPLATE_DIR
   fi
 fi
 
+# ------------------------------------------- converge on the documented order
+# Each wiring helper strips its own hook family and re-appends it, so whichever
+# runs LAST decides where that family sits. This script ran core -> local-llm ->
+# graphify; scripts/sync-prompt.md (which /project-update executes) runs
+# local-llm -> core -> graphify. Same 76 hooks either way, different group order
+# -- two valid fixed points, each internally idempotent, oscillating against each
+# other. The practical cost: /project-update rewrote settings.json on a project
+# this sync had just settled, and the next sync rewrote it back, so neither could
+# ever be a no-op and a real settings change was invisible among the churn.
+#
+# Re-running core here puts its family last, matching the documented order.
+# Cheaper and safer than moving the block: the core helper has its own rollback
+# and, unlike the local-llm one, never deletes project-owned scripts.
+if [ -f "$PROJECT_ROOT/scripts/sync-core-hooks.py" ] && [ -f "$TEMPLATE_DIR/.claude/settings.json" ] \
+   && command -v python3 >/dev/null 2>&1; then
+  cp "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.order-bak" 2>/dev/null
+  if (cd "$PROJECT_ROOT" && python3 scripts/sync-core-hooks.py "$TEMPLATE_DIR/.claude/settings.json" >/dev/null 2>&1) \
+     && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
+    cmp -s "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.order-bak" \
+      || case " $WROTE $ADDED " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+    rm -f "$PROJECT_ROOT/.claude/settings.json.order-bak"
+  else
+    mv "$PROJECT_ROOT/.claude/settings.json.order-bak" "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null
+  fi
+fi
+
+# ...and graphify last, which this script never ran at all. /project-update does
+# (sync-prompt.md Step 5d), so its family ended up in a different place than this
+# sync left it — the other half of the same oscillation. The helper documents both
+# of its entries as safe to inject unconditionally (the PreToolUse nudge guards on
+# graphify-out/graph.json, the telemetry hook bails when the command does not
+# match), and prune-dangling-hooks.py below unwires anything whose script is absent.
+if [ -f "$PROJECT_ROOT/scripts/sync-graphify-wiring.py" ] && [ -f "$TEMPLATE_DIR/.claude/settings.json" ] \
+   && command -v python3 >/dev/null 2>&1; then
+  cp "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.order-bak" 2>/dev/null
+  if (cd "$PROJECT_ROOT" && python3 scripts/sync-graphify-wiring.py "$TEMPLATE_DIR/.claude/settings.json" >/dev/null 2>&1) \
+     && python3 -m json.tool "$PROJECT_ROOT/.claude/settings.json" >/dev/null 2>&1; then
+    cmp -s "$PROJECT_ROOT/.claude/settings.json" "$PROJECT_ROOT/.claude/settings.json.order-bak" \
+      || case " $WROTE $ADDED " in *" .claude/settings.json "*) ;; *) WROTE="$WROTE .claude/settings.json" ;; esac
+    rm -f "$PROJECT_ROOT/.claude/settings.json.order-bak"
+  else
+    mv "$PROJECT_ROOT/.claude/settings.json.order-bak" "$PROJECT_ROOT/.claude/settings.json" 2>/dev/null
+  fi
+fi
+
 # ------------------------------------- pick up the helper-owned script mirrors
 # sync-local-llm-hooks.py and sync-graphify-wiring.py mirror their own script
 # families as a side effect of wiring, outside the copy loop above — so those

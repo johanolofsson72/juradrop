@@ -67,6 +67,14 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-classify-hook.sh\""
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
             "command": "INPUT=$(cat); if printf '%s' \"$INPUT\" | bash \"$CLAUDE_PROJECT_DIR/scripts/pipeline-trigger-match.sh\" pipeline; then bash \"$CLAUDE_PROJECT_DIR/scripts/emit-pipeline-reminder.sh\"; fi"
           },
           {
@@ -83,14 +91,6 @@
             "statusMessage": "Checking for feature-pipeline trigger..."
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-classify-hook.sh\""
-          }
-        ]
       }
     ],
     "PreToolUse": [
@@ -100,15 +100,6 @@
           {
             "type": "command",
             "command": "INPUT=$(cat); FILE=$(echo \"$INPUT\" | jq -r '.tool_input.file_path // empty' 2>/dev/null); if [ -n \"$FILE\" ] && echo \"$FILE\" | grep -qE '(/\\.ssh/|/\\.aws/|/\\.azure/|/\\.git-credentials|/\\.docker/config\\.json|/\\.config/gh/|\\.env$|\\.env\\.)'; then echo '{\"hookSpecificOutput\": {\"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"Blocked: access to sensitive files is not allowed\"}}'; fi"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "CMD=$(python3 -c \"import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',d).get('command',''))\" 2>/dev/null || true); case \"$CMD\" in *grep*|*rg\\ *|*ripgrep*|*find\\ *|*fd\\ *|*ack\\ *|*ag\\ *)   [ -f graphify-out/graph.json ] &&   echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: knowledge graph at graphify-out/. For focused questions, run `graphify query \\\"<question>\\\"` (scoped subgraph, usually much smaller than GRAPH_REPORT.md) instead of grepping raw files. Read GRAPH_REPORT.md only for broad architecture context.\"}}'   || true ;; esac"
           }
         ]
       },
@@ -144,6 +135,15 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/sqlite-nfs-safety-hook.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=$(python3 -c \"import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',d).get('command',''))\" 2>/dev/null || true); case \"$CMD\" in *grep*|*rg\\ *|*ripgrep*|*find\\ *|*fd\\ *|*ack\\ *|*ag\\ *)   [ -f graphify-out/graph.json ] &&   echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: knowledge graph at graphify-out/. For focused questions, run `graphify query \\\"<question>\\\"` (scoped subgraph, usually much smaller than GRAPH_REPORT.md) instead of grepping raw files. Read GRAPH_REPORT.md only for broad architecture context.\"}}'   || true ;; esac"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -167,12 +167,129 @@
         ]
       },
       {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Edit(**/*.md)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-changelog-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*README*)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-readme-skeleton-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/.gitignore)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gitignore-skeleton-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/.env*)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-dotenv-example-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.cs)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-n1-query-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.sql)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.cs)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/migrations/**)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/migrate/**)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.ts)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.js)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.tsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.jsx)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*ockerfile*)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-dockerfile-review-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.cs)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-async-audit-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Edit(**/*.allium)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-allium-openq-hook.sh\""
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/graphify-fire-hook.sh\"",
-            "statusMessage": "Logging graphify invocation telemetry..."
+            "if": "Bash(git add *)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-commit-draft-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Bash(git push *)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-pr-draft-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh run *)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-run-view-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh pr *)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-pr-view-hook.sh\""
+          },
+          {
+            "type": "command",
+            "if": "Bash(gh issue *)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-issue-view-hook.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-bash-tldr-hook.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-stacktrace-hook.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-tlc-translate-hook.sh\""
           }
         ]
       },
@@ -321,129 +438,12 @@
         ]
       },
       {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "if": "Edit(**/*.md)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-changelog-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*README*)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-readme-skeleton-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/.gitignore)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gitignore-skeleton-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/.env*)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-dotenv-example-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*.cs)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-n1-query-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*.sql)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*.cs)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/migrations/**)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/migrate/**)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-migration-safety-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*.ts)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*.js)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*.tsx)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*.jsx)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-react-deps-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*ockerfile*)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-dockerfile-review-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*.cs)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-async-audit-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Edit(**/*.allium)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-allium-openq-hook.sh\""
-          }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git add *)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-commit-draft-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Bash(git push *)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-pr-draft-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Bash(gh run *)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-run-view-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Bash(gh pr *)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-pr-view-hook.sh\""
-          },
-          {
-            "type": "command",
-            "if": "Bash(gh issue *)",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-gh-issue-view-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-bash-tldr-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-stacktrace-hook.sh\""
-          },
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-tlc-translate-hook.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/graphify-fire-hook.sh\"",
+            "statusMessage": "Logging graphify invocation telemetry..."
           }
         ]
       }
@@ -465,6 +465,14 @@
           {
             "type": "command",
             "command": "echo '{\"systemMessage\": \"Context was compacted. Re-read any files you were working on before continuing.\"}'"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-orientation-hook.sh\""
           }
         ]
       },
@@ -497,14 +505,6 @@
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/sync-feature-json-hook.sh\"",
             "statusMessage": "Syncing .specify/feature.json with the register..."
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/local-llm-orientation-hook.sh\""
           }
         ]
       }
