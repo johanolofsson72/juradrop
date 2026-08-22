@@ -1,5 +1,5 @@
-sha=423b8f55eb67
-synced=2026-08-22T12:02:27Z
+sha=158757fdebe7
+synced=2026-08-22T12:10:09Z
 source=/Users/jool/repos/Claude
 # manifest: sha256 of each file as written by the sync — a project file
 # whose hash no longer matches was edited locally and is never overwritten.
@@ -131,7 +131,7 @@ c500db1f8ab5f130a2ba71cc1046dd3cc34d89310acb57d327ef3417daf0a486  scripts/local-
 362a1879018d6f890713ecdf9f7cb73198d0bcc35151ef58918d51e4d53ce118  scripts/pipeline-trigger-match.py
 14938393a8cc5f1fc73e026b9a9549a166b8cb84e3417f24a1d7fcde83b01bd5  scripts/pipeline-trigger-match.sh
 8c4e9018c1e2e93fc354f02213515e79252f6f9acb2b034296933bbfafc523bf  scripts/project-freshness.sh
-b1100c04bf505d6087e37319d0e2d8e753be70b624b4e63440705a8ac7254894  scripts/project-maintenance.sh
+24f2a50220b80e8c4cb2328e85d01da476da9f48a24dcb6a92711c68dcd85624  scripts/project-maintenance.sh
 bd2a91d9009612c4a979a1217dd0889ec8ba6eba33dd75ec35669ecce4a4c292  scripts/prune-agent-worktrees.sh
 7348079f611809e03d29a9b720f2098ded89fde278282f64c02d1e870cf17c88  scripts/prune-dangling-hooks.py
 e854a8e492e2f9dd2b37fa8f35bd5c702ef906bba349124be6bd23b8a4250fe2  scripts/repeat-failure-guard-hook.sh

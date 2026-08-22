@@ -89,6 +89,43 @@ if [ -f specs/INDEX.md ]; then
   fi
 fi
 
+# ------------------------------------------------------- 3b. spec-kit installation
+# The blind spot this section closes. Nothing in the template ever noticed that a
+# project's spec-kit was missing or years behind, because template-autosync.sh does
+# not install spec-kit -- only /project-update does -- and no check compared the two.
+# The result, measured across 42 projects: eight with no .specify at all (seven of
+# them with zero speckit skills, so /speckit-specify could not run and the pipeline
+# was decorative), one on 0.8.14, one on 0.9.1 -- versions predating the hyphenated
+# skill names every rule in .claude/rules/ refers to. All of them looked healthy: the
+# template sync reported "already at template" because the template half WAS current.
+#
+# Report-only. Installing spec-kit needs a real /project-update (it re-inits, merges
+# CLAUDE.md and re-decides the tech stack), which is a judgment pass, not a sweep.
+if [ -f specs/INDEX.md ] || [ -d .specify ]; then
+  SK_SKILLS=$(find .claude/skills -maxdepth 1 -type d -name 'speckit*' 2>/dev/null | wc -l | tr -d ' ')
+  case "$SK_SKILLS" in (''|*[!0-9]*) SK_SKILLS=0 ;; esac
+  SK_VER=""
+  if [ -f .specify/init-options.json ] && command -v python3 >/dev/null 2>&1; then
+    SK_VER=$(python3 -c 'import json,sys
+try: print(json.load(open(".specify/init-options.json")).get("speckit_version",""))
+except Exception: print("")' 2>/dev/null)
+  fi
+
+  if [ ! -d .specify ]; then
+    add "[SPECKIT] no .specify/ — spec-kit is not installed, so the pipeline's phases (/speckit-specify … /speckit-implement) cannot run. ${SK_SKILLS} speckit skill(s) on disk. Run /project-update."
+  elif [ "$SK_SKILLS" -eq 0 ]; then
+    add "[SPECKIT] .specify/ exists but no speckit skills are installed — the phases cannot be invoked. Run /project-update."
+  elif [ -z "$SK_VER" ]; then
+    add "[SPECKIT] .specify/init-options.json records no speckit_version — the install predates version stamping. Run /project-update to land a current spec-kit."
+  else
+    case "$SK_VER" in
+      1.*) ;;                                   # current line
+      0.16.*) ;;                                # previous line, still supported
+      *) add "[SPECKIT] spec-kit $SK_VER is well behind the 1.x line — versions before 0.10 use unhyphenated phase names (/specify, not /speckit-specify), which every rule in .claude/rules/ assumes. Run /project-update." ;;
+    esac
+  fi
+fi
+
 # ------------------------------------------------------------ 4. stale attempt state
 if [ -d .claude/state/attempts ]; then
   STALE=$(find .claude/state/attempts -type f -mtime +1 2>/dev/null | wc -l | tr -d ' ')
