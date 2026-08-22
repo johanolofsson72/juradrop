@@ -17,6 +17,18 @@ import sys
 PATTERN = re.compile(r'bash scripts/(\S+\.sh)')
 
 
+# Only ever rewrite inside a "command" value. The substitution used to run over
+# the whole file, which also caught permission rules:
+#
+#   "Bash(bash scripts/md-to-html.sh:*)"  ->  "Bash(bash \"$CLAUDE_PROJECT_DIR/scripts/md-to-html.sh\":*)"
+#
+# A permission rule matches the command the developer actually types, so
+# rewriting it does not "fix a path" -- it stops the rule matching anything, and
+# silently removes a permission somebody deliberately granted. Hooks are what run
+# from an arbitrary cwd and need the variable; permissions are not.
+COMMAND_VALUE = re.compile(r'("command"\s*:\s*")((?:[^"\\]|\\.)*)(")')
+
+
 def patch_text(text: str) -> tuple[str, int]:
     count = 0
 
@@ -26,7 +38,10 @@ def patch_text(text: str) -> tuple[str, int]:
         # In JSON string context, the literal bytes need to be: bash \"$CLAUDE_PROJECT_DIR/scripts/foo.sh\"
         return 'bash \\"$CLAUDE_PROJECT_DIR/scripts/' + m.group(1) + '\\"'
 
-    new = PATTERN.sub(repl, text)
+    def repl_command_value(m: re.Match) -> str:
+        return m.group(1) + PATTERN.sub(repl, m.group(2)) + m.group(3)
+
+    new = COMMAND_VALUE.sub(repl_command_value, text)
     return new, count
 
 

@@ -1,5 +1,5 @@
-sha=03bdfcefd027
-synced=2026-08-22T12:52:13Z
+sha=440725563f7f
+synced=2026-08-22T13:02:51Z
 source=/Users/jool/repos/Claude
 # manifest: sha256 of each file as written by the sync — a project file
 # whose hash no longer matches was edited locally and is never overwritten.
@@ -82,7 +82,7 @@ a8c80827c6486dded08be7df00f0fa18b15cb753551b047b07d8f0a5cfd3b60a  scripts/emit-a
 ff2e773dab7976de6ac1df4ed33f0e409de8e82e7a5068a67405203a882aa848  scripts/emit-clarify-reminder.sh
 194275222f9ce549312377358e19534ec462c217447aa6ecb1451701617e91a6  scripts/emit-pipeline-reminder.sh
 874c760feec47829b25a941e13dad0a924c26dd4da574df41ed1a5dfef899215  scripts/feature-pipeline-detect.sh
-f3c51e2c9933a321f6031091432b4760199943a4692d9c4e8b0597015bcac045  scripts/fix-hook-paths.py
+80fcffaf2db615bdc3ec769c433f9a8a55db73c69adaa90569dc7f4d737154f6  scripts/fix-hook-paths.py
 bc45813da16a41077fbec2270ebad8fbb0d6813ac304b6824de8800007bd7cb1  scripts/graphify-bootstrap.sh
 b01b2e30fbf99071172c063171aa5769bf5fc2268c2028812978b140d518a7db  scripts/graphify-fire-hook.sh
 7cafacb5920c4581f5aef99d0a23907400181e679dd432023bb7124ae1bb5a38  scripts/graphify-stats.sh
