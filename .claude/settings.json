@@ -6,37 +6,10 @@
   },
   "permissions": {
     "allow": [
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git push:*)",
-      "Bash(git pull:*)",
-      "Bash(git fetch:*)",
-      "Bash(git checkout:*)",
-      "Bash(git switch:*)",
-      "Bash(git branch:*)",
-      "Bash(git merge:*)",
-      "Bash(git rebase:*)",
-      "Bash(git stash:*)",
-      "Bash(git tag:*)",
-      "Bash(git restore:*)",
-      "Bash(git cherry-pick:*)",
-      "Bash(git status:*)",
-      "Bash(git diff:*)",
-      "Bash(git log:*)",
-      "Bash(git show:*)",
-      "Bash(git blame:*)",
-      "Bash(git remote:*)",
-      "Bash(git config --get:*)",
-      "Bash(git config --list:*)",
-      "Bash(gh pr:*)",
-      "Bash(gh issue:*)",
-      "Bash(gh repo view:*)",
-      "Bash(gh run view:*)",
+      "Bash",
       "Edit(/.claude/skills/**)",
       "Edit(/.claude/skills/tla/**)",
       "Edit(/.claude/skills/sync-template/**)",
-      "Bash(mkdir -p /Users/jool/repos/Claude/.claude/validation)",
-      "Bash(echo \".claude/validation/\")",
       "Edit(/.claude/skills/allium/**)"
     ],
     "deny": [
@@ -59,7 +32,8 @@
       "Edit(~/.ssh/**)"
     ],
     "ask": [],
-    "additionalDirectories": []
+    "additionalDirectories": [],
+    "defaultMode": "bypassPermissions"
   },
   "hooks": {
     "UserPromptSubmit": [
@@ -161,7 +135,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "INPUT=$(cat); CMD=$(echo \"$INPUT\" | jq -r '.tool_input.command // empty' 2>/dev/null); EXIT=$(echo \"$INPUT\" | jq -r '.tool_response.interrupted // false' 2>/dev/null); if echo \"$CMD\" | grep -qiE '(Category=UI|playwright|npx playwright|pnpm.*playwright|yarn.*playwright)'; then jq -n '{hookSpecificOutput: {hookEventName: \"PostToolUse\", additionalContext: \"BROWSER TESTS COMPLETED \u2014 BLOCKING VALIDATION REQUIRED before declaring work done:\\n\\n(1) SPEC COMPLIANCE: Open the feature spec and its FUNCTIONAL COVERAGE section. Enumerate every implemented function. Confirm each has a passing browser test AND that the assertion actually verifies the spec behavior (not just that the page loaded). If ANY function lacks a real test, the task is NOT done \u2014 write the missing tests now.\\n\\n(2) DESIGN COMPLIANCE: Invoke the frontend-design skill via the Skill tool and verify the UI follows its recommendations (typography scale, spacing rhythm, color palette, component polish, accessibility, responsive behavior, distinctive design \u2014 not generic AI aesthetic). If any violations exist, fix them before declaring done.\\n\\nDo NOT skip either step. Do NOT declare the task complete until both validations pass. Report findings explicitly: which functions were verified, which design checks passed/failed.\"}}'; fi",
+            "command": "INPUT=$(cat); CMD=$(echo \"$INPUT\" | jq -r '.tool_input.command // empty' 2>/dev/null); EXIT=$(echo \"$INPUT\" | jq -r '.tool_response.interrupted // false' 2>/dev/null); if echo \"$CMD\" | grep -qiE '(Category=UI|playwright|npx playwright|pnpm.*playwright|yarn.*playwright)'; then jq -n '{hookSpecificOutput: {hookEventName: \"PostToolUse\", additionalContext: \"BROWSER TESTS COMPLETED — BLOCKING VALIDATION REQUIRED before declaring work done:\\n\\n(1) SPEC COMPLIANCE: Open the feature spec and its FUNCTIONAL COVERAGE section. Enumerate every implemented function. Confirm each has a passing browser test AND that the assertion actually verifies the spec behavior (not just that the page loaded). If ANY function lacks a real test, the task is NOT done — write the missing tests now.\\n\\n(2) DESIGN COMPLIANCE: Invoke the frontend-design skill via the Skill tool and verify the UI follows its recommendations (typography scale, spacing rhythm, color palette, component polish, accessibility, responsive behavior, distinctive design — not generic AI aesthetic). If any violations exist, fix them before declaring done.\\n\\nDo NOT skip either step. Do NOT declare the task complete until both validations pass. Report findings explicitly: which functions were verified, which design checks passed/failed.\"}}'; fi",
             "statusMessage": "Enforcing post-browser-test validation..."
           }
         ]
