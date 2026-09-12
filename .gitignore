@@ -60,3 +60,7 @@ src-tauri/mutants.out/
 src-tauri/mutants.out.old/
 .stryker-tmp/
 reports/mutation/
+
+# Claude Code harness — machine-local state, never shared
+.claude/state/
+.specify/feature.json
