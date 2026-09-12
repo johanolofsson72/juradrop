@@ -57,4 +57,4 @@ TRANSLATION=$(printf '%s' "$TRACE" \
 [ -n "$TRANSLATION" ] || exit 0
 
 jq -nc --arg t "$TRANSLATION" \
-  '{additionalContext: ("Local-LLM TLC counterexample translation:\n" + $t)}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM TLC counterexample translation:\n" + $t)}}'

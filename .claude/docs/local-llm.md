@@ -2,9 +2,17 @@
 
 Auto-detected hook layer that pushes low-stakes work to a local model when one is reachable. When Ollama is offline or disabled, every hook becomes a silent no-op and Claude works as before.
 
-## Default-wired hooks (token-savers only)
+## Nothing is wired by default (2026-09-06)
 
-The template ships with **only the hooks that demonstrably reduce Anthropic token consumption** wired into `settings.json`. They follow the artifact pattern: produce a digest or scaffold to a file Claude rereads cheaply on follow-up turns instead of regenerating or re-ingesting the underlying tool output.
+**The template wires zero local-LLM hooks.** Every `local-llm-*-hook.sh` still ships in `scripts/`, and `sync-local-llm-hooks.py` still copies them to each project, but no entry in `.claude/settings.json` calls them. The offload is now opt-in: wire the ones you want by hand, or restore the previous set from git (`git log -- .claude/settings.json`).
+
+The reason is capacity, not quality. The measured winner, `qwen3-coder:30b`, is 18 GB resident with a 15-minute keep-alive, and this machine could not carry that alongside the spec pipeline. A hook layer that competes with the work it is meant to accelerate is a net loss.
+
+The tables below describe the set that *was* wired, and stay as the guide for what to re-enable first if you run this on a bigger box.
+
+## The former default set (token-savers only)
+
+That set was **only the hooks that demonstrably reduce Anthropic token consumption**, wired into `settings.json`. They follow the artifact pattern: produce a digest or scaffold to a file Claude rereads cheaply on follow-up turns instead of regenerating or re-ingesting the underlying tool output.
 
 **Routing and orientation:**
 

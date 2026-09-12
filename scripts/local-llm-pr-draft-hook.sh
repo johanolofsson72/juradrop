@@ -66,4 +66,4 @@ mkdir -p "$DRAFT_DIR"
 printf '%s\n' "$DRAFT" > "$DRAFT_PATH"
 
 jq -nc --arg p "$DRAFT_PATH" --arg b "$BRANCH" --arg base "$BASE" \
-  '{additionalContext: ("Local-LLM PR draft prepared at " + $p + " for " + $b + " → " + $base + ". Read and refine before running `gh pr create --title \"...\" --body \"$(cat " + $p + ")\"` — sanity-check claims against the actual diff, do not commit verbatim.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM PR draft prepared at " + $p + " for " + $b + " → " + $base + ". Read and refine before running `gh pr create --title \"...\" --body \"$(cat " + $p + ")\"` — sanity-check claims against the actual diff, do not commit verbatim.")}}'

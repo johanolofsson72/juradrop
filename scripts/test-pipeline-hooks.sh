@@ -613,6 +613,7 @@ printf '# R\n\n## Specs\n\n- [/] 002 — search — full track — free-text sea
 # an autosync is cut short (the .py pass runs after every .sh) or when python3 is
 # absent. The hook must say so, not go quiet.
 cp scripts/spec-run-log-hook.sh "$RLN/bin/spec-run-log-hook.sh"
+cp scripts/hook-notice.sh "$RLN/bin/hook-notice.sh"
 
 # $1 name, $2 expected rc, $3 stderr must contain ("" = must be silent), $4.. = argv
 _rl_note() {
@@ -639,7 +640,7 @@ _rl_note "--spec pointing at no directory exits 4 and says so" 4 "$RLN/nope"    
 # Every row ticked is an ANSWER, not a failure: exit 3, and still say it out loud
 # so a note that was never recorded cannot pass for one that was.
 printf '# R\n\n## Specs\n\n- [x] 002 — search — full track — free-text search\n' > "$RLN/specs/INDEX.md"
-cp scripts/resolve-active-spec.sh scripts/spec_active.py "$RLN/bin/"
+cp scripts/resolve-active-spec.sh scripts/spec_active.py scripts/hook-notice.sh "$RLN/bin/"
 _rl_note "fully-ticked register → exit 3, not 4, and reports"  3 "no active spec"         --note "nothing active"
 
 # ...and with the resolver reachable beside the hook, the happy path is silent
@@ -660,20 +661,76 @@ chmod 555 "$RLN/specs/003-readonly"
 _rl_note "a write that failed is reported, not swallowed" 4 "could not write" \
          --note "into a read-only dir" --spec "$RLN/specs/003-readonly"
 chmod 755 "$RLN/specs/003-readonly"
+
+# ── argv is parsed, not pattern-matched at $1 (spec 495 / I-11) ──────────────
+#
+# The mode selector was `[ "$1" = "--note" ]` and the operands were positional, so
+# `--spec DIR --note TEXT` fell through to HOOK mode, read an empty stdin and
+# exited 0 having written nothing. Every _note_stop above is unreachable on that
+# path, which is why none of them caught it.
+#
+# The reversed-order case asserts on a WRITE and not on an exit code, deliberately:
+# the unfixed script exits 0 there too, so an exit-code assertion passes against
+# the bug. What separates fixed from unfixed is whether the line is on disk.
+printf '# R\n\n## Specs\n\n- [/] 002 — search — full track — free-text search\n' > "$RLN/specs/INDEX.md"
+: > "$RLN/specs/002-search/run-log.md"
+CLAUDE_PROJECT_DIR="$RLN" bash "$RLN/bin/spec-run-log-hook.sh" \
+  --spec "$RLN/specs/002-search" --note "I-11 reversed flag order" >/dev/null 2>&1
+grep -q 'I-11 reversed flag order' "$RLN/specs/002-search/run-log.md" 2>/dev/null \
+  && _record "--spec before --note still records the note" 0 \
+  || _record "--spec before --note still records the note" 1
+
+# A malformed CLI call must be a usage error, never a silent slide into hook mode.
+_rl_note "unknown flag exits 2 and names it"        2 "unknown argument: --spek" --note "x" --spek "y"
+_rl_note "--note with no value exits 2"             2 "--note requires a value"  --note
+_rl_note "--spec with no value exits 2"             2 "--spec requires a value"  --note "x" --spec
+_rl_note "argv with no --note at all exits 2"       2 "no --note in"             --spec "$RLN/specs/002-search"
+_rl_note "an empty --note is reported, not a no-op" 2 "empty value"              --note ""
+
+# The acceptance case: hook mode is still argv-free, so the selector change cannot
+# have turned every PostToolUse invocation into a usage error. Without this, a
+# script that exited 2 on everything would satisfy all five assertions above.
+echo "{\"tool_input\":{\"file_path\":\"$RLN/specs/002-search/tasks.md\"}}" \
+  | CLAUDE_PROJECT_DIR="$RLN" bash "$RLN/bin/spec-run-log-hook.sh" >/dev/null 2>&1
+rc=$?
+[ "$rc" = 0 ] && grep -q 'tasks' "$RLN/specs/002-search/run-log.md" 2>/dev/null \
+  && _record "hook mode (no argv) still logs a phase transition" 0 \
+  || _record "hook mode (no argv) still logs a phase transition (rc=$rc)" 1
+
 rm -rf "$RLN"
 
 echo
 echo "── spec-register-orientation quiet/attention mode ─────"
 echo
 
-QOT=$(mktemp -d); mkdir -p "$QOT/.git" "$QOT/specs"; : > "$QOT/package.json"
-_orient_lines() { (cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.systemMessage // ""' | grep -c .); }
+QOT=$(mktemp -d); mkdir -p "$QOT/.git" "$QOT/specs" "$QOT/.claude"; : > "$QOT/package.json"
+# "Nothing actionable" now includes "nothing is due". maintenance-due.sh reports a never-stamped
+# project as owing all four recurring jobs, which is true and is the point of it -- so a fixture that
+# wants the QUIET branch has to establish that state rather than inherit it. One ticked spec, all
+# four jobs stamped at that count: nothing stale, nothing owed.
+_qot_stamp() {
+  { echo "secrets	$(date +%Y-%m-%d)	1	2"
+    echo "suite	$(date +%Y-%m-%d)	1	2"
+    echo "mutation	$(date +%Y-%m-%d)	1	2"
+    echo "similarity	$(date +%Y-%m-%d)	1	2"; } > "$QOT/.claude/.maintenance-state"
+}
+_qot_stamp
+_orient_lines() { (cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.hookSpecificOutput.additionalContext // .systemMessage // ""' | grep -c .); }
 printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] 002 — b — light track — y\n' > "$QOT/specs/INDEX.md"
 [ "$(_orient_lines)" -eq 1 ] && _record "nothing actionable → one-line quiet mode" 0 \
                              || _record "nothing actionable → one-line quiet mode" 1
 printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] 002 — b — full track — y\n' > "$QOT/specs/INDEX.md"
 [ "$(_orient_lines)" -gt 3 ] && _record "full-track next row → attention mode" 0 \
                              || _record "full-track next row → attention mode" 1
+
+# SC-1444 — the hook must read the TRACK FIELD, not the row's prose. A register row whose SLUG
+# contains the word "checkpoint" must not fire the /clear banner and must not suppress the every-5
+# integration-checkpoint alarm. A slug must not be able to switch off a gate: this row is spec-only
+# with "checkpoint" in its slug, so the hook must stay in quiet mode exactly as any other spec-only
+# row would. This probe has been lost to a template sync twice; it lives here so it stops being.
+printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] H9z — id-grammar-checkpoint-drift — spec-only — y\n' > "$QOT/specs/INDEX.md"
+[ "$(_orient_lines)" -eq 1 ] && _record "SC-1444 checkpoint in the SLUG does not fire the banner" 0 \
+                             || _record "SC-1444 checkpoint in the SLUG does not fire the banner" 1
 
 # The run-log tail is the whole point of the run log: five lines of failure memory
 # handed to a session that has just been cleared. It is fetched through the same
@@ -685,8 +742,8 @@ printf '# R\n\n## Specs\n\n- [x] 001 — a — light track — x\n- [ ] 002 — 
 mkdir -p "$QOT/specs/004-tail"
 printf '# R\n\n## Specs\n\n- [/] 004 — tail — full track — y\n' > "$QOT/specs/INDEX.md"
 printf '# Run log\n\n- 2026-01-01T00:00Z · mutation gate FAILED at 41%%\n' > "$QOT/specs/004-tail/run-log.md"
-(cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.systemMessage // ""') \
-  | grep -q 'mutation gate FAILED' \
+grep -q 'mutation gate FAILED' \
+  <<< "$(cd "$QOT" && bash "$ROOT/scripts/spec-register-orientation-hook.sh" | jq -r '.hookSpecificOutput.additionalContext // .systemMessage // ""')" \
   && _record "in-progress row → run-log tail is surfaced" 0 \
   || _record "in-progress row → run-log tail is surfaced" 1
 rm -rf "$QOT"
@@ -809,6 +866,11 @@ autosync_sandbox() {
   git -C "$d" init -q .
   git -C "$d" remote add origin https://example.invalid/someone/other.git
   cp "$ROOT/scripts/template-autosync-hook.sh" "$d/scripts/"
+  # Spec 046 — the hook sources this. A fixture missing it produces
+  # "notice_both: command not found" and a test failure that reads like a
+  # behaviour regression instead of a missing file, which is how a new CORE
+  # dependency hides (register row 014).
+  cp "$ROOT/scripts/hook-notice.sh" "$d/scripts/"
   { echo '#!/bin/bash'
     echo 'echo run >> "$(dirname "$0")/../.sync-runs"'
     printf '%s\n' "$1"

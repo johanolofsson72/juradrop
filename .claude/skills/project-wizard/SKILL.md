@@ -78,7 +78,7 @@ spec-kit 0.16.x enables its `git` extension by default, registering five skills 
 
 **Step 5 — Run the COMPLETE template sync (identical to `/project-update`):**
 
-This single step puts **everything** in place — every skill (`allium`, `tla`, `code-review`, `explore-codebase`, `deploy-checklist`, `sync-template`, `update-template`), every rule (`allium.md`, `specs.md`, `continuous-execution.md`, `validation-followup.md`, `feature-pipeline.md`, `spec-interview.md`, `spec-register.md`, `spec-hardening.md`, the stack rules), every doc, every hook script (including the `spec-interview-guard` that hard-blocks implementation until each spec has its 15–25 anti-drift questions answered — base auto-answered with the recommended option by default, human overflow when a spec is flagged large/advanced), the deterministic local-LLM wiring, AND the Graphify wiring + bootstrap. **After this step the project is fully configured. The wizard IS the full sync — there is no separate `/project-update` pass required afterward.** If you ever catch yourself about to tell the user "now run `/project-update` to get allium/graphify", you skipped part of this step — go back and finish it. That handoff is the exact bug this step exists to kill.
+This single step puts **everything** in place — every skill (`allium`, `tla`, `code-review`, `explore-codebase`, `deploy-checklist`, `sync-template`, `update-template`), every rule (`allium.md`, `specs.md`, `continuous-execution.md`, `validation-followup.md`, `feature-pipeline.md`, `spec-interview.md`, `spec-register.md`, `spec-hardening.md`, `carve-budget.md`, the stack rules), every doc, every hook script (including the `spec-interview-guard` that hard-blocks implementation until each spec has its 15–25 anti-drift questions answered — base auto-answered with the recommended option by default, human overflow when a spec is flagged large/advanced), the deterministic local-LLM wiring, AND the Graphify wiring + bootstrap. **After this step the project is fully configured. The wizard IS the full sync — there is no separate `/project-update` pass required afterward.** If you ever catch yourself about to tell the user "now run `/project-update` to get allium/graphify", you skipped part of this step — go back and finish it. That handoff is the exact bug this step exists to kill.
 
 The wizard does NOT paraphrase the sync into a summary and curl files one at a time — that approach reliably dropped `allium`, the pipeline rules, and the graphify wiring on the floor. Instead it resolves the template **locally** (cloning once if absent, which is far more reliable than ~50 individual HTTP fetches) and executes the canonical `sync-prompt.md` verbatim — the exact same instruction set `/project-update` runs. Single source of truth, zero drift.
 
@@ -130,6 +130,7 @@ for f in \
   .claude/rules/spec-register.md \
   .claude/rules/spec-interview.md \
   .claude/rules/spec-hardening.md \
+  .claude/rules/carve-budget.md \
   .claude/rules/github-actions.md \
   .claude/rules/scenarios.md \
   .claude/rules/design-references.md \
@@ -147,7 +148,7 @@ python3 -m json.tool .claude/settings.json >/dev/null 2>&1 || { echo "[INVALID] 
 # Core-hook gate: every mandatory enforcement script must EXIST *and* be wired.
 # Checking only "present → wired" reports green on a project where the script was
 # never copied at all — i.e. a project with no guards.
-for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook; do
+for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook lane-orientation-hook; do
   if [ ! -f "scripts/$s.sh" ]; then echo "[MISSING] scripts/$s.sh never copied — re-run the core-script mirror in sync-prompt.md Step 5c"; fail=1;
   elif ! grep -q "$s.sh" .claude/settings.json; then echo "[UNWIRED] core hook $s present on disk but not wired — run sync-core-hooks.py"; fail=1; fi
 done
@@ -1045,6 +1046,11 @@ Derive the rows from what the interview already told you:
 3. **Triage each row's track** per `.claude/rules/specs.md`: `full` (new entity / state machine / concurrency / new API surface), `light` (single-actor UI, CRUD, search/filter), `spec-only` (refactor, config, docs).
 4. **Tag `[hardened]`** per `.claude/rules/spec-hardening.md` — auth/authorization, payments, PII or secrets, file upload/parsing, a new external API surface, a full-track state machine, a new entity, or ≥6 files. Category 4 (auth/multi-tenancy) and Category 7 (infrastructure/integrations) answers are where these usually hide. When in doubt, tag it: hardening only ever adds verification.
 5. **Insert an `H1` integration-hardening checkpoint row after the 5th spec row**, per the every-5 cadence. Add `H2` after the 10th if the register is that long.
+6. **Add the standing `T0 — harness-defects` row** at the end, per `.claude/rules/carve-budget.md`. It is where a defect in `.claude/**`, `scripts/**`, a hook or a skill gets *pointed at* — the fix itself lands in the template repo and arrives by sync. Without this row those defects land on the product register and compete with the product: agentcrm accumulated twenty of them (`S1`–`S20`) on a property CRM's register, none of which ship anything to a broker.
+
+```markdown
+- [ ] T0 — harness-defects — standing — points at the template rows currently blocking this project; never carved from
+```
 
 Create `specs/INDEX.md`:
 

@@ -43,4 +43,4 @@ mkdir -p "$DRAFT_DIR"
 printf '%s\n' "$DRAFT" > "$DRAFT_PATH"
 
 jq -nc --arg p "$DRAFT_PATH" \
-  '{additionalContext: ("Local-LLM issue digest cached at " + $p + ". Read this for issue context on follow-up turns instead of re-running `gh issue view`.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM issue digest cached at " + $p + ". Read this for issue context on follow-up turns instead of re-running `gh issue view`.")}}'

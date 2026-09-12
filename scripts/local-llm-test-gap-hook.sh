@@ -98,4 +98,4 @@ REPORT=$(printf '%s' "$PAYLOAD" \
 echo "$REPORT" | grep -qE '^[[:space:]]*(COVERED|NO_TESTABLE_SURFACE)[[:space:]]*$' && exit 0
 
 jq -nc --arg f "$FILE" --arg r "$REPORT" \
-  '{additionalContext: ("Local-LLM test coverage gap analysis on " + $f + ":\n" + $r)}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM test coverage gap analysis on " + $f + ":\n" + $r)}}'

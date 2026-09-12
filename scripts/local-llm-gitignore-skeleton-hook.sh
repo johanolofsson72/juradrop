@@ -65,4 +65,4 @@ mkdir -p "$DRAFT_DIR"
 printf '%s\n' "$DRAFT" > "$DRAFT_PATH"
 
 jq -nc --arg p "$DRAFT_PATH" \
-  '{additionalContext: ("Local-LLM .gitignore scaffold saved at " + $p + ". Read and adapt before adopting — strip patterns for stacks the project does not use, add project-specific build/cache dirs.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM .gitignore scaffold saved at " + $p + ". Read and adapt before adopting — strip patterns for stacks the project does not use, add project-specific build/cache dirs.")}}'

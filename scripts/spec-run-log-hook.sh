@@ -28,6 +28,9 @@
 #           artifact is written (spec.md, interview.md, spec.allium, plan.md,
 #           tasks.md). Deduped, so re-editing plan.md ten times logs once.
 #   (cli)   spec-run-log-hook.sh --note "<text>" [--spec <dir>]
+#           Flags may be given in either order. Any argv at all selects CLI
+#           mode, so a malformed call is reported, never silently treated as
+#           a hook invocation (spec 495 / I-11).
 #           logs an arbitrary one-liner — a finding, a failed gate, a decision.
 #
 # Never blocks, never errors out loud. bash 3.2-safe, cross-platform.
@@ -133,6 +136,7 @@ spec_dir_of() {
 # whose whole purpose is failure memory across /clear.
 #
 #   exit 0  the note was recorded (or deduped against the previous line)
+#   exit 2  usage: unknown flag, a flag with no value, or no --note at all
 #   exit 3  an ANSWER, nothing to record: no register, or every row ticked
 #   exit 4  cannot answer: no resolver, no python3, unreadable register, no dir
 #
@@ -145,11 +149,48 @@ _note_stop() {  # $1 message, $2 exit code
   exit "$2"
 }
 
-if [ "${1:-}" = "--note" ]; then
-  NOTE="${2:-}"
-  [ -z "$NOTE" ] && exit 0        # caller passed no text; nothing was asked of us
-  DIR=""
-  [ "${3:-}" = "--spec" ] && DIR="${4:-}"
+# Spec 495 / I-11 — mode is chosen by "were there ANY arguments", not by looking
+# at $1. Hook mode is invoked from settings.json with NO argv and a JSON payload
+# on stdin (test-pipeline-hooks.sh does the same), so a non-empty argv can only
+# be a CLI call, and anything unparseable in it is a usage error to say out loud.
+#
+# The selector used to be `[ "$1" = "--note" ]` with the operands read positionally
+# ($2 = text, $3 = --spec, $4 = dir). Writing the flags in the other order —
+# `--spec DIR --note TEXT`, which every getopt-shaped CLI accepts — did not match,
+# so the call fell THROUGH to hook mode, read an empty stdin, and exited 0 having
+# written nothing. That is precisely the shape H6s2 was written to eliminate,
+# surviving one level up: every _note_stop below is unreachable when the branch is
+# never entered at all. Eight notes were lost that way in a single session, in the
+# one script whose entire purpose is failure memory across /clear.
+#
+# Exit 2 joins the grammar as "the caller's fault, and fixable by the caller",
+# distinct from 4 ("cannot answer"): a typo'd flag has an obvious fix, a missing
+# resolver does not.
+if [ "$#" -gt 0 ]; then
+  NOTE=""; DIR=""; HAVE_NOTE=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --note)
+        # Require the value AT PARSE TIME (spec 495 / I-7). A guard that validates
+        # a value cannot see a value that was never passed, and `shift 2` over a
+        # missing operand fails under set -u, leaving $1 as the flag and the loop
+        # spinning forever on it.
+        [ "$#" -ge 2 ] || _note_stop "--note requires a value — note NOT recorded" 2
+        NOTE="$2"; HAVE_NOTE=1; shift 2 ;;
+      --spec)
+        [ "$#" -ge 2 ] || _note_stop "--spec requires a value — note NOT recorded" 2
+        DIR="$2"; shift 2 ;;
+      *)
+        _note_stop "unknown argument: $1 (usage: --note \"<text>\" [--spec <dir>]) — note NOT recorded" 2 ;;
+    esac
+  done
+  [ "$HAVE_NOTE" = 1 ] \
+    || _note_stop "no --note in: $* (usage: --note \"<text>\" [--spec <dir>]) — note NOT recorded" 2
+  # An empty note used to `exit 0` as "nothing was asked of us". It is far more
+  # often `--note "$MSG"` with MSG unset, and treating that as a no-op is the same
+  # silent-drop this script exists to refuse. Say it instead.
+  [ -n "$NOTE" ] \
+    || _note_stop "--note was given an empty value — note NOT recorded" 2
   if [ -n "$DIR" ]; then
     # append_line answers a missing directory with a silent `return 0`, which is
     # right for hook mode and wrong for a hand-typed path with a typo in it.

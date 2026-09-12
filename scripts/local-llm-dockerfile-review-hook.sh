@@ -60,4 +60,4 @@ NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^
 [ -z "$NON_SENTINEL" ] && exit 0
 
 jq -nc --arg f "$FILE" --arg r "$REPORT" \
-  '{additionalContext: ("Local-LLM Dockerfile review on " + $f + ":\n" + $r + "\nReview before building production image.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM Dockerfile review on " + $f + ":\n" + $r + "\nReview before building production image.")}}'

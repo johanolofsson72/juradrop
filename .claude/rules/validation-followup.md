@@ -29,6 +29,24 @@ ALL of the following are findings and MUST be surfaced individually:
 
 If you find yourself thinking "this one is minor, I'll skip it" — that is exactly the failure mode this rule exists to prevent. Surface it. Let the user decide.
 
+## Surfacing is not rowing (`.claude/rules/carve-budget.md`)
+
+This rule requires every finding be **surfaced**. It has been read as requiring every finding become
+a **register row**, and that reading is what took five projects to a carve ratio above 1.0 — the
+register growing faster than it closes, measured 2026-09-03 at 2.15 on rocky and 2.08 on agentcrm.
+
+Surface all of them. Then give each one of three dispositions, defaulting to the first:
+
+1. **Fix it inside the current spec** — when the fix is smaller than the ceremony of recording it.
+2. **Record it as a finding** — `bash scripts/finding.sh --add "<one line>" --spec NNN`. This is the
+   default for everything else. It goes to `specs/FINDINGS.md` and is decided at the next 5-spec
+   review, not now.
+3. **Carve a row immediately** — the exception, for work that blocks the next spec and cannot wait.
+
+All three satisfy this rule: the finding was named, decided, and recorded. Only the second one grows
+the register. "Defer (track in spec)" in the option set below means the third when the budget is
+spent — not "always make a row".
+
 ## How to surface findings
 
 Use `AskUserQuestion` with one question per finding. Each question:

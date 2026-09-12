@@ -76,4 +76,4 @@ mkdir -p "$DRAFT_DIR"
 } > "$DRAFT_PATH"
 
 jq -nc --arg p "$DRAFT_PATH" --arg r "$RANGE_LABEL" \
-  '{additionalContext: ("Local-LLM CHANGELOG draft prepared at " + $p + " (" + $r + "). Read and splice relevant entries into CHANGELOG.md — sanity-check against actual commits, do not paste verbatim.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM CHANGELOG draft prepared at " + $p + " (" + $r + "). Read and splice relevant entries into CHANGELOG.md — sanity-check against actual commits, do not paste verbatim.")}}'

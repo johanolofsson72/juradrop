@@ -33,19 +33,54 @@ process they were already paying for, and the bash wrapper
 (resolve-active-spec.sh) exists only for callers that are shell to begin with.
 One implementation, no duplicated regex, no extra process on the hot path.
 
-ID GRAMMAR — the whole defect in one table
-  007      -> spec        (plain numeric)
-  007m     -> spec        (letter-suffixed; the case that was silently dropped)
-  **364    -> spec        (bold markdown stripped)
-  H1       -> checkpoint  (integration-hardening; no pipeline artifacts required)
-  007ab    -> spec        (MULTI-letter suffix, returned WHOLE. Truncating it to
+TWO QUESTIONS, NOT ONE (spec H7b)
+---------------------------------
+This module used to ask the id token what the row WAS. That merged two questions
+that have two different answers in the register, and got both wrong:
+
+  1. Is the token well-formed?            <- the ID GRAMMAR answers this
+  2. Is this row a checkpoint or a spec?  <- the TRACK FIELD answers this
+
+Measured at H7b on this project's register: 69 of 114 rows classified
+"unparseable" (H5a..H7n, F2b, and H6s2 - the grammar knew H6, not H6a, and
+certainly not H6s2), which both PreToolUse guards answer with deny. 56 of those
+rows shipped anyway, because writes made through Bash were not gated at all.
+
+And the other direction, which is why widening the grammar alone would have been
+WORSE than leaving it broken: "kind: checkpoint" came from the id's SHAPE, so 14
+of the 19 rows the guards exempted from every artifact check were ordinary specs
+(E1-E5, F1-F5 on `full`; G1-G4 on `spec-only` - three of them own real spec
+directories). Teaching the old grammar about letter suffixes would have grown
+that fail-open exemption from 19 rows to 88.
+
+So: the grammar decides well-formedness, and `- [ ] H1 - x - checkpoint - ...`
+decides checkpoint-ness, exactly as .claude/rules/spec-register.md writes it.
+
+ID GRAMMAR — well-formedness only
+  007      -> numeric     (plain)
+  007m     -> numeric     (letter-suffixed; the case 007m was opened for)
+  007ab    -> numeric     (MULTI-letter suffix, returned WHOLE. Truncating it to
                            "007a" would resolve to a DIFFERENT REAL SPEC, which
-                           is this module's own failure mode in miniature. Spec
-                           007m refused the id to guarantee that; spec 007ab
-                           widened the grammar instead, which honours the same
-                           property AND lets the register use the ids it uses.)
-  7-x      -> unparseable (REPORTED, never dropped - silent dropping is the
+                           is this module's own failure mode in miniature.)
+  **364    -> numeric     (bold markdown stripped)
+  H1       -> alpha       (letters then digits)
+  H6a      -> alpha       (trailing letter: the house convention, not an anomaly)
+  H6s2     -> alpha       (letters-digits-letter-digit. Returned WHOLE - "H6s" is
+                           another real row, so a truncating match would resolve
+                           to a different spec. Same property as 007ab, and the
+                           reason the continuation is [A-Za-z0-9]* rather than a
+                           single optional letter: one more carve-out of a carve-
+                           out and [a-z]? would have been the same bug again.)
+  H        -> malformed   (letters with no digit: nothing distinguishes it from a
+                           mistyped row, and there is no collision-free rule)
+  7-x      -> malformed   (REPORTED, never dropped - silent dropping is the
                            defect this module exists to fix)
+
+KIND (what the guards branch on)
+  malformed token             -> "unparseable"  guards DENY (they cannot tell
+                                                whether artifacts are owed)
+  track field is "checkpoint" -> "checkpoint"   guards ALLOW (owes no artifacts)
+  anything else               -> "spec"         guards demand the artifacts
 
 EXIT CODES (CLI) — callers MUST distinguish these (FR-007m-04)
   0  resolved an active row (see kind/found)
@@ -76,11 +111,26 @@ ROW_RE = re.compile(r"^-\s+\[([ xX/!])\]\s+(.+?)\s+—\s+(.+?)\s+—\s+(.+?)\s+�
 # remaining register. `*` rather than `?`, and the anchors are what keep the
 # promise that matters: "007ab" is returned whole or not at all, never quietly
 # truncated to "007a", which is a different real spec.
+# 2026-09-03: the SAME defect, a third generation on. rocky numbers a sub-spec
+# by dotting its parent -- 501.1, 450.7, 505.2 -- and 22 of its 123 rows carried
+# an id this pattern could not classify, so both PreToolUse guards were failing
+# closed on them exactly as 007ab describes. The dotted segment is optional and
+# repeatable, and it sits BEFORE the letter suffix because that is the order the
+# register writes them (450.7, not 450a.7). Anchored like its siblings: "501.1"
+# comes back whole or not at all, never truncated to "501", which is a different
+# real spec and the row directly above it.
+NUMERIC_ID_RE = re.compile(r"^\**\s*([0-9]+(?:\.[0-9]+)*[a-z]*)\**\s*$")
+
+# H7b. The letter-led form had the identical defect one alphabet over: it read
+# `[A-Za-z]+[0-9]+` and so knew H1 and H6 but not H6a, and not H6s2 — 69 of 114
+# rows. The trailing `[A-Za-z0-9]*` is deliberately as permissive as 007ab's,
+# for the same reason: the register keeps carving rows out of rows (H6s -> H6s2),
+# and `[a-z]?` would have been this defect again at the next carve. Anchored, so
+# H6s2 comes back whole or not at all — H6s is a different real row.
 #
-# No collision with CHECKPOINT_ID_RE: spec ids are digits-then-letters,
-# checkpoints letters-then-digits.
-SPEC_ID_RE = re.compile(r"^\**\s*([0-9]+[a-z]*)\**\s*$")
-CHECKPOINT_ID_RE = re.compile(r"^\**\s*([A-Za-z]+[0-9]+)\**\s*$")
+# The two forms do not compete for meaning any more: what the row IS comes from
+# the track field (see `_kind_for`), not from which of these matched.
+ALPHA_ID_RE = re.compile(r"^\**\s*([A-Za-z]+[0-9]+[A-Za-z0-9]*)\**\s*$")
 
 # Lane ownership. Two developers can work the register at once, so "the active
 # spec" is per-lane, not global: without this the first "- [/]" row anywhere
@@ -94,7 +144,11 @@ CHECKPOINT_ID_RE = re.compile(r"^\**\s*([A-Za-z]+[0-9]+)\**\s*$")
 #                       stay eligible, so an untagged register works unchanged
 OWNER_RE = re.compile(r"—\s*@([A-Za-z0-9._-]+)\s*$")
 
-VALID_TRACKS = ("full", "light", "spec-only")
+# "checkpoint" belongs here (H7b). It is a real value of the track field — it is
+# in fact the value that decides `kind` — and coercing it to "full" made the
+# resolver report a track the register never wrote. Nothing branches on it: the
+# one consumer of `track` (pipeline-state-guard) has already returned by then.
+VALID_TRACKS = ("full", "light", "spec-only", "checkpoint")
 
 
 class RegisterUnreadable(Exception):
@@ -102,15 +156,45 @@ class RegisterUnreadable(Exception):
 
 
 def classify_id(token: str) -> tuple[str, str]:
-    """Return (identifier, kind) for a raw register-row id token."""
-    m = SPEC_ID_RE.match(token)
+    """Return (identifier, shape) for a raw register-row id token.
+
+    shape is "numeric" | "alpha" | "malformed" — WELL-FORMEDNESS ONLY. It does
+    not say whether the row is a spec or a checkpoint; `_kind_for` answers that
+    from the track field. Merging the two is the H7b defect.
+    """
+    m = NUMERIC_ID_RE.match(token)
     if m:
-        return m.group(1), "spec"
-    m = CHECKPOINT_ID_RE.match(token)
+        return m.group(1), "numeric"
+    m = ALPHA_ID_RE.match(token)
     if m:
-        return m.group(1), "checkpoint"
+        return m.group(1), "alpha"
     # Reported, never dropped. Silent dropping is the defect this module fixes.
-    return re.sub(r"^\**|\**$", "", token), "unparseable"
+    return re.sub(r"^\**|\**$", "", token), "malformed"
+
+
+def _is_standing(track_field: str) -> bool:
+    """A standing pointer row, in either language this project's registers use."""
+    first = (track_field.split() or [""])[0].lower().strip()
+    return first in ("standing", "st\u00e5ende")
+
+
+def _kind_for(shape: str, track_field: str) -> str:
+    """What the guards branch on: "unparseable" | "checkpoint" | "spec".
+
+    A checkpoint is a TRACK, not an id shape (.claude/rules/spec-register.md
+    writes them as `- [ ] H1 — integration-hardening — checkpoint — ...`). Reading
+    it off the id instead exempted 14 real specs from every artifact check —
+    E1-E5 and F1-F5 (`full`), G1-G4 (`spec-only`) — because their ids happen to
+    start with a letter. Three of those own real spec directories.
+
+    A malformed id stays unparseable whatever the track says: without a usable id
+    there is no directory to look for, so "this row owes nothing" would be a
+    guess, and the guards deny rather than guess.
+    """
+    if shape == "malformed":
+        return "unparseable"
+    first = (track_field.split() or [""])[0].lower().strip()
+    return "checkpoint" if first == "checkpoint" else "spec"
 
 
 def _rows(register_path: str):
@@ -124,7 +208,8 @@ def _rows(register_path: str):
                 status, raw_id, _slug_field, track_field = m.groups()
                 parts = raw_id.strip().split()
                 token = parts[0] if parts else ""
-                ident, kind = classify_id(token)
+                ident, shape = classify_id(token)
+                kind = _kind_for(shape, track_field)
                 om = OWNER_RE.search(stripped)
                 owner = om.group(1).lower() if om else ""
                 yield status, ident, kind, track_field.strip(), owner
@@ -157,10 +242,23 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
     # spec blocked behind the OTHER lane's current row.
     own_active = own_pending = free_active = free_pending = None
     duplicate_active = False
+    free_active_count = 0
 
     for status, ident, kind, track_field, row_owner in _rows(register_path):
         if lane and row_owner and row_owner != lane:
             continue  # somebody else's lane
+        # A STANDING row is a pointer, never work. `.claude/rules/carve-budget.md`
+        # gives every product register one `T0 — harness-defects — standing` row
+        # that points at the template's register; it "is ticked when nothing
+        # blocks; it is never carved from". It is not a spec, owes no artifacts,
+        # and must never be offered as the next thing to build.
+        #
+        # Added 2026-09-03 with the T0 rows and NOT excluded here, which is the
+        # whole defect: on the two projects whose other rows were all ticked, the
+        # SessionStart banner immediately began announcing
+        # "next: T0 — harness-defects" as the spec to work.
+        if _is_standing(track_field):
+            continue
         mine = bool(lane) and row_owner == lane
         entry = (ident, kind, track_field, status)
         if status == "/":
@@ -169,18 +267,44 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
                     own_active = entry
                 else:
                     duplicate_active = True
-            elif free_active is None:
-                free_active = entry
             else:
-                # The rule says exactly one row carries this. Report the
-                # violation rather than pretending it is invisible.
-                duplicate_active = True
+                free_active_count += 1
+                if free_active is None:
+                    free_active = entry
+                else:
+                    # The rule says exactly one row carries this. Report the
+                    # violation rather than pretending it is invisible.
+                    duplicate_active = True
         elif status == " ":
             if mine:
                 if own_pending is None:
                     own_pending = entry
             elif free_pending is None:
                 free_pending = entry
+
+    # AN AMBIGUOUS UNOWNED "[/]" LOSES TO THE NEXT UNOWNED "[ ]" — LANES ONLY.
+    #
+    # The bucket order says an unowned in-progress row outranks the next unowned
+    # row, and that is right when there is ONE of them: it is the row somebody is
+    # visibly on. It stops being right the moment there are several, because then
+    # nothing distinguishes "the" in-progress row and this picks whichever sits
+    # highest in the file — which is the OLDEST, i.e. the least likely to be the
+    # work at hand.
+    #
+    # Measured on the rocky register, 2026-08-30: 33 rows carry "[/]" (the project
+    # uses it for "code-complete, awaiting live validation", not "being typed right
+    # now"), and no row carried the lane tag, because the convention leaves it on
+    # the row last worked and that row was ticked. Every gate therefore resolved to
+    # spec 502 — a row parked since August — while the developer worked 547. Both
+    # PreToolUse guards were checking 502's artifacts and 502's interview.
+    #
+    # Guarded on `lane` so this cannot move a single-lane project by one row: with
+    # SPEC_OWNER unset, `mine` is never true, and the behaviour below is skipped
+    # entirely. Ambiguity is still reported through duplicate_active either way —
+    # this changes which row is offered, never whether the violation is mentioned.
+    if lane and own_active is None and own_pending is None \
+            and free_active_count > 1 and free_pending is not None:
+        free_active = None
 
     active = own_active or own_pending or free_active or free_pending
 
@@ -202,9 +326,15 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
     if track not in VALID_TRACKS:
         track = "full"  # most conservative
 
+    # H7b — the directory is resolved for every WELL-FORMED id, not only when
+    # kind == "spec". A checkpoint row can own a directory (E1, F1 and G1 all do),
+    # and .specify/feature.json is a cache of THIS answer: leaving it null for a
+    # letter-led id is why `check-prerequisites.sh` failed outright on H7b itself.
+    # This cannot move a verdict — both guards read `kind` and return before they
+    # ever look at `dir`. A malformed id has no usable glob, so it stays None.
     spec_dir = None
     slug = ""
-    if kind == "spec":
+    if kind != "unparseable":
         candidates = sorted(glob.glob(os.path.join(root, "specs", "%s-*" % ident)))
         candidates += sorted(glob.glob(os.path.join(root, ".specify", "specs", "%s-*" % ident)))
         spec_dir = next((c for c in candidates if os.path.isdir(c)), None)

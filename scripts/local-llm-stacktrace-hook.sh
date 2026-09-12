@@ -54,4 +54,4 @@ REPORT=$(printf '%s' "$PAYLOAD" \
 [ -n "$REPORT" ] || exit 0
 
 jq -nc --arg r "$REPORT" --arg n "$LEN" \
-  '{additionalContext: ("Local-LLM stack-trace distillation (" + $n + "-char output):\n" + $r)}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM stack-trace distillation (" + $n + "-char output):\n" + $r)}}'

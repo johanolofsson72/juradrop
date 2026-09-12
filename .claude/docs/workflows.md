@@ -263,15 +263,56 @@ Set `"async": true` on command hooks to run them in the background without block
 
 ### JSON output from hooks
 
-| Field | Description |
-| --- | --- |
-| `systemMessage` | Warning message to the user |
-| `additionalContext` | Extra context for Claude |
-| `continue` | `false` = stop Claude entirely |
-| `stopReason` | Message when `continue: false` |
-| `suppressOutput` | Hide stdout from verbose mode |
-| `updatedInput` | Modify the tool's input (PreToolUse, PermissionRequest) |
-| `updatedMCPToolOutput` | Replace MCP tool output (PostToolUse) |
+**Two audiences, two channels. Pick by who has to act.** This is the single most
+expensive thing to get wrong in a hook, and this table used to get it wrong —
+it listed `additionalContext` as a top-level field, which Claude Code silently
+ignores. Forty-two hooks were written from that line and said nothing to anyone.
+
+| Field | Shown to the developer | Reaches Claude |
+| --- | --- | --- |
+| `systemMessage` (top level) | **yes — a UI notification per line** | yes |
+| `hookSpecificOutput.additionalContext` | no | yes |
+| `additionalContext` **at the top level** | **no — silently ignored** | **no** |
+| `continue` | — | `false` = stop Claude entirely |
+| `stopReason` | yes | message when `continue: false` |
+| `suppressOutput` | hides stdout from verbose mode | — |
+| `updatedInput` | — | modify the tool's input (PreToolUse, PermissionRequest) |
+| `updatedMCPToolOutput` | — | replace MCP tool output (PostToolUse) |
+
+**`hookSpecificOutput` must carry `hookEventName`.** It is the discriminator, not
+decoration: a payload without it matches no branch of the schema and is dropped
+whole. Proven live 2026-09-12 — the same edit against the same guard was
+*allowed* without the field and *denied* with it, which means every PreToolUse
+guard in this template had been inert since it was written, the `~/.ssh` /
+`.env` read-block included. A hard block that silently permits is
+indistinguishable from a hard block with nothing to stop, so nothing noticed.
+
+```json
+{ "hookSpecificOutput": { "hookEventName": "PostToolUse",
+                          "additionalContext": "…" } }
+{ "hookSpecificOutput": { "hookEventName": "PreToolUse",
+                          "permissionDecision": "deny",
+                          "permissionDecisionReason": "…" } }
+```
+
+**Do not hand-roll either shape.** Source `scripts/hook-notice.sh` and say who
+you are addressing — `notice_model`, `notice_session`, `notice_user`,
+`notice_both`, `notice_once`. It carries the escaping (jq optional, for the
+unprovisioned machine), collapses a `systemMessage` to one line, and does
+once-per-session de-duplication so a reminder that fires on every edit of a file
+is stated once. `scripts/test-hook-channels.sh` is the gate.
+
+A reminder addressed to Claude on the developer's channel is the failure this
+exists to stop: the UI renders one notification per line, so a 26-line
+orientation banner arrives as 26 red warnings at every `/clear`, and a
+per-edit reminder repeats until it is wallpaper.
+
+Exit codes, by event (from the CLI's own reference):
+
+- **PostToolUse** — exit 0: stdout only in transcript mode (`ctrl+o`), *not*
+  context. Exit 2: stderr to the model. So JSON is the only reliable channel.
+- **SessionStart**, **UserPromptSubmit** — exit 0: plain stdout goes to Claude.
+- **PreCompact** — exit 0: stdout is appended as custom compact instructions.
 
 ### Environment variables in hooks
 

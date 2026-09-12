@@ -30,7 +30,33 @@ Creating any of the following as GitHub Actions workflows:
 - Push-triggered test or build workflows — tests run locally per the Definition of Done
 - EAS/store build workflows on push — run `eas build` locally or via `workflow_dispatch` only if truly needed
 
-**The ban comes with an answer.** "No `schedule:` triggers" is only half a policy — the other half is where the recurring work actually happens, otherwise "nightly" quietly means "never" (which is what happened to the mutation gate and the secret scan). `scripts/project-maintenance.sh` is the local recurring pass: secrets + CVEs, context-cost canary, register drift, the every-5 hardening checkpoint, and `--full` for the mutation kill rate. It reports in attention mode (clean = one line) and exits 0/1/2 so a scheduler can branch. Wire it with `/schedule` (a weekly cloud routine), `/loop 7d`, or a plain crontab entry — all of which cost zero Actions minutes.
+**The ban comes with an answer, and the answer is not a second scheduler.** "No `schedule:` triggers"
+is only half a policy — the other half is where the recurring work actually happens, otherwise
+"nightly" quietly means "never" (which is what happened to the mutation gate and the secret scan).
+
+The first attempt at that other half was a crontab entry per project, and it failed for reasons that
+had nothing to do with GitHub. A cron runs whether or not there is anything to do; it runs at 02:00
+on a laptop that is asleep; and cron does **not** catch up a job it missed. Seven entries were
+installed on 2026-09-03 and not one had produced a log by the next morning. Replacing a scheduler we
+do not control with a scheduler we do not watch is not a fix.
+
+**The project keeps its own due-state instead.** `scripts/maintenance-due.sh` records when each
+recurring job last ran and what the register looked like then, and each job is triggered by whatever
+actually invalidates it — secrets and CVEs by days, the mutation gate and the full suite by ticked
+specs, the similarity scan by rows added. What is due is then *presented*: at SessionStart, and in
+the per-spec status summary, so the moment a spec closes you can see that it just made the suite
+stale and decide — run it now, run it this evening, or leave it. Deferring is safe and explicit:
+nothing is cleared until the job actually runs, so the next session says so again.
+
+That is the whole design. The developer plans the expensive work around their day; the project
+refuses to forget. A check that costs a developer their afternoon is a check that gets skipped, and
+a check nobody is told about is a check that never happens — the due-state answers both without a
+timer.
+
+`scripts/install-nightly-maintenance.sh` still exists and still works (`--at HH:MM`, `--list`,
+`--remove`, zero Actions minutes) for a machine that genuinely wants an unattended pass — a server,
+or a desktop that stays awake. It is **opt-in and not the default**, and if you do wire it, use
+`--if-due` so a night with no work costs a second instead of a full pass.
 
 When a spec says "add a CI gate", the correct implementation is a local script, a Claude Code hook, or a step inside the existing deploy workflow's validation gate. Not a new workflow file. If a spec explicitly demands a new workflow, that is a register-rewrite conversation per `.claude/rules/spec-register.md`, not a silent `mkdir .github/workflows`.
 

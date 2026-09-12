@@ -71,6 +71,7 @@ open question         (unresolved design decision)
 | No version marker | `-- allium: 3` MUST be line 1 |
 | `enum { Val1, Val2 }` (comma-separated) | `enum Name { val1 \| val2 }` (pipe-separated, lowercase values) |
 | `type: draft \| active` in enum | Inline unions go on entity fields, not in standalone types |
+| `exposes: a, b` / `provides: a, b` | One clause per line: `exposes: a` then `exposes: b`. Measured against allium-cli 2026-09-02 — the comma list parses as a block item and is rejected |
 
 ### Allium v3 language syntax
 
@@ -185,7 +186,8 @@ surface OrderDashboard {
     facing viewer: Admin
     context order: Order where customer = viewer
     provides: CancelOrder(order) when order.status in {pending, confirmed}
-    exposes: order.status, order.tracking_number
+    exposes: order.status
+    exposes: order.tracking_number
 }
 
 deferred Order.fraud_check

@@ -50,6 +50,13 @@
 # idempotent resolve which writes nothing. Being wrong toward an extra no-op is
 # the cheap direction; the expensive direction is the one this spec is fixing.
 #
+# That breadth is why spec 007bl needed nothing here. It moved the scenario map's
+# rows into specs/scenarios/<slug>.md, and every such path already contains
+# "specs/", so writes to a feature file were matched from the day this gate was
+# written. Recorded because the alternative reading — that the split layout was
+# overlooked — would invite a narrowing "fix" that added specs/scenarios/ as its
+# own arm and made the gate longer without making it match one thing more.
+#
 # Git is matched by SUB-COMMAND, not by the bare word "git": a checkout or pull
 # can rewrite the register and every spec directory at once while naming no path,
 # but `git status` and `git log` are the two most frequent commands in this repo

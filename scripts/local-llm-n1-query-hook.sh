@@ -60,4 +60,4 @@ NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^
 [ -z "$NON_SENTINEL" ] && exit 0
 
 jq -nc --arg f "$FILE" --arg r "$REPORT" \
-  '{additionalContext: ("Local-LLM N+1 query detector on " + $f + ":\n" + $r + "\nN+1 looks fine in dev with 5 rows — kills production with 5000.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM N+1 query detector on " + $f + ":\n" + $r + "\nN+1 looks fine in dev with 5 rows — kills production with 5000.")}}'

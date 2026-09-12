@@ -59,4 +59,4 @@ REPORT=$(printf '%s' "$CONTENT" \
 echo "$REPORT" | grep -qE '^[[:space:]]*SAFE[[:space:]]*$' && exit 0
 
 jq -nc --arg f "$FILE" --arg r "$REPORT" \
-  '{additionalContext: ("Local-LLM migration safety review on " + $f + ":\n" + $r + "\nVerify before applying to production.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM migration safety review on " + $f + ":\n" + $r + "\nVerify before applying to production.")}}'

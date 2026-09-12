@@ -58,4 +58,4 @@ NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^
 [ -z "$NON_SENTINEL" ] && exit 0
 
 jq -nc --arg t "$FILE" --arg s "$SPEC_FILE" --arg r "$REPORT" \
-  '{additionalContext: ("Local-LLM task ↔ criteria traceability check (" + $t + " vs " + $s + "):\n" + $r + "\nClose gaps before /allium:elicit — orphan tasks become unspecified behavior, orphan criteria become untested promises.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM task ↔ criteria traceability check (" + $t + " vs " + $s + "):\n" + $r + "\nClose gaps before /allium:elicit — orphan tasks become unspecified behavior, orphan criteria become untested promises.")}}'

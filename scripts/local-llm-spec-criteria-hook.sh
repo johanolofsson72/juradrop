@@ -54,4 +54,4 @@ REPORT=$(printf '%s' "$CONTENT" \
 echo "$REPORT" | grep -qE '^[[:space:]]*TESTABLE[[:space:]]*$' && exit 0
 
 jq -nc --arg f "$FILE" --arg r "$REPORT" \
-  '{additionalContext: ("Local-LLM spec-criteria pre-check on " + $f + ":\n" + $r + "\nMake criteria concrete before running /allium:elicit — vague criteria produce vague specs.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM spec-criteria pre-check on " + $f + ":\n" + $r + "\nMake criteria concrete before running /allium:elicit — vague criteria produce vague specs.")}}'

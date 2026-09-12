@@ -59,4 +59,4 @@ RANKED=$(printf '%s' "$REPORT" \
 [ -n "$RANKED" ] || exit 0
 
 jq -nc --arg r "$RANKED" \
-  '{additionalContext: ("Local-LLM Allium drift severity ranking:\n" + $r + "\nUse the RELEASE_GATE line as input to your release decision.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM Allium drift severity ranking:\n" + $r + "\nUse the RELEASE_GATE line as input to your release decision.")}}'

@@ -58,7 +58,10 @@ Legitimate stops during the pipeline: (a) genuine ambiguity the spec/triage cann
 
 If this request is truly a trivial one-file fix (typo, format, single-line bug, single-variable rename), state that classification explicitly in your first sentence and skip the pipeline. Otherwise: start with /speckit-specify now (or the next register row).'
 
-  jq -n --arg msg "$MESSAGE" '{additionalContext: $msg}'
+  # SPEC 046 — nested, not top-level. Claude Code silently ignores a top-level
+  # additionalContext, so this reminder — enforcement layer 1 of
+  # .claude/rules/feature-pipeline.md — had never reached the model.
+  jq -n --arg msg "$MESSAGE" '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: $msg}}'
 fi
 
 exit 0

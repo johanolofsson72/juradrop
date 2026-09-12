@@ -34,7 +34,12 @@ You SHOULD stop and ask when (and only when):
 5. **End of a spec when a spec register exists** — when `specs/INDEX.md` is the authoritative plan, **one spec = one plan**. Finishing a spec (pipeline done, committed, pushed, register ticked) is case (3) at the spec boundary. Stop with the status summary defined in `.claude/rules/spec-register.md`. Do NOT chain into the next spec without explicit user instruction — the project-level register defines plan boundaries, the project as a whole does not.
 6. **Register-rewrite proposal** — if mid-spec you discover the register itself is wrong (next spec impossible, scope creep needs a new row, project goal shifted), stop with the rewrite proposal per `.claude/rules/spec-register.md`. This is the only mid-spec stop that is not (1), (2), or (4).
 
-If none of (1)-(6) apply: do not stop. Continue with the next phase, the next todo, the next file. Whatever is next in the plan, just do it.
+7. **Convergence stop** — the register is growing faster than it closes (carve ratio at or above
+   1.3 over a window of 10+ ticked rows, per `.claude/rules/carve-budget.md`). Finish the current
+   spec, then stop and put the three ways out to the developer. This is the same class as (6): the
+   thing that is wrong is the register, not the spec.
+
+If none of (1)-(7) apply: do not stop. Continue with the next phase, the next todo, the next file. Whatever is next in the plan, just do it.
 
 ## How to apply
 

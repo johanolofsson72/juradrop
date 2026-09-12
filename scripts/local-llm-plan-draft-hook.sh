@@ -84,4 +84,4 @@ DRAFT_PATH="$DRAFT_DIR/.local-llm-plan-draft.md"
 printf '%s\n' "$DRAFT" > "$DRAFT_PATH"
 
 jq -nc --arg p "$DRAFT_PATH" \
-  '{additionalContext: ("Local-LLM plan-draft saved at " + $p + ". When you run /plan for this spec, read and refine this draft instead of generating from scratch — verify approach, phase ordering, and file impacts against the actual codebase before writing the real plan.md.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM plan-draft saved at " + $p + ". When you run /plan for this spec, read and refine this draft instead of generating from scratch — verify approach, phase ordering, and file impacts against the actual codebase before writing the real plan.md.")}}'

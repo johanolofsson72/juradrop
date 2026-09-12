@@ -84,6 +84,7 @@ Read these files from the template repo at `$TEMPLATE` (resolved via the probe a
 - `feature-pipeline.md`
 - `spec-register.md`
 - `spec-hardening.md`
+- `carve-budget.md`
 - `project-workflow.md`
 - `sqlite.md`
 - `spot-resilience.md`
@@ -255,12 +256,26 @@ If you find a project's `settings.json` has the OLD spec-completeness prompt hoo
 
 Ensure the project's `.gitignore` covers these patterns. Add any that are missing:
 
-- `.claude/validation/`
+- `.claude/validation/` (Stop-hook timestamp)
 - `.claude/.local-llm-*` (draft artifact files written by hooks)
 - `.claude/local-llm-*.log` (per-project telemetry log)
 - `.claude/local-llm-*.log.errors` (telemetry write-error log)
 - `.claude/projects/` (per-user memory directory — never commit)
 - `.claude/settings.local.json` (per-machine settings)
+- `.claude/.template-sync-check` (auto-sync rate-limit marker — the manifest `.claude/.template-sync` IS tracked, this is not)
+- `.claude/state/` (repeat-failure guard's attempt counters, TTL-pruned)
+- `.claude/.bash-write-marker` (bash-write guard's timestamp, re-stamped on every Bash write)
+- `.claude/.bash-write-blocked` (bash-write guard's escape-hatch record — a second file on purpose, see `bash-write-detect-hook.sh:29`)
+- `.claude/.maintenance-state` (maintenance due-state — when each recurring job last ran ON THIS MACHINE; per-machine for the same reason a crontab entry is)
+
+This list is not advisory and it is not maintained by hand alone: `scripts/test-runtime-markers-ignored.sh`
+fails when a machine-local `.claude/` path the scripts write is missing from it, or from the project's
+`.gitignore`. A marker written by a hook **the template does not ship** does not belong in the list
+above — that test is CORE, so a project's line in it is eaten by the next sync, and a line here for a
+path only one project writes turns the gate red in every other project that carries it. Classify those
+in the project-owned `.claude/.runtime-markers` instead (`[machine-local]` / `[tracked-by-design]`
+sections, `path%reason` lines); the test reads it and section 3a is deliberately not asked to seed it. Four of the ten entries above were added by spec 007bq after two of them had been missing
+long enough for the marker to churn in five repositories — including the template's own.
 
 ### 3b. Freshness pass (ALWAYS RUNS — regardless of sync mode)
 

@@ -1,14 +1,30 @@
 #!/bin/bash
 # PostToolUse hook: deterministic enforcement of functional test coverage
-# Fires on Edit|Write of test files. Blocks if inventory is missing or tests < inventory items.
+# Fires on Edit|Write of test files. Reminds when the inventory is missing or tests < inventory items.
 #
 # Supports: C# (.cs), TypeScript/JavaScript (.ts, .tsx, .js, .jsx), Dart (.dart)
 # Covers web (Playwright), React Native (RNTL/Maestro), and Flutter (widget/Patrol) UI tests.
 # Inventory format: comment block with "FUNCTIONAL COVERAGE INVENTORY" header
 # and numbered items like "// 1. Feature name — description"
+#
+# CHANNEL (spec 046): this is a PostToolUse hook. PostToolUse runs AFTER the
+# write, so it cannot block anything and never could — the three messages below
+# opened with the word "BLOCKED" while exiting 0 and letting the edit stand.
+# A gate that announces a block it did not perform teaches the reader that the
+# word means nothing, which is the one thing a real block needs it to mean.
+# They are reminders, they say so, and they reach the model as additionalContext
+# instead of being printed at the developer as a red warning per line.
+#
+# ONCE PER FILE PER CONDITION PER SESSION: a test file is written in passes.
+# Saying the same thing on each of them is how it stops being read.
+set -u
+
+HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+. "$HOOK_DIR/hook-notice.sh"
 
 INPUT=$(cat)
 FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+SID=$(hn_session_id "$INPUT")
 
 # Exit silently if no file path
 [ -z "$FILE" ] && exit 0
@@ -39,7 +55,16 @@ IS_UI_TEST=$(echo "$CONTENT" | grep -ciE '(playwright|browser|\.page\.|page\.|lo
 HAS_INVENTORY=$(echo "$CONTENT" | grep -c 'FUNCTIONAL COVERAGE INVENTORY' 2>/dev/null)
 
 if [ "$HAS_INVENTORY" -eq 0 ] 2>/dev/null; then
-  echo '{"systemMessage": "BLOCKED: This UI test file has no FUNCTIONAL COVERAGE INVENTORY. Before writing tests, add a comment block listing EVERY user-facing function that was implemented. Format:\n\n// ===== FUNCTIONAL COVERAGE INVENTORY =====\n// 1. Feature name — description\n// 2. Feature name — description\n// ...\n// =============================================\n\nThen write at least one test per inventory item. Read .claude/docs/testing.md for details."}'
+  notice_once PostToolUse "$SID" "coverage:no-inventory:$FILE" \
+"This UI test file has no FUNCTIONAL COVERAGE INVENTORY. Before writing tests, add a comment block listing EVERY user-facing function that was implemented. Format:
+
+// ===== FUNCTIONAL COVERAGE INVENTORY =====
+// 1. Feature name — description
+// 2. Feature name — description
+// ...
+// =============================================
+
+Then write at least one test per inventory item. Read .claude/docs/testing.md for details."
   exit 0
 fi
 
@@ -51,7 +76,11 @@ INVENTORY_COUNT=$(echo "$CONTENT" | grep -cE '^\s*(//|#)\s*[0-9]+[\.\):\-]' 2>/d
 
 # If inventory exists but has 0 items, it's just the header with no items yet
 if [ "$INVENTORY_COUNT" -eq 0 ] 2>/dev/null; then
-  echo '{"systemMessage": "BLOCKED: FUNCTIONAL COVERAGE INVENTORY header exists but contains no numbered items. Add numbered items like:\n// 1. Search — user can search by keyword\n// 2. Filter — dropdown filters results\nList EVERY function, then write a test for each one."}'
+  notice_once PostToolUse "$SID" "coverage:empty-inventory:$FILE" \
+"The FUNCTIONAL COVERAGE INVENTORY header exists but contains no numbered items. Add numbered items like:
+// 1. Search — user can search by keyword
+// 2. Filter — dropdown filters results
+List EVERY function, then write a test for each one."
   exit 0
 fi
 
@@ -82,7 +111,8 @@ esac
 # --- Compare ---
 if [ "$TEST_COUNT" -lt "$INVENTORY_COUNT" ] 2>/dev/null; then
   MISSING=$((INVENTORY_COUNT - TEST_COUNT))
-  echo "{\"systemMessage\": \"BLOCKED: Functional coverage gap detected. Inventory lists $INVENTORY_COUNT functions but only $TEST_COUNT test methods found. $MISSING functions have NO test coverage. Write at least one test per inventory item before proceeding. Do NOT skip functions — testing ${TEST_COUNT}/${INVENTORY_COUNT} is not acceptable.\"}"
+  notice_once PostToolUse "$SID" "coverage:gap:$FILE:$INVENTORY_COUNT:$TEST_COUNT" \
+"Functional coverage gap: the inventory lists $INVENTORY_COUNT functions and this file has $TEST_COUNT test methods, so $MISSING have no test. Write at least one test per inventory item before calling the feature done — ${TEST_COUNT}/${INVENTORY_COUNT} is not coverage."
   exit 0
 fi
 

@@ -58,4 +58,4 @@ NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^
 [ -z "$NON_SENTINEL" ] && exit 0
 
 jq -nc --arg f "$FILE" --arg n "$TODO_COUNT" --arg r "$REPORT" \
-  '{additionalContext: ("Local-LLM TODO catalog (" + $n + " markers in " + $f + "):\n" + $r)}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM TODO catalog (" + $n + " markers in " + $f + "):\n" + $r)}}'

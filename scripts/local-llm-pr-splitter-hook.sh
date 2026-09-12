@@ -70,9 +70,9 @@ SPLITS=$(printf '%s' "$PAYLOAD" \
 [ -n "$SPLITS" ] || exit 0
 echo "$SPLITS" | grep -qE '^[[:space:]]*COHESIVE' && {
   jq -nc --arg n "$TOTAL" \
-    '{additionalContext: ("Local-LLM PR splitter: " + $n + "-line PR is large but llama3 deemed it cohesive — write a thorough description and consider whether reviewers can reasonably handle this in one read.")}'
+    '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM PR splitter: " + $n + "-line PR is large but llama3 deemed it cohesive — write a thorough description and consider whether reviewers can reasonably handle this in one read.")}}'
   exit 0
 }
 
 jq -nc --arg n "$TOTAL" --arg b "$BRANCH" --arg s "$SPLITS" \
-  '{additionalContext: ("Local-LLM PR splitter on " + $b + " (" + $n + " lines):\n" + $s + "\nConsider splitting before opening as a single PR — small reviewable PRs > one giant PR.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM PR splitter on " + $b + " (" + $n + " lines):\n" + $s + "\nConsider splitting before opening as a single PR — small reviewable PRs > one giant PR.")}}'

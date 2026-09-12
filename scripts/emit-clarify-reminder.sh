@@ -14,4 +14,8 @@ SPECKIT CLARIFY — AUTO-PICK MODE. The user has standing instructions to always
 If any clarification was deferred to the user via the fallback, mark it with reason "no recommended answer — asked user" and include the user's answer.
 EOM
 
-jq -n --arg msg "$MSG" '{additionalContext: $msg}'
+# SPEC 046 — the nesting is load-bearing. A TOP-LEVEL additionalContext is
+# silently ignored ("Did you mean hookSpecificOutput.additionalContext (with a
+# hookEventName)?"), which is what this hook emitted from the day it was
+# written: the reminder reached nobody, and nothing said so.
+jq -n --arg msg "$MSG" '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: $msg}}'

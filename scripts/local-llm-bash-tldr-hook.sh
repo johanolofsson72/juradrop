@@ -43,4 +43,4 @@ SUMMARY=$(printf '%s' "$PAYLOAD" \
 [ -n "$SUMMARY" ] || exit 0
 
 jq -nc --arg s "$SUMMARY" --arg n "$LEN" \
-  '{additionalContext: ("Local-LLM TLDR of " + $n + "-char Bash output:\n" + $s)}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM TLDR of " + $n + "-char Bash output:\n" + $s)}}'

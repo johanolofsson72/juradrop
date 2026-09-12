@@ -49,4 +49,4 @@ NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^
 [ -z "$NON_SENTINEL" ] && exit 0
 
 jq -nc --arg f "$FILE" --arg r "$REPORT" \
-  '{additionalContext: ("Local-LLM test assertion check on " + $f + ":\n" + $r + "\nA test without an assertion is a coverage placebo — it runs but proves nothing.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM test assertion check on " + $f + ":\n" + $r + "\nA test without an assertion is a coverage placebo — it runs but proves nothing.")}}'

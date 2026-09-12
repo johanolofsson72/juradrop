@@ -28,7 +28,7 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT="$(dirname "
 # top-level layout, license file presence.
 SIGNALS=""
 if [ -f "$REPO_ROOT/package.json" ]; then
-  SIGNALS="$SIGNALS\npackage.json: $(jq -r '{name, description, scripts: (.scripts // {} | keys)}' "$REPO_ROOT/package.json" 2>/dev/null | head -c 1500)"
+  SIGNALS="$SIGNALS\npackage.json: $(jq -r '{name, description, scripts: (.scripts // {} | keys)}}' "$REPO_ROOT/package.json" 2>/dev/null | head -c 1500)"
 fi
 CSPROJ=$(find "$REPO_ROOT" -maxdepth 3 -name '*.csproj' 2>/dev/null | head -3)
 [ -n "$CSPROJ" ] && SIGNALS="$SIGNALS\ncsproj: $CSPROJ"
@@ -87,4 +87,4 @@ mkdir -p "$DRAFT_DIR"
 printf '%s\n' "$DRAFT" > "$DRAFT_PATH"
 
 jq -nc --arg p "$DRAFT_PATH" \
-  '{additionalContext: ("Local-LLM README skeleton saved at " + $p + ". Read and refine this draft when filling out README.md — verify every command and feature claim against the actual codebase before adopting.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM README skeleton saved at " + $p + ". Read and refine this draft when filling out README.md — verify every command and feature claim against the actual codebase before adopting.")}}'

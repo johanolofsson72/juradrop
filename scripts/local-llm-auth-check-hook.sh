@@ -52,4 +52,4 @@ NON_SENTINEL=$(printf '%s\n' "$REPORT" | grep -vE '^[[:space:]]*$' | grep -vE '^
 [ -z "$NON_SENTINEL" ] && exit 0
 
 jq -nc --arg f "$FILE" --arg r "$REPORT" \
-  '{additionalContext: ("Local-LLM auth-attribute audit on " + $f + ":\n" + $r + "\nSilent inheritance is risky — be explicit per endpoint.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM auth-attribute audit on " + $f + ":\n" + $r + "\nSilent inheritance is risky — be explicit per endpoint.")}}'

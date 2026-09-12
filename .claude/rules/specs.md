@@ -32,7 +32,7 @@ The **spec interview** (`.claude/rules/spec-interview.md`) runs on every track i
 After triage, follow the matching track:
 
 ### Phase A: Write the spec (all tracks)
-1. **Update the scenario map** — add this feature's actors and scenarios (happy / edge / adversarial / error / offline) to `specs/SCENARIOS.md`. If the map is missing or this behaviour isn't in it, run the scenario interview per `.claude/rules/scenarios.md` BEFORE writing the spec — a missed user-case here becomes a hole in the code later. The map is the source the inventory and destructive suite derive from.
+1. **Update the scenario map** — add this feature's actors and scenarios (happy / edge / adversarial / error / offline) to the map: this feature's `specs/scenarios/<slug>.md` plus its index row under the split layout, or `specs/SCENARIOS.md` under the single-file one. If the map is missing or this behaviour isn't in it, run the scenario interview per `.claude/rules/scenarios.md` BEFORE writing the spec — a missed user-case here becomes a hole in the code later. The map is the source the inventory and destructive suite derive from.
 2. **Run the spec interview (every track)** — immediately after `/speckit-specify`, conduct the 15–25 question anti-drift interview per `.claude/rules/spec-interview.md` and record it in `<spec-dir>/interview.md`. By default (AUTO mode) auto-answer the base with the recommended option (tagged `**A (auto):**`), escalate only genuinely-ambiguous questions to the developer via `AskUserQuestion`, and ask the developer the overflow questions when the spec is large/advanced. Source-code edits stay hard-blocked until ≥15 questions are answered. This is distinct from the scenario interview (which maps user-cases) and from `/speckit-clarify` (which auto-picks) — it pins down scope, data model, edge/error/empty/loading states, authorization, integration points, and non-goals for THIS spec.
 3. **Read `.claude/docs/testing.md`** — test layers (unit + integration + E2E always), risk-tiered destructive sizing, PBT, VRT, and the mutation-kill gate.
 4. **Read `.claude/docs/spec-testing-checklist.md`** — attack categories checklist.
@@ -84,7 +84,7 @@ When browser tests apply, include TWO phases:
 
 Before a spec/task file is considered complete, verify:
 
-- [ ] Are this spec's scenarios in `specs/SCENARIOS.md` (happy / edge / adversarial / error), with SC-ids the spec references?
+- [ ] Are this spec's scenarios in the map — `specs/scenarios/<slug>.md` + its index row, or `specs/SCENARIOS.md` on a single-file project — (happy / edge / adversarial / error), with SC-ids the spec references?
 - [ ] Is there a "Functional Coverage Tests" phase listing ALL implemented functions?
 - [ ] Does every function in the inventory have at least one browser test?
 - [ ] Are there **unit AND integration tests** for the behaviour (not just E2E)? Integration is the layer AI code most often fails.

@@ -161,6 +161,8 @@ want() { [ -z "$FILTER" ] || [ "$FILTER" = "$1" ]; }
 # 007z; the pre-fix guards skip 007z entirely, land on 008, find 008's homework
 # in order, and allow the edit.
 if want failopen; then
+  # SC-1432 (first half) — a letter-led id on a full / spec-only track: the guards must demand
+  # THAT row's artifacts rather than fail open onto a later numeric row.
   echo "FIXTURE failopen — active letter-suffixed spec has zero artifacts; a later numeric spec is complete"
   ROOT=$(make_fixture failopen '# Spec register
 
@@ -188,6 +190,8 @@ fi
 # the one thing the numeric-only regex got right, and the fix must not lose it
 # while teaching the parser about letter suffixes.
 if want checkpoint; then
+  # SC-1431 — a `— checkpoint —` track row is active; all three guards allow, because a
+  # checkpoint owes no pipeline artifacts.
   echo "FIXTURE checkpoint — an H-row is a checkpoint, not a spec, and needs no artifacts"
   ROOT=$(make_fixture checkpoint '# Spec register
 
@@ -238,6 +242,8 @@ fi
 # be allowed — otherwise the fix would simply block everything and the failopen
 # fixture would pass for the wrong reason.
 if want satisfied; then
+  # SC-1432 (second half) — the same id shape, artifacts present: allowed. Both arms are needed,
+  # or "demands that row's artifacts" is indistinguishable from "denies letter-led rows".
   echo "FIXTURE satisfied — a letter-suffixed spec with complete artifacts is allowed"
   ROOT=$(make_fixture satisfied '# Spec register
 
@@ -258,6 +264,90 @@ if want satisfied; then
     check "state-guard"     "$S" allow
     check "interview-guard" "$I" allow
   fi
+fi
+
+# ------------------------------------------------------------- ORPHANEDLANE
+# A lane is set, no row carries its tag, and SEVERAL unowned rows are "[/]".
+#
+# This is the state the rocky register was in on 2026-08-30, and it is not exotic:
+# the convention leaves the lane tag on the row last worked, that row eventually
+# gets ticked, and from then until the next row is claimed NO row carries the tag.
+# With more than one unowned "[/]" row the old bucket order then picked whichever
+# sat highest in the file — the OLDEST parked row — and both PreToolUse guards
+# checked ITS artifacts and ITS interview while the developer worked something
+# else entirely. On rocky that was spec 502, parked since August, for every gate.
+#
+# The fix is deliberately narrow: an ambiguous unowned "[/]" loses to the next
+# unowned "[ ]", and only when a lane is set. ONE unowned "[/]" still wins — that
+# is a row somebody is visibly on, and the SINGLELANE fixture below is what stops
+# this from quietly becoming "always prefer [ ]".
+if want orphanedlane; then
+  echo "FIXTURE orphanedlane — lane set, tag on no row, several unowned [/] rows"
+  ROOT=$(make_fixture orphanedlane '# Spec register
+
+## Specs
+
+- [x] 500 — old — full track — done — @sam
+- [/] 502 — parked-since-august — full track — code-complete, awaiting live validation
+- [/] 508 — also-parked — full track — code-complete, awaiting live validation
+- [ ] 547 — the-actual-next-row — light track — what the developer is on')
+  seed_complete_spec "$ROOT/specs/547-the-actual-next-row"
+  S=$(SPEC_OWNER=sam run_guard "$GUARD_STATE" "$ROOT")
+  I=$(SPEC_OWNER=sam run_guard "$GUARD_INTERVIEW" "$ROOT")
+  if [ "$EXPECT_PREFIX" -eq 1 ]; then
+    # Pre-fix: resolves to 502, whose directory does not exist, so both guards
+    # deny while NAMING THE WRONG SPEC. Recorded so the failing arm is honest.
+    echo "  (pre-fix arm: expect DENY naming 502 — the parked row, not the one being worked)"
+    check "state-guard"     "$S" deny "502"
+    check "interview-guard" "$I" deny "502"
+  else
+    check "state-guard"     "$S" allow
+    check "interview-guard" "$I" allow
+  fi
+fi
+
+# --------------------------------------------------------------- SINGLELANE
+# The negative control for ORPHANEDLANE, and the reason its fix is guarded on
+# `lane`. Same register, no SPEC_OWNER: the first "[/]" row must still win, so a
+# single-lane project cannot be moved by one row by a change made for lanes.
+if want singlelane; then
+  echo "FIXTURE singlelane — no lane set: the first [/] row still wins, unchanged"
+  ROOT=$(make_fixture singlelane '# Spec register
+
+## Specs
+
+- [/] 502 — parked-since-august — full track — code-complete
+- [/] 508 — also-parked — full track — code-complete
+- [ ] 547 — later — light track — later')
+  seed_complete_spec "$ROOT/specs/547-later"
+  # A subshell, not `env -u`: run_guard is a shell function and env can only
+  # unset for a PROGRAM. The first attempt printed "env: run_guard: No such file
+  # or directory" and both checks compared against an empty string.
+  S=$(unset SPEC_OWNER; run_guard "$GUARD_STATE" "$ROOT")
+  I=$(unset SPEC_OWNER; run_guard "$GUARD_INTERVIEW" "$ROOT")
+  # 502 has no directory, so both guards deny NAMING 502. That is the pre-existing
+  # behaviour and the whole point of this fixture: it must not become an allow.
+  check "state-guard"     "$S" deny "502"
+  check "interview-guard" "$I" deny "502"
+fi
+
+# ---------------------------------------------------------- ONEUNOWNEDACTIVE
+# The other half of "narrow". A lane is set and there is exactly ONE unowned
+# "[/]" row: it must still win over the next "[ ]", because that is a row
+# somebody is visibly on and the bucket order exists to respect it.
+if want oneunownedactive; then
+  echo "FIXTURE oneunownedactive — lane set, exactly one unowned [/]: it still wins"
+  ROOT=$(make_fixture oneunownedactive '# Spec register
+
+## Specs
+
+- [/] 502 — the-one-in-progress-row — full track — somebody is on this
+- [ ] 547 — later — light track — later')
+  seed_complete_spec "$ROOT/specs/547-later"
+  S=$(SPEC_OWNER=sam run_guard "$GUARD_STATE" "$ROOT")
+  I=$(SPEC_OWNER=sam run_guard "$GUARD_INTERVIEW" "$ROOT")
+  check "state-guard"     "$S" deny "502"
+  check "interview-guard" "$I" deny "502"
 fi
 
 # ---------------------------------------------------------------- MISSINGDIR
@@ -293,6 +383,9 @@ fi
 # root block work for opposite reasons; .claude/rules/spec-register.md requires
 # them to agree.
 echo
+# SC-1435 — register at the repo root with the language marker in a subdirectory: spec-register-guard
+# ALLOWS. SC-1436 — a code project with genuinely no register: it denies, naming the REPO-ROOT path
+# rather than the language marker's. The two arms below are those two scenarios.
 echo "FIXTURE nested-marker — register at the repo root, .csproj in a subdirectory"
 NESTED="$WORK/nested"
 mkdir -p "$NESTED/.git" "$NESTED/src/App" "$NESTED/specs"
@@ -332,6 +425,38 @@ case "$NESTED_DENY" in
     printf '  ✓ register-guard — deny points at the repo root, not the csproj subdir\n' ;;
 esac
 mv "$NESTED/specs/INDEX.off" "$NESTED/specs/INDEX.md"
+
+# --- a standing pointer row is never the active spec ----------------------
+# .claude/rules/carve-budget.md gives every product register one
+# "T0 — harness-defects — standing" row pointing at the template's register. It
+# is not a spec and owes no artifacts. Added 2026-09-03 WITHOUT excluding it
+# here, and on the two projects whose other rows were all ticked the SessionStart
+# banner immediately began announcing "next: T0 — harness-defects" as the spec to
+# build. A pointer offered as work is worse than no pointer.
+STAND=$(mktemp -d); mkdir -p "$STAND/specs"
+{ echo "# Spec register"; echo; echo "## Specs"; echo
+  echo "- [x] 001 — done — spec-only — a finished row"
+  echo "- [ ] T0 — harness-defects — standing — points at the template register"
+} > "$STAND/specs/INDEX.md"
+STAND_OUT=$(cd "$STAND" && python3 "$GUARD_DIR/spec_active.py" 2>/dev/null)
+CHECKS=$((CHECKS + 1))
+case "$STAND_OUT" in
+  *'"id": "T0"'*|*'"id":"T0"'*)
+    FAILURES=$((FAILURES + 1)); printf '  ✗ a standing row is offered as the active spec\n' ;;
+  *) printf '  ✓ a standing row is never the active spec\n' ;;
+esac
+# Control: with a real open row present, that row must still resolve.
+{ echo "# Spec register"; echo; echo "## Specs"; echo
+  echo "- [x] 001 — done — spec-only — a finished row"
+  echo "- [ ] T0 — harness-defects — standing — points at the template register"
+  echo "- [ ] 002 — real — spec-only — actual work"
+} > "$STAND/specs/INDEX.md"
+STAND_OUT2=$(cd "$STAND" && python3 "$GUARD_DIR/spec_active.py" 2>/dev/null)
+CHECKS=$((CHECKS + 1))
+case "$STAND_OUT2" in
+  *'"id": "002"'*|*'"id":"002"'*) printf '  ✓ control: a real open row still resolves past the standing one\n' ;;
+  *) FAILURES=$((FAILURES + 1)); printf '  ✗ control: the real row did not resolve\n' ;;
+esac
 
 echo
 if [ "$FAILURES" -eq 0 ]; then

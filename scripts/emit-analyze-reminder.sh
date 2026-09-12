@@ -23,4 +23,8 @@ At the end of remediation, emit one short audit block (in addition to the analys
 Then start /speckit.implement.
 EOM
 
-jq -n --arg msg "$MSG" '{additionalContext: $msg}'
+# SPEC 046 — the nesting is load-bearing. A TOP-LEVEL additionalContext is
+# silently ignored ("Did you mean hookSpecificOutput.additionalContext (with a
+# hookEventName)?"), which is what this hook emitted from the day it was
+# written: the reminder reached nobody, and nothing said so.
+jq -n --arg msg "$MSG" '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: $msg}}'

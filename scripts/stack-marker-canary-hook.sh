@@ -78,7 +78,9 @@ If the marker is right and this detection is wrong, say so and leave it: the mar
 fi
 
 if command -v jq >/dev/null 2>&1; then
-  jq -n --arg m "$MSG" '{systemMessage: $m}'
+  # SPEC 046 — orientation is addressed to Claude, not to the developer.
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+notice_model SessionStart "$MSG"
 else
   printf '%s\n' "$MSG" >&2
 fi

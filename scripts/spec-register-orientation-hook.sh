@@ -1,10 +1,9 @@
 #!/bin/bash
 # SessionStart hook: orients to specs/INDEX.md.
 #
-# Case 1: register exists → emit a status systemMessage with counts and the
-#         next unchecked spec. Tells Claude exactly which row is on deck.
-# Case 2: register missing AND project has language markers → emit a bootstrap
-#         reminder systemMessage.
+# Case 1: register exists → tell Claude the counts and the next unchecked spec,
+#         so it knows which row is on deck.
+# Case 2: register missing AND project has language markers → bootstrap reminder.
 # Case 3: register missing AND no language markers (template/scratch) → silent.
 #
 # Walk semantics match scripts/spec-register-guard-hook.sh: walk up from $PWD
@@ -23,6 +22,13 @@ set -u
 # feature.json naming the PREVIOUS spec. That last one is the defect 007m exists
 # to prevent, re-entering through the lookup path rather than the parser.
 _ORIENT_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+
+# SPEC 046 — this brief is written FOR Claude: which row is next, what is due,
+# what the run log said last time. It went out as `systemMessage`, which the CLI
+# defines as "Warning shown to user in UI", and the UI renders one notification
+# per line — so a 26-line orientation became 26 red warnings at every /clear.
+# additionalContext puts it where it was always addressed.
+. "$_ORIENT_SCRIPT_DIR/hook-notice.sh"
 
 DIR="$PWD"
 FOUND_REG=""
@@ -90,6 +96,16 @@ if [ -n "$FOUND_REG" ]; then
       /^- \[[ \/]\]/ {
         inprog = ($0 ~ /^- \[\/\]/)
         if (only_prog != "" && !inprog) next
+        # A STANDING row is a pointer, not work — the same reason "- [!]" is
+        # excluded above. .claude/rules/carve-budget.md gives every register one
+        # "T0 — harness-defects — standing" row pointing at the template register;
+        # it owes no artifacts and is never carved from. Without this, the two
+        # projects whose other rows were all ticked greeted every session with
+        # "next: T0 — harness-defects" as the spec to build.
+        #
+        # Both spellings, because agentcrm, consultpilot and msroute write their
+        # registers in Swedish.
+        if ($0 ~ /—[[:space:]]*(standing|st\303\245ende)[[:space:]]*—/) next
         owner = ""
         if (match($0, /—[[:space:]]*@[A-Za-z0-9._-]+[[:space:]]*$/)) {
           owner = substr($0, RSTART, RLENGTH)
@@ -154,11 +170,31 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
 
   # Big-spec context hygiene: full-track / hardened / checkpoint rows want a
   # fresh session. A hook cannot run /clear (it is a harness built-in), so we
-  # print a loud reminder per .claude/rules/spec-hardening.md. Case-insensitive
-  # match on the next row's text.
+  # print a loud reminder per .claude/rules/spec-hardening.md.
+  #
+  # MATCHED ON THE TRACK FIELD, NOT THE ROW'S TEXT (SC-1444). This used to lower-case
+  # the WHOLE row and glob it, so the word "checkpoint" anywhere — in a slug, in the
+  # one-line goal — did two wrong things at once: it fired this banner on a row that is
+  # not full-track, and it silenced the every-5 integration-checkpoint alarm below,
+  # whose `case` reads the same variable. A downstream project's own slug contained the
+  # word, which is how it was found; the fix has now been lost to a sync TWICE, which is
+  # why it lives upstream rather than only in the project that needed it.
+  #
+  # A slug must not be able to switch off a gate. The register row format is
+  # `id — slug — track — goal`, so field 3 is the track and is the only field either
+  # decision may read.
   NEXT_LC=$(printf '%s' "$NEXT_LINE" | tr '[:upper:]' '[:lower:]')
+
+  # Field 3, em-dash separated. When the row does not parse into >= 3 fields the
+  # fallback is the WHOLE line — deliberately the old behaviour, because the two
+  # decisions downstream fail in opposite directions and both are safe that way: an
+  # unnecessary /clear reminder costs a sentence, and a checkpoint-due alarm that fires
+  # when it need not is noise, while missing either is the hygiene loss the banner and
+  # the cadence exist to prevent. Failing toward the reminder, never away from it.
+  NEXT_TRACK=$(printf '%s' "$NEXT_LC" | awk -F' — ' 'NF >= 3 { print $3; found = 1 } END { if (!found) print "" }')
+  [ -z "$NEXT_TRACK" ] && NEXT_TRACK="$NEXT_LC"
   CLEAR_BANNER=""
-  case "$NEXT_LC" in
+  case "$NEXT_TRACK" in
     *hardened*|*checkpoint*|*"full track"*|*"full-track"*)
       CLEAR_BANNER="
 ▶ START THIS SPEC IN A FRESH SESSION — run /clear now.
@@ -168,11 +204,23 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
       ;;
   esac
 
+  # What this project OWES, and what made it owe it. The checkpoint cadence below has worked this
+  # way since spec-hardening.md was written -- DONE % 5 -- and it was the only recurring job with a
+  # due state. maintenance-due.sh generalises it to the other four, so a stale mutation gate or an
+  # unrun suite is surfaced here rather than depending on a nightly cron firing on a sleeping
+  # laptop. Delegated, never recomputed: three readers, one engine.
+  MAINT_DUE=""
+  if [ -x "${_ORIENT_SCRIPT_DIR}/maintenance-due.sh" ] || [ -f "${_ORIENT_SCRIPT_DIR}/maintenance-due.sh" ]; then
+    MAINT_DUE=$(cd "$PROJECT_ROOT" 2>/dev/null && bash "${_ORIENT_SCRIPT_DIR}/maintenance-due.sh" --brief 2>/dev/null)
+    [ -n "$MAINT_DUE" ] && MAINT_DUE="
+$MAINT_DUE"
+  fi
+
   # Cross-spec integration-hardening checkpoint cadence (every 5 completed specs).
   # If DONE is a nonzero multiple of 5 and the next row is NOT already a checkpoint,
   # flag that a checkpoint row is due before the next feature spec.
   CHECKPOINT_DUE=""
-  case "$NEXT_LC" in
+  case "$NEXT_TRACK" in
     *checkpoint*) : ;;  # already on a checkpoint row — nothing to flag
     *)
       if [ "$DONE" -gt 0 ] && [ $((DONE % 5)) -eq 0 ]; then
@@ -201,13 +249,38 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
   if [ "$SCEN_BYTES" -gt "$WARN_THRESH" ]; then
     [ -n "$BLOATED" ] && BLOATED="$BLOATED, SCENARIOS.md ($((SCEN_BYTES/1024)) KB)" || BLOATED="SCENARIOS.md ($((SCEN_BYTES/1024)) KB)"
   fi
+
+  # Spec 007bl: on a project whose map outgrew one file, SCENARIOS.md keeps only the use-case
+  # diagram and a per-feature index, and the rows live in specs/scenarios/<slug>.md. Measuring
+  # the index alone there reports a healthy 9 KB while the file a spec actually opens is its
+  # feature file — the canary would go blind at exactly the moment it started mattering, which
+  # is how the map reached 85 KB in the first place: no single edit ever looked large.
+  #
+  # Each feature file is measured SEPARATELY and never summed. Nothing reads all of them in one
+  # spec, so a sum would fire permanently on a map behaving exactly as designed — recreating the
+  # un-actionable warning 007bl exists to remove. Every file over the threshold is named, not
+  # just the largest: "your biggest file is too big" sends the reader back for the next one.
+  if [ -d "${PROJECT_ROOT}/specs/scenarios" ]; then
+    for _scen in "${PROJECT_ROOT}"/specs/scenarios/*.md; do
+      [ -f "$_scen" ] || continue
+      _sb=$(wc -c < "$_scen" 2>/dev/null | tr -d ' ') || _sb=0
+      _sb=${_sb:-0}
+      if [ "$_sb" -gt "$WARN_THRESH" ]; then
+        _sn="scenarios/$(basename "$_scen") ($((_sb/1024)) KB)"
+        [ -n "$BLOATED" ] && BLOATED="$BLOATED, $_sn" || BLOATED="$_sn"
+      fi
+    done
+  fi
   if [ -n "$BLOATED" ]; then
     SIZE_WARN="
 ⚠ CONTEXT-COST CANARY — large per-spec files: ${BLOATED}.
   These are read every spec. Trim before continuing: run
-  scripts/archive-spec-history.sh (moves old history to *.history.md), and read
-  these files TARGETED (only the next row / the current feature's SC rows), never
-  whole. See 'Keep the register lean' / 'Keep the map lean' in .claude/rules/."
+  scripts/archive-completed-rows.sh (INDEX.md — archives completed rows to
+  *.completed.md and reports rows over the 300-byte budget; the ROWS are where
+  the bytes are, measured 91.4% in spec 007ce) or scripts/archive-spec-history.sh
+  (moves old history to *.history.md), and read these files TARGETED (only the
+  next row / the current feature's SC rows), never whole. See 'Keep the register
+  lean' / 'Keep the map lean' in .claude/rules/."
   fi
 
   # Failure memory for a resumed spec: when a row is mid-flight ("- [/]"), show
@@ -271,19 +344,45 @@ ${TAIL_LINES}"
   not-actually-started ones to \`- [ ]\`, and leave exactly one \`- [/]\`."
   fi
 
-  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}"
+  # Is the register closing faster than it grows? (.claude/rules/carve-budget.md)
+  # This is the only banner that describes the project's direction rather than its
+  # state, and it belongs at SessionStart because the decision it informs -- carve
+  # another row, or fold the findings -- is made at the start of a spec, not after.
+  # The check is lazy: a handful of `git show` calls, ~1-2 s on a 359 KB register.
+  CONVERGE_WARN=""
+  if [ -x "$PROJECT_ROOT/scripts/register-convergence.sh" ]; then
+    # Capture the exit code from the SCRIPT, not from the `head` that trims it --
+    # piping first makes $? the trimmer's, which is always 0, and the banner then
+    # never fires however badly the register diverges.
+    CONV_RAW=$(cd "$PROJECT_ROOT" && bash scripts/register-convergence.sh --quiet 2>/dev/null)
+    CONV_RC=$?
+    CONV_LINE=$(printf '%s\n' "$CONV_RAW" | head -1)
+    if [ "$CONV_RC" = "2" ] && [ -n "$CONV_LINE" ]; then
+      CONVERGE_WARN="
+⚠ ${CONV_LINE}
+  Per .claude/rules/carve-budget.md this is a CONVERGENCE STOP. Work the current row,
+  then stop and put the three ways out to the developer (freeze carving · batch the open
+  spec-only rows into one · cut what no longer matters). Do not carve further rows in the
+  meantime: a finding gets fixed in place, or declined in the run log with a reason."
+    elif [ "$CONV_RC" = "1" ] && [ -n "$CONV_LINE" ]; then
+      CONVERGE_WARN="
+· ${CONV_LINE}"
+    fi
+  fi
+
+  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}${MAINT_DUE}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
     MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
-    jq -n --arg m "$MSG" '{systemMessage: $m}'
+    notice_model SessionStart "$MSG"
     exit 0
   fi
 
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
+Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit and push to the working branch directly (that rule and .claude/rules/project-workflow.md are solo/direct-push — no feature branch, no PR, no merge step, unless this project's own workflow memory says otherwise), tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
-  jq -n --arg m "$MSG" '{systemMessage: $m}'
+  notice_model SessionStart "$MSG"
   exit 0
 fi
 
@@ -297,7 +396,7 @@ Bootstrap:
   3. Write specs/INDEX.md with the register + a dated Register history entry.
   4. git commit + git push origin main.
   5. Then start spec 001 with /specify."
-  jq -n --arg m "$MSG" '{systemMessage: $m}'
+  notice_model SessionStart "$MSG"
   exit 0
 fi
 

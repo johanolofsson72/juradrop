@@ -9,7 +9,13 @@
 # artifact rather than free-form documentation.
 set -u
 
-FILE=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+# SPEC 046 — addressed to Claude ("run /allium:elicit on this spec"), so it goes
+# on Claude's channel and once per spec file per session.
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
+
+INPUT=$(cat)
+FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+SID=$(hn_session_id "$INPUT")
 [ -z "$FILE" ] && exit 0
 
 # Match only canonical speckit layouts:
@@ -24,5 +30,6 @@ DIR=$(dirname "$FILE")
 ALLIUM_COUNT=$(find "$DIR" -maxdepth 1 -name "*.allium" 2>/dev/null | wc -l | tr -d ' ')
 
 if [ "$ALLIUM_COUNT" -eq 0 ] && [ -d "$DIR" ]; then
-  echo '{"systemMessage": "Speckit spec detected with no .allium companion. If this spec is behavior-changing (full/light pipeline), run /allium:elicit '"$FILE"' now. If it is the spec-only track (refactor, doc change, dependency bump, cosmetic UI, fix with no new entities/transitions), skip Allium — see .claude/rules/specs.md → Spec triage."}'
+  notice_once PostToolUse "$SID" "allium:$FILE" \
+"Speckit spec detected with no .allium companion. If this spec is behavior-changing (full/light pipeline), run /allium:elicit $FILE now. If it is the spec-only track (refactor, doc change, dependency bump, cosmetic UI, fix with no new entities/transitions), skip Allium — see .claude/rules/specs.md → Spec triage."
 fi

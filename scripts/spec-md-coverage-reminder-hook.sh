@@ -3,8 +3,9 @@
 # Replaces the type:"prompt" hook that was incorrectly issuing block decisions.
 #
 # Behavior contract:
-#   - NEVER blocks. Output is always a systemMessage (advisory) or nothing.
-#   - Only fires on .md files whose path contains spec, tasks, plan, or feature.
+#   - NEVER blocks. Output is advisory context for the model, or nothing.
+#   - Only fires on a canonical speckit artifact: specs/<feature>/{spec,plan,tasks}.md
+#     or anything under .specify/. See the path-anchor note below.
 #   - Only fires when the file mentions interactive-UI patterns.
 #   - Suppresses the destructive-test reminder when the slice explicitly carves
 #     destructive scenarios to another slice (the model was blocking on this).
@@ -16,8 +17,14 @@
 #     CLAUDE.md + memory rules about destructive tests. Deterministic bash
 #     cannot be overridden.
 
+set -u
+
+HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+. "$HOOK_DIR/hook-notice.sh"
+
 INPUT=$(cat)
 FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+SID=$(hn_session_id "$INPUT")
 
 [ -z "$FILE" ] && exit 0
 [ ! -f "$FILE" ] && exit 0
@@ -28,8 +35,18 @@ case "$FILE" in
   *) exit 0 ;;
 esac
 
-# Only paths containing spec, tasks, plan, or feature (case-insensitive)
-if ! echo "$FILE" | grep -qiE '(spec|tasks|plan|feature)'; then
+# --- Path anchor (spec 046) ---
+# This used to fire on any .md whose path merely CONTAINED spec / tasks / plan /
+# feature. Every file under specs/ contains "spec", so the register itself
+# matched: ticking a row in specs/INDEX.md produced "Missing FUNCTIONAL
+# COVERAGE: list EVERY implemented function" about a list of register rows.
+# The register is not a spec, and a reminder that is wrong on its face is worse
+# than no reminder — it is the one that trains the reader to dismiss the rest.
+#
+# allium-hook.sh already learned this and anchors on the structural signal
+# instead: a speckit artifact lives at a known path. Same anchor here, so the
+# two hooks agree about what a spec is.
+if ! echo "$FILE" | grep -qE '(\.specify/.+\.md$|specs/[^/]+/(spec|plan|tasks)\.md$)'; then
   exit 0
 fi
 
@@ -88,12 +105,16 @@ if [ -z "$REMINDERS" ]; then
   exit 0
 fi
 
-# Emit advisory systemMessage. NEVER a permissionDecision.
-MSG="Spec coverage reminder for $(basename "$FILE"):\n${REMINDERS}"
+# Advisory context for the model. NEVER a permissionDecision, and never the
+# developer's channel: this is an instruction to Claude about the spec it is
+# writing, not news a person has to act on.
+MSG="Spec coverage reminder for $FILE:\n${REMINDERS}"
 if [ "$CARVED" -eq 1 ]; then
   MSG="${MSG}(Destructive tests appear to be carved to another slice — reminder suppressed.)"
 fi
 
-# Use jq to safely JSON-encode the message
-jq -n --arg msg "$(printf '%b' "$MSG")" '{systemMessage: $msg}'
+# Once per spec file per session. The same spec is edited many times on its way
+# to being finished; repeating the reminder on each pass is how it gets filtered.
+notice_once PostToolUse "$SID" "spec-coverage:$FILE:$HAS_FUNCTIONAL:$HAS_DESTRUCTIVE" \
+  "$(printf '%b' "$MSG")"
 exit 0

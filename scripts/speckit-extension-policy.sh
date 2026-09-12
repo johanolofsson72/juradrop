@@ -134,20 +134,50 @@ DISABLE="${SPECKIT_DISABLED_EXTENSIONS:-git}"
 
 # Flipping the registry flag is only half the job. `enabled: false` governs what
 # SPEC-KIT wires; it does not delete the skill files, and Claude Code discovers
-# skills by file presence. The five speckit-git-* SKILL.md files ship with
-# `disable-model-invocation: false`, so Claude can still reach for
-# /speckit-git-feature on a disabled extension. Flip that frontmatter too:
-# `user-invocable: true` is left alone, so a human can still run one
-# deliberately — the model just cannot pick it up on its own.
+# skills by file presence. So a disabled extension's five speckit-git-* skills
+# stay reachable, and Claude can pick /speckit-git-feature on its own. Flip that
+# frontmatter too: `user-invocable: true` is left alone, so a human can still run
+# one deliberately — the model just cannot reach for it.
+#
+# TWO SHAPES, and missing the second is how this silently did nothing for a year.
+# spec-kit 0.16.x shipped these files with an explicit `disable-model-invocation:
+# false`, so the original guard matched that line and flipped it. spec-kit 1.0.x
+# ships the key ABSENT — and absent means model-invocable, exactly like `false`.
+# A guard that only matched `false` therefore `continue`d on all five files,
+# counted zero, printed nothing, and reported success while every git skill
+# stayed live. Verified on spec-kit 1.0.5: the registry read `enabled: false`
+# while all five skills were still in the model's skill list.
+#
+# So: flip an explicit `false`, and INSERT the key when it is missing. The insert
+# goes after the top-level `name:` line — the frontmatter's `metadata:` block is
+# nested, and appending there would bury a top-level key under it.
 neutralize_skills() {
   _root="$1"; _n=0
   for _sk in "$_root"/.claude/skills/speckit-git-*/SKILL.md; do
     [ -f "$_sk" ] || continue
-    grep -q '^disable-model-invocation: false' "$_sk" 2>/dev/null || continue
+
+    if grep -q '^disable-model-invocation: false' "$_sk" 2>/dev/null; then
+      _mode=flip
+    elif grep -q '^disable-model-invocation:' "$_sk" 2>/dev/null; then
+      continue                      # already true — nothing to do
+    elif grep -q '^name:' "$_sk" 2>/dev/null; then
+      _mode=insert                  # key absent: absent == invocable
+    else
+      continue                      # no frontmatter anchor; leave it alone
+    fi
+
     [ "$DRY" = "1" ] && { _n=$((_n + 1)); continue; }
     _tmp="$_sk.tmp.$$"
-    sed 's/^disable-model-invocation: false/disable-model-invocation: true/' "$_sk" > "$_tmp" 2>/dev/null \
-      && mv "$_tmp" "$_sk" && _n=$((_n + 1))
+    if [ "$_mode" = flip ]; then
+      sed 's/^disable-model-invocation: false/disable-model-invocation: true/' "$_sk" > "$_tmp" 2>/dev/null \
+        && mv "$_tmp" "$_sk" && _n=$((_n + 1))
+    else
+      # awk, not `sed '0,/^name:/'` — that address form is a GNU extension and is a
+      # silent no-op on BSD/macOS sed, where this ran green while writing nothing.
+      awk 'BEGIN{d=0} /^name:/ && !d {print "disable-model-invocation: true"; d=1} {print}' \
+        "$_sk" > "$_tmp" 2>/dev/null \
+        && mv "$_tmp" "$_sk" && _n=$((_n + 1))
+    fi
     rm -f "$_tmp" 2>/dev/null
   done
   [ "$_n" -gt 0 ] && printf 'speckit-extension-policy: %s disable-model-invocation on %s speckit-git-* skill(s)\n' \

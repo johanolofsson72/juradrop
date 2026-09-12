@@ -54,4 +54,4 @@ REPORT=$(printf '%s' "$CONTENT" \
 echo "$REPORT" | grep -qE '^[[:space:]]*CLEAN[[:space:]]*$' && exit 0
 
 jq -nc --arg f "$FILE" --arg r "$REPORT" \
-  '{additionalContext: ("Local-LLM humanizer pre-check on " + $f + ":\n" + $r + "\nInvoke the humanizer skill (or fix directly) before delivering this text.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM humanizer pre-check on " + $f + ":\n" + $r + "\nInvoke the humanizer skill (or fix directly) before delivering this text.")}}'

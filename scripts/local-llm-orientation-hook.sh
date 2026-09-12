@@ -63,4 +63,4 @@ RAW_FACTS=$(printf 'Branch: %s\nLast 5 commits:\n%s\nUncommitted:\n%s' \
   "$(if [ -n "$GIT_STATUS" ]; then printf '%s' "$GIT_STATUS"; else printf '(clean working tree)'; fi)")
 
 jq -nc --arg o "$ORIENTATION" --arg r "$RAW_FACTS" \
-  '{additionalContext: ("Local-LLM orientation — ADVISORY ONLY. A small local model paraphrased the git state below; it can be wrong. VERIFY against the GROUND TRUTH before acting on any \"LIKELY NEXT\", and for what to actually work on, trust specs/INDEX.md (the spec register) over this summary.\n\nSummary (advisory):\n" + $o + "\n\n--- GROUND TRUTH (authoritative — trust over the summary) ---\n" + $r)}'
+  '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: ("Local-LLM orientation — ADVISORY ONLY. A small local model paraphrased the git state below; it can be wrong. VERIFY against the GROUND TRUTH before acting on any \"LIKELY NEXT\", and for what to actually work on, trust specs/INDEX.md (the spec register) over this summary.\n\nSummary (advisory):\n" + $o + "\n\n--- GROUND TRUTH (authoritative — trust over the summary) ---\n" + $r)}}'

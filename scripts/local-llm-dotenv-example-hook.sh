@@ -64,4 +64,4 @@ mkdir -p "$DRAFT_DIR"
 printf '%s\n' "$DRAFT" > "$DRAFT_PATH"
 
 jq -nc --arg p "$DRAFT_PATH" \
-  '{additionalContext: ("Local-LLM .env.example scaffold saved at " + $p + ". Read and refine before adopting — verify each var is actually needed and that placeholders document the expected format. Never copy real secrets into .env.example.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM .env.example scaffold saved at " + $p + ". Read and refine before adopting — verify each var is actually needed and that placeholders document the expected format. Never copy real secrets into .env.example.")}}'

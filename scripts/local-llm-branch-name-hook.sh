@@ -79,4 +79,4 @@ SUGGESTIONS=$(printf '%s' "$PAYLOAD" \
 [ -n "$SUGGESTIONS" ] || exit 0
 
 jq -nc --arg b "$BRANCH_NAME" --arg s "$SUGGESTIONS" \
-  '{additionalContext: ("Local-LLM branch-name review: \"" + $b + "\" looks generic. Suggestions:\n" + $s)}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM branch-name review: \"" + $b + "\" looks generic. Suggestions:\n" + $s)}}'

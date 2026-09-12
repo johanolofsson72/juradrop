@@ -51,4 +51,4 @@ mkdir -p "$DRAFT_DIR"
 printf '%s\n' "$DRAFT" > "$DRAFT_PATH"
 
 jq -nc --arg p "$DRAFT_PATH" \
-  '{additionalContext: ("Local-LLM CI-run digest cached at " + $p + ". Read this for cross-turn context instead of re-running `gh run view` — it is a digest of the run output you already saw, refreshed each time you call gh run.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM CI-run digest cached at " + $p + ". Read this for cross-turn context instead of re-running `gh run view` — it is a digest of the run output you already saw, refreshed each time you call gh run.")}}'

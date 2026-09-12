@@ -45,4 +45,4 @@ mkdir -p "$DRAFT_DIR"
 printf '%s\n' "$DRAFT" > "$DRAFT_PATH"
 
 jq -nc --arg p "$DRAFT_PATH" \
-  '{additionalContext: ("Local-LLM PR digest cached at " + $p + ". Read this for PR context on follow-up turns instead of re-running `gh pr view` — refreshed each time you call gh pr view.")}'
+  '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: ("Local-LLM PR digest cached at " + $p + ". Read this for PR context on follow-up turns instead of re-running `gh pr view` — refreshed each time you call gh pr view.")}}'

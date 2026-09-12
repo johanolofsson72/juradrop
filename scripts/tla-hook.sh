@@ -6,7 +6,24 @@
 #   - Web:     Playwright / browser / destructive specs in .cs / .ts / .tsx / .js / .jsx
 #   - RN/Expo: Maestro flows under .maestro/ (or *maestro*.yaml)
 #   - Flutter: Patrol / integration_test / widget destructive specs in *.dart
-FILE=$(cat | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+#
+# CHANNEL (spec 046): the reminder is addressed to the model, so it goes out as
+# additionalContext and produces no transcript entry. It used to be a
+# `systemMessage` — "Warning shown to user in UI" — which meant every pass over
+# a spec file printed the same paragraph at the developer in red.
+#
+# ONCE PER FILE PER SESSION: a test file is written in several passes. The
+# reminder is about the file, not about the edit, so it fires on the first pass
+# and stays quiet for the rest.
+set -u
+
+HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+. "$HOOK_DIR/hook-notice.sh"
+
+INPUT=$(cat 2>/dev/null || true)
+[ -z "$INPUT" ] && exit 0
+
+FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 [ -z "$FILE" ] && exit 0
 
 MATCH=""
@@ -21,6 +38,9 @@ elif echo "$FILE" | grep -qiE '(integration_test|patrol|destructive|e2e|_test|te
   MATCH=1
 fi
 
-if [ -n "$MATCH" ]; then
-  echo '{"systemMessage": "E2E / destructive test file detected (web: Playwright; mobile: Maestro flow or Patrol/integration_test). After ALL functional + destructive tests for this feature are green, run TLA+ formal verification (/tla) to check for race conditions, state machine gaps, and missing invariants before considering the feature done."}'
-fi
+[ -z "$MATCH" ] && exit 0
+
+SID=$(hn_session_id "$INPUT")
+notice_once PostToolUse "$SID" "tla:$FILE" \
+"E2E / destructive test file detected (web: Playwright; mobile: Maestro flow or Patrol/integration_test). After ALL functional + destructive tests for this feature are green, run TLA+ formal verification (/tla) to check for race conditions, state machine gaps, and missing invariants before considering the feature done."
+exit 0

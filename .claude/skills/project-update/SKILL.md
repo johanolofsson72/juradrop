@@ -189,7 +189,7 @@ Use `AskUserQuestion` to confirm the project's tech stack (the sync-prompt has t
   ```bash
   for s in pipeline-trigger-match emit-pipeline-reminder spec-register-guard-hook pipeline-state-guard-hook \
            spec-interview-guard-hook spec-md-coverage-reminder-hook scenario-map-reminder-hook \
-           continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook; do
+           continuous-execution-hook stop-validation-hook repeat-failure-guard-hook spec-run-log-hook lane-orientation-hook; do
     if [ ! -f "scripts/$s.sh" ]; then
       echo "[MISSING] scripts/$s.sh never copied — re-run the core-script mirror (sync-prompt.md Step 5c)"
     elif ! grep -q "$s.sh" .claude/settings.json; then
