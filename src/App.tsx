@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { WelcomeCard } from '@/components/WelcomeCard';
+import { ActionErrorNotice } from '@/components/ActionErrorNotice';
 import { ConsentModal } from '@/components/ConsentModal';
 import { DropZone } from '@/components/DropZone';
 import { ZONE_ORDER } from '@/components/DropZone.identity';
@@ -15,7 +16,7 @@ import { UpdateRetryFootnote } from '@/components/UpdateRetryFootnote';
 import { Wizard } from '@/components/Wizard';
 import { ensureSettingsSubscription, useSettingsStore } from '@/lib/settings-store';
 import { ensureTierDownloadSubscription } from '@/lib/tier-download-store';
-import { useStatusStore } from '@/lib/status-store';
+import { ACTION_ERRORS, useStatusStore } from '@/lib/status-store';
 import { ensureUpdateStatusSubscription } from '@/lib/update-store';
 import { useCmdComma } from '@/lib/use-cmd-comma';
 import { useHelpPanel } from '@/lib/use-help-panel';
@@ -23,6 +24,7 @@ import { useSettingsPanel } from '@/lib/use-settings-panel';
 import { useWizardState } from '@/lib/use-wizard-state';
 import { createDragHoverTracker } from '@/lib/drag-hover';
 import { applyAppearance } from '@/lib/appearance';
+import { disposable } from '@/lib/listen-lifecycle';
 import { useAppearanceStore } from '@/lib/appearance-store';
 import {
   dispatchToZone,
@@ -46,6 +48,19 @@ import {
 // progress events, and listen for `juradrop://file-dropped` so we
 // can resolve which zone DOM element was under the cursor at drop
 // time and dispatch to it.
+/** Spec 050 FR-009 — a failed dispatch is surfaced, never an unhandled
+ *  rejection. Exported for tests. */
+export async function dispatchDrop(zoneId: ZoneId, paths: string[]): Promise<void> {
+  const store = useStatusStore.getState();
+  try {
+    await dispatchToZone(zoneId, paths, instructionForDispatch());
+    store.clearActionFailure();
+  } catch (err) {
+    console.error('[juradrop] dispatch_to_zone failed', err);
+    store.reportActionFailure(ACTION_ERRORS.dispatch);
+  }
+}
+
 export function App() {
   const setStatus = useStatusStore((s) => s.setStatus);
   const setProgress = useStatusStore((s) => s.setProgress);
@@ -65,11 +80,11 @@ export function App() {
   }, [appearance]);
 
   useEffect(() => {
-    let statusUnsub: (() => void) | undefined;
-    let progressUnsub: (() => void) | undefined;
-    let dropUnsub: (() => void) | undefined;
-    let dragoverUnsub: (() => void) | undefined;
-    let dragleaveUnsub: (() => void) | undefined;
+    // Spec 050 FR-010 — every listener goes through `disposable`, so a
+    // cleanup that beats `listen()`'s promise still unlistens (no leak, no
+    // double dispatch under StrictMode).
+    let disposed = false;
+    const stops: Array<() => void> = [];
 
     const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -95,18 +110,25 @@ export function App() {
     });
 
     if (inTauri) {
-      void getStatus()
-        .then(setStatus)
+      // Spec 050 FR-010 — register the status listener FIRST, then read the
+      // seed, so an emit between the two can't be lost. A seed that
+      // arrives after a newer event would be stale, so it only applies
+      // while no event has landed yet.
+      let sawEvent = false;
+      const statusSub = subscribeStatus((next) => {
+        sawEvent = true;
+        setStatus(next);
+      });
+      stops.push(disposable(statusSub));
+      void statusSub
+        .then(() => getStatus())
+        .then((seed) => {
+          if (!disposed && !sawEvent) setStatus(seed);
+        })
         .catch(() => {
           // Pre-mount race: setup may still be initializing; events will catch up.
         });
-
-      void subscribeStatus(setStatus).then((fn) => {
-        statusUnsub = fn;
-      });
-      void subscribeProgress(setProgress).then((fn) => {
-        progressUnsub = fn;
-      });
+      stops.push(disposable(subscribeProgress(setProgress)));
 
       // Spec 007 — ensure the update-status listener is registered
       // once per app lifetime. Idempotent; subsequent renders/HMR
@@ -114,7 +136,7 @@ export function App() {
       ensureUpdateStatusSubscription();
 
       // FR-010a — OS drop → elementFromPoint → dispatch_to_zone.
-      void subscribeFileDropped(({ paths, position }) => {
+      stops.push(disposable(subscribeFileDropped(({ paths, position }) => {
         hover.clear();
         const el = document.elementFromPoint(position.x, position.y);
         const zoneEl = el?.closest('[data-zone-id]') as HTMLElement | null;
@@ -123,32 +145,23 @@ export function App() {
         if (!zoneId) return;
         // Spec 041 — pin the instruction at drop time (FR-006); the
         // pick path in pickFileForZone does the same.
-        void dispatchToZone(zoneId, paths, instructionForDispatch());
-      }).then((fn) => {
-        dropUnsub = fn;
-      });
+        void dispatchDrop(zoneId, paths);
+      })));
 
       // Spec 026 — light up the idle zone under the cursor while dragging.
-      void subscribeFileDragOver((position) => {
+      stops.push(disposable(subscribeFileDragOver((position) => {
         hover.over(position.x, position.y);
-      }).then((fn) => {
-        dragoverUnsub = fn;
-      });
+      })));
 
       // Spec 026 — drag left the window without dropping → clear highlight.
-      void subscribeFileDragLeave(() => {
+      stops.push(disposable(subscribeFileDragLeave(() => {
         hover.clear();
-      }).then((fn) => {
-        dragleaveUnsub = fn;
-      });
+      })));
     }
 
     return () => {
-      statusUnsub?.();
-      progressUnsub?.();
-      dropUnsub?.();
-      dragoverUnsub?.();
-      dragleaveUnsub?.();
+      disposed = true;
+      stops.forEach((stop) => stop());
     };
   }, [setStatus, setProgress]);
 
@@ -207,6 +220,7 @@ export function App() {
           {/* Spec 041 — per-drop instruction "half-zone": steering for
               the NEXT drop on any zone, pinned at dispatch time. */}
           <InstructionField />
+          <ActionErrorNotice />
           <section
             aria-label="Drop-zoner"
             className={[

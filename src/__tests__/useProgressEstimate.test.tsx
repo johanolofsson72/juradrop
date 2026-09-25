@@ -103,12 +103,12 @@ describe('useProgressEstimate — rolling-window estimator', () => {
     expect(result.current.lastPct).toBe(73);
   });
 
-  it('exposes the ~2 GiB estimated total as totalByteCount by default', () => {
-    // H1 mutation-kill: pins the ESTIMATED_TOTAL_BYTES arithmetic
-    // (2 * 1024 * 1024 * 1024) so an operator swap (× → ÷) is caught.
+  it('exposes the real ~3.3 GB default-model size as totalByteCount (spec 050 FR-006)', () => {
+    // Was 2 GiB — under-stated the default-model pull by ~40 %, so the byte
+    // counter and ETA were wrong. Pinned to the literal so a drift in the
+    // shared constant is caught too.
     const { result } = renderHook(() => useProgressEstimate());
-    expect(result.current.totalByteCount).toBe(2 * 1024 * 1024 * 1024);
-    expect(result.current.totalByteCount).toBe(2_147_483_648);
+    expect(result.current.totalByteCount).toBe(3_300_000_000);
   });
 });
 

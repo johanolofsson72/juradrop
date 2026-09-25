@@ -17,7 +17,7 @@ use crate::sidecar::log_safe::Redacted;
 use crate::sidecar::status::SidecarStatus;
 
 use super::chunking::{self, CombineStrategy, CHUNK_CHAR_TARGET};
-use super::docx_write::build_summary_doc;
+use super::docx_write::build_summary_doc_for_model;
 use super::errors::ZoneFailure;
 use super::extract::extract_text as extract_text_dispatch;
 use super::input_format::InputFormat;
@@ -460,12 +460,13 @@ impl DropZone {
         // Spec 005 — the writer chosen per `output_format` mirrors the
         // input extension (with PDF → DOCX per FR-011).
         let bytes = match output_format {
-            OutputFormat::Docx => match build_summary_doc(
+            OutputFormat::Docx => match build_summary_doc_for_model(
                 self.id,
                 &source,
                 &response_text,
                 content_skipped,
                 extracted.was_partial,
+                model_id,
             ) {
                 Ok(b) => b,
                 Err(failure) => {

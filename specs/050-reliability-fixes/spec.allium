@@ -1,0 +1,110 @@
+-- allium: 3
+
+-- Spec 050: reliability fixes — the recovery transitions of the first-run
+-- consent/pull machine, the updater install→restart edge, and process exit.
+-- Elicited 2026-09-25 from specs/050-reliability-fixes/spec.md (post-clarify).
+
+enum ConsentChoice { not_asked | fortsatt | avbryt }
+enum ModelStatus { not_present | downloading | ready | download_failed }
+enum ErrorOverride { none | fel_disk_full | modell_saknas_avbruten | fel_ovantat | other }
+enum UpdateState { idle | checking | downloading | ready_to_install | restarting | failed }
+
+entity FirstRun {
+    consent: ConsentChoice
+    model: ModelStatus
+    error_override: ErrorOverride
+    disk_ok: Boolean
+
+    -- FR-002: a stale override can never mask a live download.
+    invariant NoStaleOverrideWhileDownloading {
+        this.model = downloading implies this.error_override = none
+    }
+}
+
+rule GiveConsent {
+    when: user_clicks_fortsatt(run: FirstRun)
+    requires: run.model != downloading
+    ensures:
+        run.consent = fortsatt
+        run.error_override = none                     -- FR-002
+        if run.disk_ok:
+            run.model = downloading
+        else:
+            run.error_override = fel_disk_full
+}
+
+rule CancelConsentFromError {
+    when: user_clicks_avbryt(run: FirstRun)
+    -- FR-003: honoured in not_asked AND in the error phase.
+    requires: run.consent = not_asked
+        or (run.consent = fortsatt and run.model != ready and run.model != downloading)
+    ensures:
+        run.consent = avbryt
+        run.error_override = none
+}
+
+rule CancelPull {
+    when: user_clicks_avbryt_nedladdning(run: FirstRun)
+    requires: run.model = downloading
+    ensures:
+        run.model = not_present
+        run.error_override = modell_saknas_avbruten
+}
+
+rule PullStalled {
+    -- FR-004: the ONLY time-based failure is 90 s of silence; no total cap.
+    when: pull_silent_for(run: FirstRun, seconds: Integer)
+    requires: run.model = downloading and seconds >= 90
+    ensures: run.model = download_failed
+}
+
+rule PullCompleted {
+    when: pull_completed(run: FirstRun)
+    requires: run.model = downloading
+    ensures: run.model = ready
+}
+
+rule TagsExhausted {
+    -- FR-008
+    when: tags_failed_attempts(run: FirstRun, attempts: Integer)
+    requires: attempts >= 3
+    ensures: run.error_override = fel_ovantat
+}
+
+entity Updater {
+    state: UpdateState
+    restarted: Boolean
+}
+
+rule InstallSucceeded {
+    -- FR-001: Ok from install on macOS ⇒ restart; never a failure.
+    when: install_returned_ok(u: Updater)
+    requires: u.state = restarting
+    ensures: u.restarted = true
+}
+
+rule InstallFailed {
+    when: install_returned_err(u: Updater)
+    requires: u.state = restarting
+    ensures: u.state = failed
+}
+
+entity Process {
+    sidecar_running: Boolean
+    pidfile_present: Boolean
+    cleanup_runs: Integer
+
+    -- FR-007: every exit path cleans up exactly once.
+    invariant CleanExit {
+        this.exited implies (this.sidecar_running = false
+            and this.pidfile_present = false and this.cleanup_runs = 1)
+    }
+}
+
+rule Exit {
+    when: exit_requested(p: Process, via: String)   -- cmd_q | menu_quit | close_window
+    ensures:
+        p.sidecar_running = false
+        p.pidfile_present = false
+        p.cleanup_runs = 1
+}

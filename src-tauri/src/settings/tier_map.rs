@@ -78,4 +78,35 @@ mod tests {
         // bytes as the old hard-coded path for the same input.
         assert_eq!(ModelTier::Smart.model_id(), "gemma3:4b");
     }
+
+    /// Spec 050 FR-006 — the frontend's single download-size constant
+    /// (src/lib/model-download.ts) and the wizard copy must say the same
+    /// size as the Smart badge. They drifted before: the wizard said
+    /// "cirka 2 GB" and the ETA assumed 2 GiB for a ~3.3 GB pull.
+    #[test]
+    fn frontend_download_size_matches_the_smart_badge() {
+        let badge = ModelTier::Smart.size_badge(); // "~3.3 GB"
+        let swedish = badge.trim_start_matches('~').replace('.', ",");
+        let ts = include_str!("../../../src/lib/model-download.ts");
+        assert!(
+            ts.contains(&format!("label: '{swedish}'")),
+            "TS label drifted from {badge}"
+        );
+        let gb: f64 = badge
+            .trim_start_matches('~')
+            .trim_end_matches(" GB")
+            .parse()
+            .unwrap();
+        let bytes = format!("{}", (gb * 1e9) as u64);
+        let ts_digits: String = ts.chars().filter(|c| c.is_ascii_digit()).collect();
+        assert!(
+            ts_digits.contains(&bytes),
+            "TS byte count drifted from {badge}"
+        );
+        let fixture = include_str!("../../tests/fixtures/wizard-strings.json");
+        assert!(
+            fixture.contains(&format!("cirka {swedish}")),
+            "wizard copy drifted from {badge}"
+        );
+    }
 }

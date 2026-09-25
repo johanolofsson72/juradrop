@@ -199,7 +199,10 @@ flowchart TD
   C --> D{Network}
   D -- drops --> E[Väntar på nätverk… freeze % · SC-042]
   E -- returns --> F[Resume from last byte idempotent · SC-043]
-  E -- ≥5 min fail --> G[Modellnedladdningen avbröts — försök igen · SC-044]
+  E -- 90 s with no bytes --> G[Modellnedladdningen avbröts — försök igen · SC-044]
+  G -- Försök igen --> C
+  G -- Avbryt --> B
+  C -- Avbryt nedladdning --> B
   D -- ok --> H{Disk}
   H -- full --> I[Disk-full error state · SC-045]
   H -- ok --> J[Complete → fade out ~300ms → zones interactive · SC-046]
@@ -212,7 +215,12 @@ flowchart TD
 | SC-041 | loading | Model download in progress                              | Percent bar + "X MB av Y MB" + ETA, "Avbryt" available       | ◐      |
 | SC-042 | error   | Network drops mid-download                              | "Väntar på nätverk…", percent freezes                        | ☐      |
 | SC-043 | offline | Network returns after a drop                            | Resume from last received byte (idempotent pull)             | ☐      |
-| SC-044 | error   | ≥5 min continuous download failure                      | "Modellnedladdningen avbröts — försök igen"                  | ☐      |
+| SC-044 | error   | 90 s with no bytes (stall; spec 050 — no total cap)     | "Modellnedladdningen avbröts — försök igen"                  | ☐      |
+| SC-150 | edge    | Slow pull (>5 min) that keeps progressing (spec 050)    | Completes; never killed by a total-time cap                  | ☐      |
+| SC-151 | edge    | Avbryt nedladdning → Fortsätt (spec 050 FR-002)         | Progress screen shows immediately, download visible          | ☐      |
+| SC-152 | edge    | Error panel → Avbryt (spec 050 FR-003)                  | Back to welcome; no dead button                              | ☐      |
+| SC-153 | error   | Consent cannot be saved (spec 050 FR-009)               | "Kunde inte spara ditt val. Försök igen." inline alert       | ☐      |
+| SC-154 | edge    | Model already present, consent never asked (TLA+ GAP-1) | Fortsätt → zones; no disk check, no re-download              | ☐      |
 | SC-045 | error   | Disk fills during model download                        | Specific disk-full error, not a silent hang                  | ◐      |
 | SC-046 | happy   | Download completes                                      | Wizard fades (~300ms min), zones become interactive          | ☐      |
 | SC-047 | happy   | Subsequent launch (consent + model present)             | No wizard; zones visible immediately                         | ✓      |
@@ -296,6 +304,8 @@ flowchart TD
 | SC-110 | happy  | An update is available                                   | Non-modal badge "Uppdatering tillgänglig" + notes             | ◐      |
 | SC-111 | loading| Update downloading                                       | "Hämtar uppdatering… N%"                                      | ◐      |
 | SC-112 | happy  | Update ready                                             | "Klar att installera — starta om?" → restart applies it       | ◐      |
+| SC-155 | happy  | Install succeeds on macOS (spec 050 FR-001)              | App restarts on the new version; no failure banner, Ollama stopped first | ☐ |
+| SC-156 | error  | Manifest moved between download and install (spec 050)   | Install refused → "misslyckades" + retry; nothing installed   | ☐      |
 | SC-113 | edge   | Update ready but a zone is still processing             | "Väntar tills jobben är klara…" + Avbryt; auto-restart later  | ◐      |
 | SC-114 | error  | Update signature invalid                                | "Säkerhetskontrollen misslyckades — installeras inte"         | ◐      |
 | SC-115 | error  | No network when checking                                 | "Kan inte nå GitHub — kontrollera nätverksanslutningen"       | ◐      |
@@ -392,6 +402,7 @@ flowchart TD
 | SC-149 | adversarial | Drop the same file again while the zone is Processing | Single-flight slot ignores the 2nd drop — no parallel job/corruption | ◐    |
 
 ## Scenario history
+- 2026-09-25 — spec 050 (reliability-fixes): SC-044 re-worded (90 s stall, no 5-min total cap — Johan's decision); added SC-150..154 (first-run recovery) and SC-155..156 (updater install/restart). All ☐ — need a Mac at runtime.
 - 2026-06-20 — seeded from existing specs during fleet sync (derived, awaiting validation interview)
 - 2026-06-20 — spec 048 (pii-scrub-overlap-resolution): added SC-108 (whitespace-glued postnummer+phone → gap re-scan catches both) and SC-109 (glued-PII chain stress, terminates) to the Anonymisera feature; flowchart node C4 (overlap resolution: gap re-scan).
 - 2026-06-20 — validation interview (round 1): added fully-offline rows (SC-140..143, spec 002), empty-state rows (SC-144..145), and resolved the two inferred concurrency behaviours → tier download single-flight/coalesce (SC-146..147) and double-drop idle-reprocess / busy-single-flight (SC-148..149). Confirmed all zones share one byte-identical state machine (spec 005 FR-020) — no per-zone split. Rows remain ☐ — runtime ◐/✓ pending.

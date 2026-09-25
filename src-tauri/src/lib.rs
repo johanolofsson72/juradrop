@@ -312,31 +312,36 @@ pub fn run() {
             handle_drag_drop_event(app_handle, drag.clone());
         }
 
-        if let RunEvent::WindowEvent {
-            label,
-            event: WindowEvent::CloseRequested { .. },
-            ..
-        } = event
-        {
-            if label == "main" {
-                // Stop the sidecar synchronously before the process exits,
-                // then clear the pidfile so the next launch doesn't try to
-                // reap a now-dead PID.
-                if let Some(state) = app_handle.try_state::<AppState>() {
-                    // Spec 007 / T019 — cancel the 4-hour ticker so its
-                    // task stops sleeping and returns cleanly.
-                    state.updater.read().cancel_token.cancel();
-
-                    let sidecar = state.sidecar.clone();
-                    tauri::async_runtime::block_on(async move {
-                        let _ = sidecar.stop(Duration::from_secs(5)).await;
-                    });
-                }
-                sidecar::pidfile::clear(app_handle);
-                app_handle.exit(0);
-            }
+        match event {
+            // Closing the main window quits the app (single-window app).
+            // The cleanup itself lives in `RunEvent::Exit` so it runs once.
+            RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::CloseRequested { .. },
+                ..
+            } if label == "main" => app_handle.exit(0),
+            // Spec 050 FR-007 — Cmd+Q, the app menu's Quit and the window
+            // close above all end here, exactly once. Before, only the
+            // window close stopped Ollama; Cmd+Q orphaned it until the next
+            // launch reaped the pidfile.
+            RunEvent::Exit => shutdown(app_handle),
+            _ => {}
         }
     });
+}
+
+/// Stop the sidecar synchronously before the process exits, cancel the
+/// 4-hour update ticker (spec 007 / T019), then clear the pidfile so the
+/// next launch doesn't try to reap a now-dead PID.
+fn shutdown<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) {
+    if let Some(state) = app_handle.try_state::<AppState>() {
+        state.updater.read().cancel_token.cancel();
+        let sidecar = state.sidecar.clone();
+        tauri::async_runtime::block_on(async move {
+            let _ = sidecar.stop(Duration::from_secs(5)).await;
+        });
+    }
+    sidecar::pidfile::clear(app_handle);
 }
 
 /// Spec 004 / T018 — translate Tauri's `DragDropEvent` into the
@@ -442,52 +447,36 @@ mod tests {
                 "core:default",
                 "core:event:default",
                 "dialog:allow-open",
-                "shell:allow-kill",
             ],
             "capabilities allowlist drifted from spec.allium CapabilityAllowlistMinimal"
         );
 
-        // Plus exactly two scoped object permissions:
-        //   1. shell:allow-spawn — limited to the bundled ollama binary
-        //      (spec 002).
-        //   2. shell:allow-open — limited to the single GitHub Releases
-        //      URL the spec 010 About-section button uses.
-        // No other scoped permissions are allowed.
+        // Plus exactly ONE scoped object permission: shell:allow-open,
+        // limited to the single GitHub Releases URL the spec 010 About
+        // button uses. Spec 050 FR-011 removed shell:allow-spawn and
+        // shell:allow-kill — the Rust core alone manages the sidecar, so
+        // the WebView can neither start Ollama with arbitrary arguments
+        // nor kill processes.
         let object_perms: Vec<&serde_json::Value> =
             perms.iter().filter(|v| v.is_object()).collect();
         assert_eq!(
             object_perms.len(),
-            2,
-            "expected exactly two scoped permissions (shell:allow-spawn for ollama, shell:allow-open for GitHub Releases URL)"
-        );
-
-        // First scoped permission: spec 002 — shell:allow-spawn for ollama.
-        let spawn = object_perms
-            .iter()
-            .find(|v| v.get("identifier").and_then(|i| i.as_str()) == Some("shell:allow-spawn"))
-            .expect("shell:allow-spawn entry must exist");
-        let allow = spawn
-            .get("allow")
-            .and_then(|v| v.as_array())
-            .expect("shell:allow-spawn must have an allow array");
-        assert_eq!(
-            allow.len(),
             1,
-            "shell:allow-spawn allow list must be a single entry (ollama only)"
+            "expected exactly one scoped permission (shell:allow-open for GitHub Releases URL)"
         );
-        let entry = &allow[0];
-        assert_eq!(
-            entry.get("name").and_then(|v| v.as_str()),
-            Some("binaries/ollama"),
-            "only the bundled ollama sidecar may be spawned"
-        );
-        assert_eq!(
-            entry.get("sidecar").and_then(|v| v.as_bool()),
-            Some(true),
-            "ollama must be configured as a sidecar (not an arbitrary command)"
-        );
+        for forbidden in [
+            "shell:allow-spawn",
+            "shell:allow-kill",
+            "shell:allow-execute",
+        ] {
+            assert!(
+                !perms.iter().any(|v| v.as_str() == Some(forbidden)
+                    || v.get("identifier").and_then(|i| i.as_str()) == Some(forbidden)),
+                "WebView must not hold {forbidden} (spec 050 FR-011)"
+            );
+        }
 
-        // Second scoped permission: spec 010 — shell:allow-open for the
+        // The scoped permission: spec 010 — shell:allow-open for the
         // pinned GitHub Releases URL only.
         let open = object_perms
             .iter()

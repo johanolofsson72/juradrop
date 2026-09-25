@@ -3,7 +3,7 @@
 //
 // Output structure:
 //   title    — per-zone header from ZoneId::header_paragraph_template() (bold, 16 pt)
-//   meta     — "Genererad <ts> av JuraDrop med modellen gemma3:4b."     (italic grey, 10 pt)
+//   meta     — "Genererad <ts> av JuraDrop med modellen <model_id> (the dispatch-pinned tier model)."     (italic grey, 10 pt)
 //   notices  — partial-PDF + truncation notices                          (italic grey, optional)
 //   disclaim — per-zone disclaimer                                       (italic grey, conditional)
 //   spacer   — empty paragraph                                           (always)
@@ -99,8 +99,6 @@ const TRUNCATION_NOTICE: &str =
 pub const PARTIAL_EXTRACTION_NOTICE: &str =
     "(Delar av PDF-filen kunde inte läsas — resultatet kan vara ofullständigt.)";
 
-const MODEL_LABEL: &str = "gemma3:4b";
-
 /// Construct a serialized per-zone `.docx`.
 ///
 /// - `zone_id`     — selects the FR-009 header template + optional disclaimer.
@@ -109,12 +107,34 @@ const MODEL_LABEL: &str = "gemma3:4b";
 ///   heading-style lines bolded; the whole document uses a clean font + air.
 /// - `truncated`   — toggles the FR-019 truncation notice paragraph.
 /// - `was_partial` — (spec 005 FR-002a) toggles the Swedish partial-PDF notice.
+#[cfg(test)]
 pub fn build_summary_doc(
     zone_id: ZoneId,
     source: &Path,
     response: &str,
     truncated: bool,
     was_partial: bool,
+) -> Result<Vec<u8>, ZoneFailure> {
+    build_summary_doc_for_model(
+        zone_id,
+        source,
+        response,
+        truncated,
+        was_partial,
+        crate::sidecar::commands::DEFAULT_MODEL,
+    )
+}
+
+/// Spec 050 FR-005 — `model_label` is the dispatch-pinned model id (from the
+/// closed tier map), so the header names the model that actually produced
+/// the output instead of always claiming the default.
+pub fn build_summary_doc_for_model(
+    zone_id: ZoneId,
+    source: &Path,
+    response: &str,
+    truncated: bool,
+    was_partial: bool,
+    model_label: &str,
 ) -> Result<Vec<u8>, ZoneFailure> {
     let basename = source
         .file_name()
@@ -125,7 +145,7 @@ pub fn build_summary_doc(
     let header_filename = zone_id
         .header_paragraph_template()
         .replace("{name}", basename);
-    let header_meta = format!("Genererad {generated_at} av JuraDrop med modellen {MODEL_LABEL}.");
+    let header_meta = format!("Genererad {generated_at} av JuraDrop med modellen {model_label}.");
 
     // Muted-grey italic styling shared by the meta line + the notices.
     let meta_run = |text: &str| {
@@ -317,6 +337,34 @@ mod tests {
             .as_inner()
             .contains("AI-anonymisering är inte hundra procent"));
         assert!(!extracted.raw.as_inner().contains("Förenklad version"));
+    }
+
+    /// Spec 050 FR-005 — the header names the model that ran, not the default.
+    #[test]
+    fn meta_paragraph_names_the_dispatch_model_for_every_tier() {
+        use crate::settings::tier_map::ModelTier;
+        let default_model = ModelTier::Smart.model_id();
+        for tier in ModelTier::ALL {
+            let model = tier.model_id();
+            let bytes = build_summary_doc_for_model(
+                ZoneId::Sammanfatta,
+                &fake_source(),
+                "Hej.",
+                false,
+                false,
+                model,
+            )
+            .unwrap();
+            let text = extract_text_from_bytes(&bytes).unwrap();
+            let raw = text.raw.as_inner();
+            assert!(raw.contains(&format!("med modellen {model}.")), "{tier:?}");
+            if model != default_model {
+                assert!(
+                    !raw.contains(default_model),
+                    "{tier:?} header leaked the default"
+                );
+            }
+        }
     }
 
     #[test]

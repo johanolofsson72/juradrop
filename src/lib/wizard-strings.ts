@@ -28,7 +28,7 @@ export const WIZARD_STRINGS: Record<WizardStringKey, string> = {
     'JuraDrop läser dokument lokalt på din dator och hjälper dig sammanfatta, översätta, anonymisera, punktlista och förenkla juridisk text — utan att något skickas till någon molntjänst.',
   welcome_privacy_line: 'Dina dokument, instruktioner och resultat lämnar aldrig din dator.',
   welcome_download_note:
-    'En AI-modell på cirka 2 GB laddas ner första gången du startar appen — efter det fungerar allt utan nät.',
+    'En AI-modell på cirka 3,3 GB laddas ner första gången du startar appen — efter det fungerar allt utan nät.',
   welcome_cta_primary: 'Fortsätt',
   welcome_cta_secondary: 'Avbryt',
   welcome_sidecar_helper: 'Förbereder AI-motorn…',

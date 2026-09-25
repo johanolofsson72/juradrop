@@ -49,12 +49,6 @@ pub fn should_trigger_bundled_pull(
     should_trigger_pull(model_present, consent) && !tier_download_active
 }
 
-/// Total pull-stream ceiling — F1 / spec.allium `model_pull_timeout_seconds: 300`.
-/// Wraps the whole `OllamaClient::pull` call; on elapse, the in-flight HTTP
-/// stream is dropped (cancellation cascades through reqwest's `bytes_stream`)
-/// and the user-visible status flips to `fel_modellnedladdning_avbroten`.
-const MODEL_PULL_TIMEOUT_SECONDS: u64 = 300;
-
 /// Disk-space pre-check threshold — F2/F3, T047, spec.allium
 /// `minimum_disk_free_gb: 4`. Pull is refused if `statvfs` reports fewer
 /// available GiB at the app data root.
@@ -83,7 +77,7 @@ pub async fn after_sidecar_ready(app: AppHandle, state: AppState) {
     // initial spawn) is no longer the truth. Reset.
     *state.error_override.write() = None;
 
-    match state.client.list_tags().await {
+    match list_tags_with_retry(&state).await {
         Ok(tags) => {
             let present = tags.iter().any(|t| t == DEFAULT_MODEL);
             *state.model_status.write() = if present {
@@ -101,8 +95,12 @@ pub async fn after_sidecar_ready(app: AppHandle, state: AppState) {
                 if !has_sufficient_disk_for_pull(&app) {
                     *state.error_override.write() = Some(UserVisibleStatus::FelDiskFull);
                     let _ = app.emit("juradrop://status", state.snapshot());
-                } else {
-                    *state.model_status.write() = ModelStatus::Downloading;
+                } else if matches!(
+                    claim_pull_slot(&mut state.model_status.write()),
+                    PullClaim::Claimed { .. }
+                ) {
+                    // Same atomic claim as give_consent: a concurrent
+                    // Fortsätt can't start a second pull (security 3a).
                     *state.progress.write() = Some(0);
                     let _ = app.emit("juradrop://status", state.snapshot());
                     spawn_pull_task(app, state);
@@ -110,7 +108,41 @@ pub async fn after_sidecar_ready(app: AppHandle, state: AppState) {
             }
         }
         Err(e) => {
-            eprintln!("[juradrop] /api/tags failed: {e}");
+            // Spec 050 FR-008 — never sit on "Startar…" silently; the
+            // FelOvantat screen carries the existing retry affordance.
+            eprintln!("[juradrop] /api/tags failed after {TAGS_ATTEMPTS} attempts: {e}");
+            // TLA+ FirstRun GAP-2 — the model's presence is unconfirmed, so
+            // don't keep claiming Ready (that left a dead Avbryt on the error
+            // panel). Fortsätt re-verifies via a pull, which is near-instant
+            // when the model is in fact present.
+            *state.model_status.write() = ModelStatus::NotPresent;
+            *state.error_override.write() = Some(UserVisibleStatus::FelOvantat);
+            let _ = app.emit("juradrop://status", state.snapshot());
+        }
+    }
+}
+
+/// Spec 050 FR-008 — attempts for the boot-time `/api/tags` probe.
+const TAGS_ATTEMPTS: u32 = 3;
+
+/// Backoff before retry `attempt` (1-based): 1 s, then 2 s.
+pub fn tags_retry_backoff(attempt: u32) -> Duration {
+    Duration::from_secs(u64::from(attempt))
+}
+
+async fn list_tags_with_retry(
+    state: &AppState,
+) -> Result<Vec<String>, crate::sidecar::client::ClientError> {
+    let mut attempt = 1;
+    loop {
+        match state.client.list_tags().await {
+            Ok(tags) => return Ok(tags),
+            Err(e) if attempt >= TAGS_ATTEMPTS => return Err(e),
+            Err(e) => {
+                eprintln!("[juradrop] /api/tags attempt {attempt} failed: {e}; retrying");
+                tokio::time::sleep(tags_retry_backoff(attempt)).await;
+                attempt += 1;
+            }
         }
     }
 }
@@ -242,8 +274,7 @@ pub fn spawn_pull_task(app: AppHandle, state: AppState) {
             }
         });
 
-        // F1 + Spec 008 — race the pull against the timeout AND the
-        // cancellation token. The cancel_model_pull command trips the
+        // Spec 008 — race the pull against the cancellation token. The cancel_model_pull command trips the
         // token; we then exit early WITHOUT touching model_status
         // because the command owns the status flip (single-responsibility).
         tokio::select! {
@@ -253,21 +284,15 @@ pub fn spawn_pull_task(app: AppHandle, state: AppState) {
                 // Status flip is owned by the cancel_model_pull command.
                 // We just exit cleanly.
             }
-            timed = tokio::time::timeout(Duration::from_secs(MODEL_PULL_TIMEOUT_SECONDS), pull_future) => {
-                match timed {
-                    Ok(Ok(())) => {} // Success — events already emitted by the callback.
-                    Ok(Err(err)) => {
-                        eprintln!("[juradrop] pull failed: {err}");
-                        *state.model_status.write() = ModelStatus::DownloadFailed;
-                        *state.progress.write() = None;
-                        emit_status(&app, &state.snapshot());
-                    }
-                    Err(_elapsed) => {
-                        eprintln!("[juradrop] pull timed out after {MODEL_PULL_TIMEOUT_SECONDS}s");
-                        *state.model_status.write() = ModelStatus::DownloadFailed;
-                        *state.progress.write() = None;
-                        emit_status(&app, &state.snapshot());
-                    }
+            // Spec 050 FR-004 — no total-duration cap: a slow but progressing
+            // ~3.3 GB pull must finish. The client's 90 s stall detector
+            // (PULL_STREAM_IDLE_TIMEOUT) is the only time-based failure.
+            result = pull_future => {
+                if let Err(err) = result {
+                    eprintln!("[juradrop] pull failed: {err}");
+                    *state.model_status.write() = ModelStatus::DownloadFailed;
+                    *state.progress.write() = None;
+                    emit_status(&app, &state.snapshot());
                 }
             }
         }
@@ -281,32 +306,56 @@ pub fn get_status(state: tauri::State<'_, AppState>) -> AppStatus {
 
 #[tauri::command]
 pub async fn give_consent(app: AppHandle, state: tauri::State<'_, AppState>) -> Result<(), String> {
-    // GAP-3: idempotency guard. Tauri `invoke()` is async; rapid double-click
-    // on Fortsätt could fire two concurrent give_consent calls before the
-    // modal closes. If a pull is already in flight, the second call is a
-    // no-op.
-    if *state.model_status.read() == ModelStatus::Downloading {
-        return Ok(());
-    }
+    // GAP-3 + spec 050 security review 3a: claim the pull slot ATOMICALLY,
+    // before the first `.await`. A check-then-set across `consent::save`
+    // let two concurrent invokes both pass the guard and spawn two pulls
+    // (the first one orphaned, its cancel token overwritten).
+    let claim = claim_pull_slot(&mut state.model_status.write());
+    let previous = match claim {
+        PullClaim::AlreadyRunning => return Ok(()),
+        PullClaim::NoPullNeeded => None,
+        PullClaim::Claimed { previous } => Some(previous),
+    };
+    let release = |state: &AppState| {
+        if let Some(prev) = previous {
+            *state.model_status.write() = prev;
+        }
+    };
+
     let mut consent = state.consent.write().clone();
     consent.choice = ConsentChoice::Fortsatt;
     consent.asked_at = Some(Utc::now());
     consent.schema_version = 1;
-    consent::save(&app, &consent)
-        .await
-        .map_err(|e| e.to_string())?;
+    if let Err(e) = consent::save(&app, &consent).await {
+        release(state.inner());
+        return Err(e.to_string());
+    }
     *state.consent.write() = consent;
+
+    // Spec 050 FR-002 — a stale override (ModellSaknasAvbruten after a
+    // cancel, FelDiskFull from the previous attempt) would otherwise keep
+    // masking the new truth in snapshot(), leaving the download invisible.
+    *state.error_override.write() = None;
+
+    // Spec 050 / TLA+ FirstRun GAP-1 — the model can already be present
+    // (e.g. an external Ollama that has it) while consent was never asked.
+    // Then consent is all that was missing: no disk check (it would show a
+    // bogus "diskutrymme" error with a dead Avbryt) and no re-download.
+    if previous.is_none() {
+        emit_status(&app, &state.snapshot());
+        return Ok(());
+    }
 
     // F2/F3 (T047): refuse the pull early if there isn't enough disk to
     // hold the model. The consent record was just persisted — the user did
     // opt in — but acting on it requires space.
     if !has_sufficient_disk_for_pull(&app) {
+        release(state.inner());
         *state.error_override.write() = Some(UserVisibleStatus::FelDiskFull);
         emit_status(&app, &state.snapshot());
         return Ok(());
     }
 
-    *state.model_status.write() = ModelStatus::Downloading;
     *state.progress.write() = Some(0);
     let snapshot = state.snapshot();
     emit_status(&app, &snapshot);
@@ -314,14 +363,52 @@ pub async fn give_consent(app: AppHandle, state: tauri::State<'_, AppState>) -> 
     Ok(())
 }
 
+/// Outcome of trying to claim the single first-run pull slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PullClaim {
+    /// A pull is in flight — this call is a no-op (GAP-3).
+    AlreadyRunning,
+    /// The model is present; consent is all that was missing (TLA+ GAP-1).
+    NoPullNeeded,
+    /// The slot is now ours (`status` = Downloading); `previous` is what to
+    /// restore if the pull cannot start after all.
+    Claimed { previous: ModelStatus },
+}
+
+/// Spec 050 security review 3a — check-and-set in ONE critical section,
+/// called with the `model_status` write lock held.
+pub fn claim_pull_slot(status: &mut ModelStatus) -> PullClaim {
+    match *status {
+        ModelStatus::Downloading => PullClaim::AlreadyRunning,
+        ModelStatus::Ready => PullClaim::NoPullNeeded,
+        previous @ (ModelStatus::NotPresent | ModelStatus::DownloadFailed) => {
+            *status = ModelStatus::Downloading;
+            PullClaim::Claimed { previous }
+        }
+    }
+}
+
+/// Spec 050 FR-003 — `cancel_consent` is honoured on the welcome screen
+/// (`NotAsked`) AND on the first-run error panel (`Fortsatt` with no model
+/// and no pull in flight), whose "Avbryt" must lead back to welcome.
+/// GAP-3 idempotency still holds: a decided `Avbryt`, a running download
+/// and a ready model are all no-ops.
+pub fn cancel_consent_allowed(choice: ConsentChoice, model: ModelStatus) -> bool {
+    match choice {
+        ConsentChoice::NotAsked => true,
+        ConsentChoice::Avbryt => false,
+        ConsentChoice::Fortsatt => {
+            matches!(model, ModelStatus::NotPresent | ModelStatus::DownloadFailed)
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn cancel_consent(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    // GAP-3: idempotency — if consent is already decided (either choice),
-    // a second click is a no-op rather than re-persisting and re-emitting.
-    if state.consent.read().choice != ConsentChoice::NotAsked {
+    if !cancel_consent_allowed(state.consent.read().choice, *state.model_status.read()) {
         return Ok(());
     }
     let mut consent = state.consent.write().clone();
@@ -332,6 +419,7 @@ pub async fn cancel_consent(
         .await
         .map_err(|e| e.to_string())?;
     *state.consent.write() = consent;
+    *state.error_override.write() = None;
     let snapshot = state.snapshot();
     emit_status(&app, &snapshot);
     Ok(())
@@ -481,6 +569,107 @@ fn normalize_instruction(instruction: Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Spec 050 FR-003 — cancel_consent guard, exhaustive truth table ──
+    #[test]
+    fn cancel_consent_allowed_truth_table() {
+        use ConsentChoice::*;
+        use ModelStatus::*;
+        for choice in [NotAsked, Fortsatt, Avbryt] {
+            for model in [NotPresent, Downloading, Ready, DownloadFailed] {
+                let expected = matches!(
+                    (choice, model),
+                    (NotAsked, _) | (Fortsatt, NotPresent) | (Fortsatt, DownloadFailed)
+                );
+                assert_eq!(
+                    cancel_consent_allowed(choice, model),
+                    expected,
+                    "{choice:?} × {model:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cancel_consent_never_interrupts_a_download_or_a_ready_model() {
+        for choice in [
+            ConsentChoice::NotAsked,
+            ConsentChoice::Fortsatt,
+            ConsentChoice::Avbryt,
+        ] {
+            if choice != ConsentChoice::NotAsked {
+                assert!(!cancel_consent_allowed(choice, ModelStatus::Downloading));
+                assert!(!cancel_consent_allowed(choice, ModelStatus::Ready));
+            }
+        }
+    }
+
+    // ── Spec 050 — atomic pull-slot claim (TLA+ GAP-1 + security 3a/3b) ──
+    #[test]
+    fn claim_pull_slot_truth_table() {
+        let cases = [
+            (
+                ModelStatus::Downloading,
+                PullClaim::AlreadyRunning,
+                ModelStatus::Downloading,
+            ),
+            (
+                ModelStatus::Ready,
+                PullClaim::NoPullNeeded,
+                ModelStatus::Ready,
+            ),
+            (
+                ModelStatus::NotPresent,
+                PullClaim::Claimed {
+                    previous: ModelStatus::NotPresent,
+                },
+                ModelStatus::Downloading,
+            ),
+            (
+                ModelStatus::DownloadFailed,
+                PullClaim::Claimed {
+                    previous: ModelStatus::DownloadFailed,
+                },
+                ModelStatus::Downloading,
+            ),
+        ];
+        for (start, want_claim, want_after) in cases {
+            let mut status = start;
+            assert_eq!(claim_pull_slot(&mut status), want_claim, "{start:?}");
+            assert_eq!(status, want_after, "{start:?}");
+        }
+    }
+
+    #[test]
+    fn only_one_of_many_concurrent_claims_wins() {
+        let status = Arc::new(RwLock::new(ModelStatus::NotPresent));
+        let handles: Vec<_> = (0..32)
+            .map(|_| {
+                let status = status.clone();
+                std::thread::spawn(move || claim_pull_slot(&mut status.write()))
+            })
+            .collect();
+        let wins = handles
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .filter(|c| matches!(c, PullClaim::Claimed { .. }))
+            .count();
+        assert_eq!(
+            wins, 1,
+            "exactly one concurrent give_consent may start a pull"
+        );
+    }
+
+    // ── Spec 050 FR-008 — tags retry backoff 1 s, 2 s ──
+    #[test]
+    fn tags_retry_backoff_is_linear_and_bounded() {
+        assert_eq!(tags_retry_backoff(1), Duration::from_secs(1));
+        assert_eq!(tags_retry_backoff(2), Duration::from_secs(2));
+        let total: u64 = (1..TAGS_ATTEMPTS)
+            .map(|a| tags_retry_backoff(a).as_secs())
+            .sum();
+        assert_eq!(total, 3, "boot must add at most 3 s on a failing probe");
+    }
 
     // ── Spec 041 contract A — instruction normalization at the trust
     // boundary. The UI caps at 500, but the command must hold alone

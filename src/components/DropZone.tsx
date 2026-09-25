@@ -7,6 +7,7 @@ import {
   type ZoneFailure,
   type ZoneId,
 } from '@/lib/tauri-bridge';
+import { disposable } from '@/lib/listen-lifecycle';
 import { useStatusStore, statusMessage } from '@/lib/status-store';
 import { SWEDISH_ZONE_ERROR } from './DropZone.errors';
 import { ZONE_IDENTITIES } from './DropZone.identity';
@@ -41,11 +42,7 @@ export function DropZone({ zoneId }: DropZoneProps) {
     const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
     if (!inTauri) return;
 
-    let unlisten: (() => void) | undefined;
-    void subscribeZone(zoneId, (snap) => setZone(zoneId, snap)).then((fn) => {
-      unlisten = fn;
-    });
-    return () => unlisten?.();
+    return disposable(subscribeZone(zoneId, (snap) => setZone(zoneId, snap)));
   }, [zoneId, setZone]);
 
   // Spec 026 — single readiness truth. The zone is disabled iff the GLOBAL

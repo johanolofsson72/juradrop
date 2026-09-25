@@ -87,7 +87,7 @@ describe('ConsentModal', () => {
     render(<ConsentModal />);
     const body = screen.getByText(/ollama\.com/);
     expect(body).toBeInTheDocument();
-    expect(body.textContent).toContain('~3 GB');
+    expect(body.textContent).toContain('~3,3 GB');
     // Spec 042 — honest scoping replaced the old "enda gången"
     // overclaim (the updater also calls out); the claim is now the
     // direction (model TO the computer) + the user-content guarantee.

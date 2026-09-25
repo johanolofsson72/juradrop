@@ -259,3 +259,28 @@ async fn same_client_handles_failure_then_success_without_state_leak() {
         Some(PullEvent::Completed)
     ));
 }
+
+/// Spec 050 security review — with no total-duration cap on the first-run
+/// pull, an unterminated line must not grow the parse buffer without bound.
+/// A 1 MiB line with no newline must fail fast with Err, not buffer it all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pull_rejects_an_unterminated_oversized_line() {
+    let body = "x".repeat(1024 * 1024);
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/pull"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/x-ndjson"))
+        .mount(&server)
+        .await;
+
+    let client = OllamaClient::with_base_url(server.uri());
+    let (events, cb) = event_collector();
+    let result = tokio::time::timeout(Duration::from_secs(10), client.pull("gemma3:4b", cb))
+        .await
+        .expect("must not hang");
+    match result {
+        Err(ClientError::Http(msg)) => assert!(msg.contains("too long"), "{msg}"),
+        other => panic!("expected line-too-long Err, got {other:?}"),
+    }
+    assert!(events.lock().unwrap().is_empty());
+}

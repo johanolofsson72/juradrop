@@ -7,6 +7,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { ActionErrorNotice } from '@/components/ActionErrorNotice';
+import { DEFAULT_MODEL_DOWNLOAD } from '@/lib/model-download';
 import { useStatusStore } from '@/lib/status-store';
 
 // FR-019 consent modal — shown exactly once per fresh install, before the
@@ -30,11 +32,12 @@ export function ConsentModal() {
               direction: the model comes TO the computer; nothing the user
               writes or drops is sent. Humanizer-reviewed. */}
           <DialogDescription id="consent-body">
-            JuraDrop hämtar nu en AI-modell (~3 GB) från ollama.com. Modellen
+            JuraDrop hämtar nu en AI-modell (~{DEFAULT_MODEL_DOWNLOAD.label}) från ollama.com. Modellen
             laddas ner till din dator — inget du skriver eller släpper skickas
             någonstans.
           </DialogDescription>
         </DialogHeader>
+        <ActionErrorNotice />
         <DialogFooter className="gap-2 sm:gap-2">
           <Button type="button" variant="outline" onClick={() => void cancel()}>
             Avbryt

@@ -13,12 +13,15 @@
 
 import { useEffect, useRef } from 'react';
 
-import { cancelConsent, giveConsent } from '@/lib/tauri-bridge';
+import { ActionErrorNotice } from '@/components/ActionErrorNotice';
 import { useStatusStore } from '@/lib/status-store';
 import { WIZARD_STRINGS } from '@/lib/wizard-strings';
 
 export function WelcomeWizard() {
   const sidecar = useStatusStore((s) => s.status.sidecar);
+  // Spec 050 FR-009 — store actions catch + surface failures.
+  const giveConsent = useStatusStore((s) => s.giveConsent);
+  const cancelConsent = useStatusStore((s) => s.cancelConsent);
   const fortsattRef = useRef<HTMLButtonElement | null>(null);
   const sidecarReady = sidecar === 'ready';
 
@@ -39,7 +42,7 @@ export function WelcomeWizard() {
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, []);
+  }, [cancelConsent]);
 
   return (
     <div
@@ -102,6 +105,8 @@ export function WelcomeWizard() {
             {WIZARD_STRINGS.welcome_cta_secondary}
           </button>
         </div>
+
+        <ActionErrorNotice className="mt-4" />
 
         {!sidecarReady && (
           <p className="mt-4 text-xs italic text-muted-foreground">

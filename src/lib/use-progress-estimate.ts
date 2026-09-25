@@ -9,6 +9,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { disposable } from './listen-lifecycle';
+import { DEFAULT_MODEL_DOWNLOAD } from './model-download';
 import { subscribeProgress } from './tauri-bridge';
 import { useStatusStore } from './status-store';
 import { WIZARD_STRINGS } from './wizard-strings';
@@ -19,11 +21,10 @@ const DEFAULT_STALE_MS = 5_000;
 // "Väntar på nätverk…" flip under the FR-007 5 s target. With 1000 ms
 // the worst case was ~6 s; with 500 ms it's ~5.5 s.
 const STALE_POLL_INTERVAL_MS = 500;
-// Approximate disk footprint of the default Smart-tier model. Spec 010
-// puts the canonical mapping in src-tauri/src/settings/tier_map.rs;
-// this constant is only used as a "we have to multiply percent by
-// something" denominator so a rough estimate is fine.
-const ESTIMATED_TOTAL_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB approx
+// Disk footprint of the default Smart-tier model — the "multiply percent by
+// something" denominator for the byte counter + ETA. Spec 050 FR-006: it
+// used to be 2 GiB, which under-stated the real ~3.3 GB by ~40 %.
+const ESTIMATED_TOTAL_BYTES = DEFAULT_MODEL_DOWNLOAD.bytes;
 
 export interface ProgressEstimate {
   lastPct: number;
@@ -89,10 +90,10 @@ export function useProgressEstimate(opts: Options = {}): ProgressEstimate {
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    let unsub: (() => void) | undefined;
     const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-    if (inTauri) {
-      void subscribeProgress((percent) => {
+    if (!inTauri) return;
+    return disposable(
+      subscribeProgress((percent) => {
         const now = Date.now();
         const bytes = Math.floor((percent / 100) * total);
         samplesRef.current.push({ t: now, bytes });
@@ -102,13 +103,8 @@ export function useProgressEstimate(opts: Options = {}): ProgressEstimate {
         }
         setLabel('downloading');
         setTick((x) => x + 1);
-      }).then((fn) => {
-        unsub = fn;
-      });
-    }
-    return () => {
-      unsub?.();
-    };
+      }),
+    );
   }, [windowMs, total]);
 
   // FR-007 — poll for the stale-progress label flip every 500 ms so

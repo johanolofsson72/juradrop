@@ -12,11 +12,8 @@
 
 import { useEffect } from 'react';
 
-import {
-  cancelConsent,
-  cancelModelPull,
-  giveConsent,
-} from '@/lib/tauri-bridge';
+import { ActionErrorNotice } from '@/components/ActionErrorNotice';
+import { cancelModelPull } from '@/lib/tauri-bridge';
 import { useStatusStore } from '@/lib/status-store';
 import {
   formatBytesSwedish,
@@ -137,6 +134,9 @@ interface ErrorPanelProps {
 }
 
 function ErrorPanel({ visibleStatus }: ErrorPanelProps) {
+  // Spec 050 FR-009 — store actions catch + surface failures.
+  const giveConsent = useStatusStore((s) => s.giveConsent);
+  const cancelConsent = useStatusStore((s) => s.cancelConsent);
   // Re-render the canonical Swedish copy from status-store. FR-009 +
   // existing spec 002 vocabulary owns the actual error strings.
   const message = statusMessage({
@@ -175,7 +175,9 @@ function ErrorPanel({ visibleStatus }: ErrorPanelProps) {
         {/* DRIFT-1 / TLA+ finding — `error → welcome` transition needs
             a UI affordance so the user isn't stuck retrying. Calling
             cancelConsent flips consent.choice = avbryt, which the
-            wizard truth table maps to welcome on the next render. */}
+            wizard truth table maps to welcome on the next render.
+            Spec 050 FR-003 — the Rust guard now honours this from the
+            error phase (it used to no-op unless consent was not_asked). */}
         <button
           type="button"
           onClick={() => void cancelConsent()}
@@ -188,6 +190,7 @@ function ErrorPanel({ visibleStatus }: ErrorPanelProps) {
           {WIZARD_STRINGS.welcome_cta_secondary}
         </button>
       </div>
+      <ActionErrorNotice className="mt-4" />
     </>
   );
 }

@@ -295,12 +295,20 @@ pub async fn confirm_restart_install<R: Runtime>(app: AppHandle<R>) -> Result<()
 /// Plugin install path. Public so the deferred-restart actuator in
 /// `deferral.rs` can drive it from the zone-state-change listener.
 ///
-/// `install()` normally exits the process on success. If it returns
-/// `Err` (disk full, signed-but-corrupted DMG), we transition
-/// `Restarting → Failed` so the user can retry instead of sitting on
-/// "Startar om…" perpetually (GAP-B / spec.allium InstallFailedTransition).
+/// Spec 050 FR-001 — on macOS `install()` replaces the bundle and RETURNS
+/// `Ok`; it does not exit the process (only the Windows installer does).
+/// So a successful install must be followed by an explicit restart, and
+/// `Restarting → Failed` is recorded only when the install actually failed
+/// (disk full, signed-but-corrupted archive) so the user can retry instead
+/// of sitting on "Startar om…" (GAP-B / spec.allium InstallFailedTransition).
 pub async fn run_deferred_install<R: Runtime>(app: &AppHandle<R>, bytes: Vec<u8>) {
-    run_plugin_install(app, bytes).await;
+    if run_plugin_install(app, bytes).await.is_ok() {
+        // `request_restart` (not `restart`) goes through RunEvent::Exit, so
+        // `shutdown()` stops the Ollama sidecar before the new version
+        // launches and binds 11434 (spec 050 FR-007).
+        app.request_restart();
+        return;
+    }
     if let Some(state) = app.try_state::<AppState>() {
         let mut u = state.updater.write();
         let old = u.state;
@@ -311,17 +319,36 @@ pub async fn run_deferred_install<R: Runtime>(app: &AppHandle<R>, bytes: Vec<u8>
     }
 }
 
-async fn run_plugin_install<R: Runtime>(app: &AppHandle<R>, bytes: Vec<u8>) {
-    let updater = match app.updater() {
-        Ok(u) => u,
-        Err(_) => return,
-    };
+async fn run_plugin_install<R: Runtime>(app: &AppHandle<R>, bytes: Vec<u8>) -> Result<(), ()> {
+    // Spec 050 security review 1a — the bytes were downloaded (and their
+    // signature verified) for `latest_known_version`, possibly hours ago
+    // behind the deferred-restart banner. If the manifest has moved since,
+    // the fresh `Update` describes a DIFFERENT release: fail closed rather
+    // than install one release's bytes under another's metadata.
+    let expected = app
+        .try_state::<AppState>()
+        .and_then(|s| s.updater.read().latest_known_version.clone());
+    let updater = app.updater().map_err(|_| ())?;
     let update = match updater.check().await {
-        Ok(Some(u)) => u,
-        _ => return,
+        Ok(Some(u)) if install_matches_download(expected.as_deref(), &u.version) => u,
+        Ok(Some(u)) => {
+            eprintln!(
+                "[juradrop] manifest moved to {} since download of {:?}; refusing stale install",
+                u.version, expected
+            );
+            return Err(());
+        }
+        _ => return Err(()),
     };
-    // The plugin exits the process inside `install()` on success.
-    let _ = update.install(bytes);
+    update.install(bytes).map_err(|e| {
+        eprintln!("[juradrop] update install failed: {e}");
+    })
+}
+
+/// Spec 050 security review 1a — the release being installed must be the
+/// one whose bytes were downloaded.
+pub fn install_matches_download(downloaded: Option<&str>, offered: &str) -> bool {
+    downloaded == Some(offered)
 }
 
 /// T031 — User clicked "Avbryt" on the deferred-restart banner.
@@ -360,6 +387,13 @@ pub fn dismiss_update_indicator<R: Runtime>(app: AppHandle<R>) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn install_requires_the_downloaded_version() {
+        assert!(install_matches_download(Some("0.5.0"), "0.5.0"));
+        assert!(!install_matches_download(Some("0.5.0"), "0.5.1"));
+        assert!(!install_matches_download(None, "0.5.0"));
+    }
 
     #[test]
     fn log_transition_format_contains_only_state_names_and_version() {

@@ -55,9 +55,20 @@ interface StatusStore {
   setZone: (id: ZoneId, next: ZoneSnapshot) => void;
   giveConsent: () => Promise<void>;
   cancelConsent: () => Promise<void>;
+  /** Spec 050 FR-009 — the last failed user action, as fixed Swedish copy
+   *  (never a raw error). Cleared by the next successful action. */
+  actionFailure: string | null;
+  reportActionFailure: (message: string) => void;
+  clearActionFailure: () => void;
 }
 
-export const useStatusStore = create<StatusStore>((set) => ({
+/** Spec 050 FR-009 — fixed Swedish copy for failed fire-and-forget IPC. */
+export const ACTION_ERRORS = {
+  consent: 'Kunde inte spara ditt val. Försök igen.',
+  dispatch: 'Kunde inte skicka filen till zonen. Försök igen.',
+} as const;
+
+export const useStatusStore = create<StatusStore>((set, get) => ({
   status: initialStatus,
   zones: initialZones,
   zone: initialZones.sammanfatta,
@@ -71,12 +82,29 @@ export const useStatusStore = create<StatusStore>((set) => ({
       // legacy `zone` field so the old tests keep working.
       zone: id === 'sammanfatta' ? next : s.zone,
     })),
+  // Spec 050 FR-009 — never reject into a `void` call site: a failure is
+  // logged for diagnostics and surfaced as a specific Swedish message.
   giveConsent: async () => {
-    await bridgeGive();
+    try {
+      await bridgeGive();
+      get().clearActionFailure();
+    } catch (err) {
+      console.error('[juradrop] give_consent failed', err);
+      get().reportActionFailure(ACTION_ERRORS.consent);
+    }
   },
   cancelConsent: async () => {
-    await bridgeCancel();
+    try {
+      await bridgeCancel();
+      get().clearActionFailure();
+    } catch (err) {
+      console.error('[juradrop] cancel_consent failed', err);
+      get().reportActionFailure(ACTION_ERRORS.consent);
+    }
   },
+  actionFailure: null,
+  reportActionFailure: (message) => set({ actionFailure: message }),
+  clearActionFailure: () => set({ actionFailure: null }),
 }));
 
 export function statusMessage(status: AppStatus): string {

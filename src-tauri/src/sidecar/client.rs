@@ -16,10 +16,14 @@ const BASE_URL: &str = "http://127.0.0.1:11434";
 /// received chunk — NOT a cap on total download duration. 90 s sits far above
 /// any realistic inter-chunk gap (progress lines arrive sub-second while bytes
 /// flow; even a `verifying sha256 digest` pause is seconds) and far below "the
-/// user gave up". Same order of magnitude as the bundled path's 300 s TOTAL cap
-/// (`MODEL_PULL_TIMEOUT_SECONDS`, sidecar/commands.rs), but it governs SILENCE,
-/// so it cannot fire on a slow-but-progressing large-model pull.
+/// user gave up". It governs SILENCE, so it cannot fire on a slow-but-progressing
+/// large-model pull — and since spec 050 it is the ONLY time bound on every pull
+/// (the bundled path's former 300 s total cap was removed).
 const PULL_STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Upper bound on one NDJSON progress line from `/api/pull`. Real lines are
+/// ~150 bytes; 64 KiB is generous headroom and still a hard ceiling.
+const MAX_PULL_LINE_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -238,6 +242,11 @@ impl OllamaClient {
             let Some(chunk) = next else { break };
             let bytes = chunk.map_err(ClientError::from)?;
             buf.extend_from_slice(&bytes);
+            // Spec 050 security review — with no total-duration cap on a
+            // pull, an unterminated line must not grow `buf` without bound.
+            if !buf.contains(&b'\n') && buf.len() > MAX_PULL_LINE_BYTES {
+                return Err(ClientError::Http("pull stream line too long".into()));
+            }
             while let Some(nl) = buf.iter().position(|b| *b == b'\n') {
                 let line: Vec<u8> = buf.drain(..=nl).collect();
                 let line_str = std::str::from_utf8(&line[..line.len() - 1])

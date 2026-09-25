@@ -6,6 +6,19 @@ Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/), och p
 
 ## [Unreleased]
 
+### Fixed
+- **Uppdateringar startar om appen som de ska** (spec 050). På Mac installerades uppdateringen, men appen visade ändå "misslyckades" och fortsatte köra den gamla versionen tills du stängde den själv. Nu startar den om direkt på den nya versionen.
+- **Nedladdningen av AI-modellen ger inte upp på långsamma nät.** Förut avbröts den efter fem minuter oavsett hur det gick, och på en vanlig hemmauppkoppling räckte det sällan för 3,3 GB. Nu får den ta den tid den behöver. Den avbryts bara om inget alls kommer in på 90 sekunder.
+- **"Avbryt" och "Försök igen" i välkomstguiden fungerar igen.** Efter en avbruten nedladdning eller för lite diskutrymme kunde guiden fastna, och Avbryt-knappen på felsidan gjorde ingenting.
+- **Rätt modellnamn i resultatfilen.** Word-filen skrev alltid "gemma3:4b", även när du körde Snabb eller Stor.
+- **Rätt storlek på nedladdningen.** Guiden sa "cirka 2 GB", men modellen är 3,3 GB. Förloppet och tidsuppskattningen stämmer nu.
+- **Cmd+Q stänger av AI-motorn.** Förut fortsatte den att ligga kvar i minnet tills nästa start.
+- Om ditt val inte kunde sparas, eller om en fil inte gick att skicka till en zon, får du nu ett tydligt felmeddelande i stället för att ingenting händer.
+
+### Security
+- Appens gränssnitt kan inte längre starta eller stoppa program. Det sköts helt av appens kärna.
+- En uppdatering installeras bara om det är exakt den version som laddades ner och kontrollerades.
+
 ## [0.4.1] - 2026-06-20
 
 En liten men viktig integritetsfix i anonymiseringen, plus en omgång härdning under huven.

@@ -13,7 +13,8 @@
     "src/lib/status-store.ts",
     "src/lib/tier-download-store.ts",
     "src/lib/use-progress-estimate.ts",
-    "src/components/DropZone.identity.ts"
+    "src/components/DropZone.identity.ts",
+    "src/lib/listen-lifecycle.ts"
   ],
   "thresholds": {
     "high": 80,
@@ -22,5 +23,10 @@
   },
   "tempDirName": ".stryker-tmp",
   "concurrency": 4,
-  "timeoutMS": 60000
+  "timeoutMS": 60000,
+  "ignorePatterns": [
+    "src-tauri/target",
+    "src-tauri/binaries",
+    ".stryker-tmp"
+  ]
 }
