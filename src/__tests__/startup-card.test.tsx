@@ -298,7 +298,13 @@ describe('StartupCard — functional', () => {
     launchAs(NOTED);
     const { unmount } = render(<StartupCard />);
     expect(screen.getByText(STARTUP_STRINGS.whats_new_heading(NOTED))).toBeInTheDocument();
-    for (const line of RELEASE_NOTES[NOTED]!) expect(screen.getByText(line)).toBeInTheDocument();
+    const notes = RELEASE_NOTES[NOTED]!;
+    // Collapsed: only the first note, so the grid still fits (spec 042 F3).
+    expect(screen.getByText(notes[0]!)).toBeInTheDocument();
+    expect(screen.queryByText(notes[1]!)).toBeNull();
+    fireEvent.click(screen.getByText(STARTUP_STRINGS.whats_new_more(notes.length)));
+    for (const line of notes) expect(screen.getByText(line)).toBeInTheDocument();
+    expect(screen.queryByText(STARTUP_STRINGS.whats_new_more(notes.length))).toBeNull();
     fireEvent.click(screen.getByText(STARTUP_STRINGS.whats_new_ok));
     expect(screen.queryByRole('region')).toBeNull();
     unmount();

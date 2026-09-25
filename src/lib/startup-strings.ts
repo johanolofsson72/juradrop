@@ -46,6 +46,7 @@ export const STARTUP_STRINGS = {
   dismiss_label: 'Stäng',
   whats_new_heading: (version: string) => `Nytt i version ${version}`,
   whats_new_ok: 'Okej',
+  whats_new_more: (count: number) => `Visa alla ${count} nyheter`,
   card_region_label: 'Tips vid start',
   section_title: 'Start',
   tips_toggle_label: 'Visa tips vid start',
