@@ -13,7 +13,7 @@ Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/), och p
 - **”Nytt i versionen”** Första gången du startar en ny version får du se vad som ändrats. Det visas en gång och sedan kommer tipsen tillbaka. Allt finns i appen, så inget hämtas från nätet.
 
 ### Fixed
-- **Uppdateringar startar om appen som de ska** (spec 050). På Mac installerades uppdateringen, men appen visade ändå "misslyckades" och fortsatte köra den gamla versionen tills du stängde den själv. Nu startar den om direkt på den nya versionen.
+- **Uppdateringar startar om appen som de ska** (spec 050). På Mac installerades uppdateringen, men appen visade ändå "misslyckades" och fortsatte köra den gamla versionen tills du stängde den själv. Nu startar den om direkt på den nya versionen. Men själva uppdateringen till 0.5.0 sköts fortfarande av 0.4.1, som har felet kvar. Kommer du från 0.4.1 får du alltså stänga appen med Cmd+Q och öppna den igen en sista gång.
 - **Nedladdningen av AI-modellen ger inte upp på långsamma nät.** Förut avbröts den efter fem minuter oavsett hur det gick, och på en vanlig hemmauppkoppling räckte det sällan för 3,3 GB. Nu får den ta den tid den behöver. Den avbryts bara om inget alls kommer in på 90 sekunder.
 - **"Avbryt" och "Försök igen" i välkomstguiden fungerar igen.** Efter en avbruten nedladdning eller för lite diskutrymme kunde guiden fastna, och Avbryt-knappen på felsidan gjorde ingenting.
 - **Rätt modellnamn i resultatfilen.** Word-filen skrev alltid "gemma3:4b", även när du körde Snabb eller Stor.
