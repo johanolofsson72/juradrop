@@ -103,12 +103,15 @@ if [[ -f "$CARGO_LOCK" ]]; then
     ' "$CARGO_LOCK" > "$CARGO_LOCK.tmp" && mv "$CARGO_LOCK.tmp" "$CARGO_LOCK"
 fi
 
+# Targeted replace of the top-level "version" (the first one in the file)
+# so the file keeps its hand-written formatting; then prove it still parses.
 node -e '
     const fs = require("fs");
     const [file, v] = process.argv.slice(1);
-    const conf = JSON.parse(fs.readFileSync(file, "utf8"));
-    conf.version = v;
-    fs.writeFileSync(file, JSON.stringify(conf, null, 2) + "\n");
+    const src = fs.readFileSync(file, "utf8");
+    const out = src.replace(/("version"\s*:\s*")[^"]*(")/, `$1${v}$2`);
+    if (JSON.parse(out).version !== v) throw new Error("tauri.conf.json top-level version not updated");
+    fs.writeFileSync(file, out);
 ' "$TAURI" "$NEW"
 
 awk -v v="$NEW" -v d="$TODAY" '

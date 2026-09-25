@@ -39,7 +39,8 @@ name = "other"
 version = "0.4.1"
 EOF
     cat > "$dir/src-tauri/tauri.conf.json" <<'EOF'
-{ "productName": "JuraDrop", "version": "0.4.1" }
+{ "productName": "JuraDrop", "version": "0.4.1",
+  "bundle": { "targets": ["app", "dmg"] } }
 EOF
     cat > "$dir/CHANGELOG.md" <<'EOF'
 # Changelog
@@ -73,6 +74,7 @@ if run "$d" 0.5.0; then
     [[ "$(grep -A1 'name = "juradrop"' "$d/src-tauri/Cargo.lock" | tail -1)" == 'version = "0.5.0"' ]] && ok "Cargo.lock juradrop bumped" || bad "Cargo.lock juradrop bumped"
     [[ "$(grep -A1 'name = "other"' "$d/src-tauri/Cargo.lock" | tail -1)" == 'version = "0.4.1"' ]] && ok "Cargo.lock other package untouched" || bad "Cargo.lock other package untouched"
     grep -q '"version": "0.5.0"' "$d/src-tauri/tauri.conf.json" && ok "tauri.conf.json bumped" || bad "tauri.conf.json bumped"
+    grep -q '"targets": \["app", "dmg"\]' "$d/src-tauri/tauri.conf.json" && ok "tauri.conf.json formatting kept" || bad "tauri.conf.json formatting kept"
     grep -qE '^## \[0\.5\.0\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$' "$d/CHANGELOG.md" && ok "CHANGELOG section cut" || bad "CHANGELOG section cut"
     [[ "$(grep -c '^## \[Unreleased\]' "$d/CHANGELOG.md")" == 1 ]] && ok "empty [Unreleased] kept" || bad "empty [Unreleased] kept"
 else
