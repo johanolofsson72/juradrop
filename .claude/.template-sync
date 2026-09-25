@@ -1,5 +1,5 @@
-sha=5923862b28ff
-synced=2026-09-12T09:54:12Z
+sha=f638b2a09995
+synced=2026-09-25T14:25:44Z
 source=/Users/jool/repos/Claude
 # manifest: sha256 of each file as written by the sync — a project file
 # whose hash no longer matches was edited locally and is never overwritten.
@@ -176,7 +176,7 @@ ee3158f320043054a077b00d6827169a2efc79569e384d1b00f51469111a7af4  scripts/specki
 2a8b55ff05c4862a29e161f1cc132c5e57da314f014b09dd0734cb0cfe74b4be  scripts/sqlite-nfs-safety-hook.sh
 17835e347cd80d04e16016e16c1b28d555e1e963327b5cfae0a6562fc4f90d53  scripts/stack-marker-canary-hook.sh
 4dd3c56934a937d3274df6324b8dbb70a1358419edbf465c911e2571e514c86e  scripts/stop-validation-hook.sh
-20bcfcdbdc488bd49ae414f3fa05b00226e46bcc98268ea55da4a72e42c3021f  scripts/sync-core-hooks.py
+60cc158dc16bd626a2d25f7697c0de146686a43204fb1017c16a785de125cbf0  scripts/sync-core-hooks.py
 5e61392e26b23c1f5c4433c743626d5511d85e8e1ed5374c9e6043a5974154eb  scripts/sync-feature-json-hook.sh
 4084ba6c27aded1abaacf5470a32afc71691e344970361c45e94ee5539a299ba  scripts/sync-graphify-wiring.py
 8e5ad4f9a55b3030e680c74df280d4f17b569ceb935b7a7582431ca6f3230c04  scripts/sync-local-llm-hooks.py
@@ -192,11 +192,11 @@ ee3158f320043054a077b00d6827169a2efc79569e384d1b00f51469111a7af4  scripts/specki
 3040f56e0723a3fa195f381b0fdbcb70cce2c9908020fe28c11ed72b6d8f1209  scripts/test-core-owed-tick-guard.sh
 6c96961ebf776fed739f35bde54c70434eb14bea13722ab5daebed7d2cbf8c6b  scripts/test-coverage-hook.sh
 9b70ecdd9175a68882e8357b089a7ba4138bc0f76635700ed84a14e30027c983  scripts/test-detect-verify-command.sh
-316fdda037ec71831ecbffa33026e0c4c1f4c36fe08facb5ec3012c04c5a605c  scripts/test-finding.sh
+720d05cb986d28e43f067aff736b78ad2c361bc96fd49b3799e28a10770ba2b2  scripts/test-finding.sh
 0c201dc6d4a8ee1428bec47a81f04f4183890176d7f606dc64416aab51fdf711  scripts/test-fixture-map-ids.sh
-6b92297d0cacc28f0d8cd2f93325adcba102b8d9f50cb37511469b8a270dba55  scripts/test-hook-channels.sh
+32a56d29ecb01064eb0f6ae84f1bda3a82a35b8ff2a1b7fa88505e7340719590  scripts/test-hook-channels.sh
 094ffe15ca8ed1987d6195a88cb04ab192f80ba0e5300baee81dac8bae780735  scripts/test-lane-merge-drivers.sh
-0a0360babf21cc8c564c7073e83e55187de69eea614e0bfcc0e1db9dd4aae48c  scripts/test-lane-orientation.sh
+75f48d7e87384169f1f1dc107a254e76edbb2e3e739a2b9246e2a9275fdafe99  scripts/test-lane-orientation.sh
 a121070db3029b95232ecc9fd6abea65de8fd74954d675a55184da3c9082bbe4  scripts/test-maintenance-due.sh
 641834943380aeeb599bb96071f3bf9402427aed6efee0033230afe7ed8ce549  scripts/test-next-register-id.sh
 ff3352ed2e42d6341456c201009680ce5611a585a9ffd09ee607a2ac7ba077da  scripts/test-no-sigpipe-assertions.sh
@@ -243,4 +243,4 @@ e7a0cf3b1e72d6bf73d711bfd3f0ecf85035ffea79b5efe870ada18cc69a6c4b  scripts/valida
 # merge, the wiring helpers, the stack marker. The sync did not author these bytes end
 # to end and never overwrites them on this record; it is read only to answer "is my own
 # write still uncommitted". A line drops when its file goes or its bytes move.
-# wrote f275f914fc7805db9038162a2a2bfa69b43a8dc4189dd919490ba51f07461ded .claude/settings.json
+# wrote 5eb14059367323dcf5001999229df0e7bbf87662dbd3403a9dcae97552dd324e .claude/settings.json
