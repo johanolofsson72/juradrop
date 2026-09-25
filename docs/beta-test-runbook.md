@@ -4,7 +4,7 @@ Tack för att du hjälper till att testa JuraDrop. Den här guiden tar dig genom
 
 ## 1. Vad JuraDrop är (och inte är)
 
-JuraDrop är en macOS-app som översätter, sammanfattar, anonymiserar och förenklar juridiska texter med en **lokal** AI. Du drar ett dokument till en av sex zoner i fönstret, och en bearbetad version sparas bredvid originalet.
+JuraDrop är en macOS-app som översätter, sammanfattar, anonymiserar och förenklar juridiska texter med en **lokal** AI. Du drar ett dokument till en av tolv zoner i fönstret, och en bearbetad version sparas bredvid originalet.
 
 **Vad JuraDrop inte gör:**
 
@@ -16,7 +16,7 @@ JuraDrop är en macOS-app som översätter, sammanfattar, anonymiserar och före
 
 > JuraDrop samlar in noll data om dig eller dina dokument.
 
-All AI körs lokalt via en inbäddad Ollama-process. Den enda gången appen pratar med internet är (1) första gången du startar appen, då AI-modellen (~3 GB) laddas ner från `ollama.com`, och (2) när appen kollar efter uppdateringar mot `github.com/johanolofsson72/juradrop/releases`. Båda innehåller noll innehåll från dina dokument.
+All AI körs lokalt via en inbäddad Ollama-process. Den enda gången appen pratar med internet är (1) första gången du startar appen, då AI-modellen (cirka 3,3 GB) laddas ner från `ollama.com`, och (2) när appen kollar efter uppdateringar mot `github.com/johanolofsson72/juradrop/releases`. Båda innehåller noll innehåll från dina dokument.
 
 ## 2. Installation
 

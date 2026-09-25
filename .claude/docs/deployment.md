@@ -65,7 +65,7 @@ It verifies all of:
 - `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, and `package.json` all have version `0.1.0`
 - the tag `v0.1.0` doesn't already exist locally
 
-On success it prints the literal `git tag v0.1.0 && git push origin v0.1.0` command — you copy-paste it. The script does NOT auto-push (deliberate human checkpoint).
+On success it prints the tag + push commands AND the workflow-dispatch step (the release workflow is `workflow_dispatch`-only, so pushing a tag alone builds nothing). The script does NOT auto-push (deliberate human checkpoint).
 
 ## Release pipeline
 
@@ -152,11 +152,11 @@ Pinned in `src-tauri/Cargo.toml`:
 
 For each release after the prereqs are in place:
 
-1. Bump the version in three places: `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `package.json`. All three must match `X.Y.Z`.
-2. Update `CHANGELOG.md` (or the release-notes section of the README) with the new version's changes.
-3. Commit + push to `main`: `git commit -m "chore: bump to vX.Y.Z" && git push origin main`.
-4. Run `scripts/release-prep.sh vX.Y.Z`. It refuses to print the push command unless every precondition holds.
-5. Copy-paste the printed `git tag vX.Y.Z && git push origin vX.Y.Z` command.
+1. Write the changes under `## [Unreleased]` in `CHANGELOG.md` (Swedish, user-facing) and add the version's in-app "Nytt i versionen" bullets to `RELEASE_NOTES` in `src/lib/startup-strings.ts` (spec 051; a vitest release gate fails without them).
+2. `bash scripts/bump-version.sh X.Y.Z` (spec 052). It bumps all five version sites (`package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`) and turns `[Unreleased]` into `[X.Y.Z] - <date>`. It refuses a non-increasing version, an empty `[Unreleased]`, missing in-app notes or a dirty tree. `--dry-run` previews. It never commits, tags or pushes.
+3. Commit + push to `main`: `git commit -am "chore(release): vX.Y.Z" && git push origin main`.
+4. Run `scripts/release-prep.sh vX.Y.Z`. It refuses to print the ship steps unless every precondition holds.
+5. Tag and push: `git tag -a vX.Y.Z -m "JuraDrop X.Y.Z" && git push origin vX.Y.Z`, then **Actions → release → Run workflow** with `tag = vX.Y.Z` and `confirm_release = release`.
 6. Watch the run at `github.com/johanolofsson72/juradrop/actions`. Cached builds complete in ~15 min; cold builds in ~30 min.
 7. When the run succeeds, the draft release appears under [Releases → Drafts](https://github.com/johanolofsson72/juradrop/releases). Download the DMG attached there.
 8. Smoke-test the DMG on a real Mac (your dev Mac is fine if it doesn't already have the old version cached — better to use a clean test user account).

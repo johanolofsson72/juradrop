@@ -19,6 +19,10 @@ Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/), och p
 - **Cmd+Q stänger av AI-motorn.** Förut fortsatte den att ligga kvar i minnet tills nästa start.
 - Om ditt val inte kunde sparas, eller om en fil inte gick att skicka till en zon, får du nu ett tydligt felmeddelande i stället för att ingenting händer.
 
+### Changed
+- **En användarguide på svenska** (spec 052) i `docs/anvandarguide.md`. Den går igenom installation, alla tolv zoner, inställningar, uppdateringar och vad felmeddelandena betyder. README:n är uppdaterad med rätt storlek på modellen och rätt adress för uppdateringskollen.
+- Uppdaterade beroenden under huven: Tauri 2.11.6, uppdateringsmodulen 2.12, React-typer som matchar React 18 och Node 22 i byggkedjan. Inga funktioner ändras av det.
+
 ### Security
 - Appens gränssnitt kan inte längre starta eller stoppa program. Det sköts helt av appens kärna.
 - En uppdatering installeras bara om det är exakt den version som laddades ner och kontrollerades.

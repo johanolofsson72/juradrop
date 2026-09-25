@@ -1,9 +1,9 @@
 #!/bin/sh
 # Spec 006 — local release-prep helper.
 #
-# Run this BEFORE pushing a release tag. It verifies six preconditions
-# and, on success, prints the exact `git tag … && git push …` command
-# the developer should copy-paste. Refuses to auto-push.
+# Run this AFTER scripts/bump-version.sh and its commit, BEFORE tagging.
+# It verifies six preconditions and, on success, prints the exact tag,
+# push and workflow-dispatch steps. Refuses to auto-push.
 #
 # Usage:
 #   scripts/release-prep.sh vX.Y.Z
@@ -168,12 +168,16 @@ All preconditions OK for $TAG:
   - package.json                 version = $VERSION
   - tag $TAG does not yet exist
 
-Run this exact command to ship:
+Run these to ship (each reaches GitHub):
 
-  git tag $TAG && git push origin $TAG
-
-GitHub Actions will pick up the tag push, run the full regression sweep
-on macos-latest, sign + notarize the DMG, and create a DRAFT release.
-Smoke-test the draft DMG before clicking "Publish release".
+  1. git tag -a $TAG -m "JuraDrop $VERSION" && git push origin $TAG
+  2. GitHub → Actions → release → Run workflow
+       tag             = $TAG
+       confirm_release = release
+     (The workflow is manual on purpose — pushing the tag alone builds
+     nothing. It runs the quality gates on macos-latest, then signs,
+     notarizes and uploads a DRAFT release.)
+  3. Smoke-test the DMG from the draft, then press "Publish release".
+     The updater only sees published releases.
 
 EOF

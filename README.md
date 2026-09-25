@@ -32,6 +32,10 @@ JuraDrop är en macOS-app för svenska juridikstudenter. Dra ett Word- eller PDF
 
 Varje zon har en `(?)`-ikon med en kort förklaring, och hjälp-ikonen uppe till höger öppnar en panel som listar alla zoner.
 
+**Ny användare?** Läs [användarguiden](docs/anvandarguide.md). Den går igenom installation, alla zoner, inställningar och vad felmeddelandena betyder.
+
+**Tips vid start:** varje gång du öppnar appen visas ett kort tips ovanför zonerna, och efter en uppdatering visas i stället vad som är nytt. Tipsen stängs av under Inställningar → Start.
+
 **Egna instruktioner:** ovanför rutnätet finns ett fält där du kan skriva en instruktion som gäller nästa dokument du släpper, på vilken zon som helst — till exempel ”behåll citaten” på Till engelska. Skriver du just det bevaras citattecken-markerad text ordagrant: appen maskar citaten innan modellen ser texten och återställer dem efteråt. Instruktionen är valfri, skickas bara till AI-modellen på din dator och sparas aldrig.
 
 ## Skärmdumpar
@@ -69,7 +73,7 @@ Testsviten har dessutom en spärr som vägrar bygget om någon `sentry`/`plausib
 
 ## Status
 
-Publik beta. Senaste versionen är [v0.3.0](https://github.com/johanolofsson72/juradrop/releases/latest), signerad och notariserad. Extern betatestning pågår, och hela 0.3.0-versionen är driven av den första testrundans återkoppling — se [`CHANGELOG.md`](CHANGELOG.md) för vad varje version innehåller och [`specs/INDEX.md`](specs/INDEX.md) för spec-historiken.
+Publik beta. Den senaste versionen finns alltid under [Releases](https://github.com/johanolofsson72/juradrop/releases/latest), signerad och notariserad. Se [`CHANGELOG.md`](CHANGELOG.md) för vad varje version innehåller och [`specs/INDEX.md`](specs/INDEX.md) för spec-historiken.
 
 Releasekedjan är automatiserad: GitHub Actions bygger en universal `.app` (Apple Silicon + Intel), signerar med Developer ID, notariserar via Apple och laddar upp en signerad DMG under [Releases](https://github.com/johanolofsson72/juradrop/releases). Den inbyggda uppdateraren hämtar nya versioner med signaturverifiering.
 
@@ -78,7 +82,7 @@ Releasekedjan är automatiserad: GitHub Actions bygger en universal `.app` (Appl
 1. Hämta `JuraDrop_x.y.z_universal.dmg` från [Releases](https://github.com/johanolofsson72/juradrop/releases/latest).
 2. Öppna DMG-filen genom att dubbelklicka — ingen Gatekeeper-varning, appen är signerad och notariserad av Apple.
 3. Dra `JuraDrop.app` till `Program`.
-4. Starta appen. Vid första start laddas en AI-modell (~2 GB) ner från `ollama.com` — det är enda gången appen behöver internet för något annat än uppdateringskollen.
+4. Starta appen. Vid första start laddas en AI-modell (cirka 3,3 GB) ner från `ollama.com` — det är enda gången appen behöver internet för något annat än uppdateringskollen.
 5. Klart — dra ett dokument till en zon.
 
 ## Auto-updater
@@ -87,7 +91,7 @@ JuraDrop letar efter nya versioner ungefär var fjärde timme medan appen är ö
 
 Vill du inte bli störd just nu finns en × som döljer indikatorn tills nästa version dyker upp. En diskret tidsstämpel längst ner till höger visar när senaste sökningen gjordes, och en knapp där kör en manuell sökning om du föredrar det.
 
-Uppdateringskollen pratar bara med `api.github.com` (manifestet) och `objects.githubusercontent.com` (DMG-binären) — inget dokumentinnehåll är inblandat.
+Uppdateringskollen pratar bara med `github.com` (manifestet `latest.json` och själva uppdateringen, som GitHub levererar via sitt fillager). Inget dokumentinnehåll är inblandat. Efter en uppdatering startar appen om på den nya versionen och visar vad som är nytt.
 
 ## Build from source
 
@@ -97,7 +101,7 @@ For contributors and the curious. End-users should grab a [release](https://gith
 
 - macOS 12 (Monterey) or later, Apple Silicon
 - [Xcode Command Line Tools](https://developer.apple.com/) — `xcode-select --install`
-- [Node 20+](https://nodejs.org/) — via `nvm` or Homebrew
+- [Node 22+](https://nodejs.org/) — via `nvm` or Homebrew
 - [Rust toolchain](https://rustup.rs/) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 - The Apple Silicon Rust target — `rustup target add aarch64-apple-darwin`
 
@@ -145,6 +149,18 @@ README_SCREENSHOTS=1 npx playwright test tests/e2e/readme-screenshots.spec.ts
 
 For signing and notarization configuration, see [`.claude/docs/deployment.md`](.claude/docs/deployment.md).
 
+### Releasing a new version
+
+```bash
+# 1. Write what changed under "## [Unreleased]" in CHANGELOG.md, and add the
+#    in-app "Nytt i versionen" bullets to RELEASE_NOTES in src/lib/startup-strings.ts.
+bash scripts/bump-version.sh 0.6.0      # bumps all 5 version files + cuts the CHANGELOG (--dry-run to preview)
+git commit -am "chore(release): v0.6.0" && git push origin main
+bash scripts/release-prep.sh v0.6.0     # verifies, then prints the tag + workflow steps
+```
+
+Then push the tag and start **Actions → release → Run workflow** (`tag = v0.6.0`, `confirm_release = release`). It builds, signs and notarizes a **draft** release; smoke-test the DMG and press *Publish release*. Installed apps pick it up automatically.
+
 ## Tech stack
 
 - **Tauri 2.x** — Rust core + WKWebView UI
@@ -170,12 +186,13 @@ Dina dokument, egna instruktioner och resultat lämnar aldrig din dator — och 
 | File | Purpose |
 |---|---|
 | [`README.md`](README.md) | You are here |
+| [`docs/anvandarguide.md`](docs/anvandarguide.md) | Swedish end-user guide: install, the twelve zones, settings, errors |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each release |
 | [`PROJECT-BRIEF.md`](PROJECT-BRIEF.md) | Architecture, target users, decisions, risks |
 | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Nine governing principles (privacy, zero-CLI, native feel, …) |
 | [`design-system/MASTER.md`](design-system/MASTER.md) | Colors, typography, motion, the twelve drop zones |
 | [`specs/INDEX.md`](specs/INDEX.md) | Spec register — what's planned, in order |
-| [`.claude/docs/deployment.md`](.claude/docs/deployment.md) | Apple Developer setup, signing, notarization, CI |
+| [`.claude/docs/deployment.md`](.claude/docs/deployment.md) | Apple Developer setup, signing, notarization, the release flow |
 | [`CLAUDE.md`](CLAUDE.md) | Working instructions for Claude Code in this repo |
 
 ## Contributing

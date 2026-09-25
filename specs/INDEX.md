@@ -62,7 +62,7 @@ The pipeline track for each spec is triaged per `.claude/rules/specs.md`:
 - [ ] 049 — scenario-map-validation — scenario — H1 finding: the BLOCKING `specs/SCENARIOS.md` scenario map was never created across all 47 specs (the hooks are advisory-only). A DERIVED scaffold now exists (committed 410176d during the H1 fleet sync: use-case diagram + per-feature flowcharts + 79 SC-ids across the 12 zones + settings/wizard/updater/CSP, every row honestly `☐ mapped`, provenance-noted as un-validated). Remaining work: VALIDATE it through the scenario interview (`.claude/rules/scenarios.md`) — confirm the four-state coverage (success / specific error / empty / loading) per scenario at runtime and flip `☐ → ◐ → ✓`; fill any gaps the interview surfaces. Do NOT mark `✓` without observing real behaviour
 - [x] 050 — reliability-fixes — full track [hardened] — updater restart on macOS, first-run consent/pull recovery (TLA+-verified), 90 s stall instead of 5-min cap, docx model label, Cmd+Q stops Ollama, no silent IPC failures, WebView shell perms removed
 - [x] 051 — startup-tips-whats-new — light track — bundled Swedish tip card on every launch (toggle in Settings, localStorage) + one-time "Nytt i versionen" card after an update; no network
-- [ ] 052 — release-tooling-docs — spec-only — one-command version bump/CHANGELOG cut script, Swedish user guide, README refresh, safe dependency upgrades, Node 22 in CI; then cut v0.5.0
+- [/] 052 — release-tooling-docs — spec-only — one-command version bump/CHANGELOG cut script, Swedish user guide, README refresh, safe dependency upgrades, Node 22 in CI; then cut v0.5.0
 
 ## Register history
 
