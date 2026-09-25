@@ -67,3 +67,9 @@ reports/mutation/
 
 # TLC counterexample traces (regenerated on every model-check run)
 *_TTrace_*
+
+# Machine-local harness markers, bytecode, and hand-off bundles
+.claude/.bash-write-*
+.claude/.template-sync-check
+scripts/__pycache__/
+*.bundle
