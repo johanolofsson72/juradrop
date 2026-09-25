@@ -6,6 +6,8 @@ Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/), och p
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-25
+
 ### Added
 - **Ett tips varje gång du startar appen** (spec 051). Ett kort tips ovanför zonerna visar något du kanske inte visste att appen kan, till exempel egna instruktioner, ”Välj fil” eller IRAC-zonen. Det är ett nytt tips varje gång. Du kan klicka fram nästa, stänga det, eller stänga av tipsen helt under Inställningar → Start.
 - **”Nytt i versionen”** Första gången du startar en ny version får du se vad som ändrats. Det visas en gång och sedan kommer tipsen tillbaka. Allt finns i appen, så inget hämtas från nätet.

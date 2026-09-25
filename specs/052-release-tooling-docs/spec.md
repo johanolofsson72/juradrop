@@ -31,3 +31,10 @@
 ## Scenarios
 
 This spec is tooling and docs only; it adds no user-facing app scenario. The script is covered by `scripts/test-bump-version.sh` (happy path, dry-run, each refusal).
+
+## Verification record (2026-09-25)
+
+- `scripts/test-bump-version.sh`: 20/20 (including "tauri.conf.json formatting kept").
+- On the v0.5.0 state, with the same gates as `release.yml`: eslint, tsc, vitest 541/541 (the release gate is green), cargo fmt, clippy `-D warnings`, cargo test 664/664; Playwright 49/49.
+- A release blocker was found and fixed in place: the e2e fit test (spec 042 F3) failed once 0.5.0 had notes. The five-bullet card pushed the grid below the default window, so "Nytt i versionen" now opens collapsed.
+- `clippy::unnecessary_cast` in `disk_space.rs` fires on Linux only (the statvfs field widths differ from macOS); it is untouched, and the macOS CI is unaffected.
