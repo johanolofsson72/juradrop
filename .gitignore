@@ -64,3 +64,6 @@ reports/mutation/
 # Claude Code harness — machine-local state, never shared
 .claude/state/
 .specify/feature.json
+
+# TLC counterexample traces (regenerated on every model-check run)
+*_TTrace_*

@@ -58,6 +58,9 @@ interface StatusStore {
   /** Spec 050 FR-009 — the last failed user action, as fixed Swedish copy
    *  (never a raw error). Cleared by the next successful action. */
   actionFailure: string | null;
+  /** Spec 051 — consent was given in THIS session, i.e. this launch was a
+   *  first run (fresh install), not an existing install being upgraded. */
+  consentGivenThisSession: boolean;
   reportActionFailure: (message: string) => void;
   clearActionFailure: () => void;
 }
@@ -87,6 +90,7 @@ export const useStatusStore = create<StatusStore>((set, get) => ({
   giveConsent: async () => {
     try {
       await bridgeGive();
+      set({ consentGivenThisSession: true });
       get().clearActionFailure();
     } catch (err) {
       console.error('[juradrop] give_consent failed', err);
@@ -103,6 +107,7 @@ export const useStatusStore = create<StatusStore>((set, get) => ({
     }
   },
   actionFailure: null,
+  consentGivenThisSession: false,
   reportActionFailure: (message) => set({ actionFailure: message }),
   clearActionFailure: () => set({ actionFailure: null }),
 }));

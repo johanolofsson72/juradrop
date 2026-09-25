@@ -1,0 +1,57 @@
+-- allium: 3
+
+-- Spec 051: startup tips + "Nytt i versionen". Elicited 2026-09-25 from
+-- specs/051-startup-tips-whats-new/spec.md (post-clarify).
+
+enum CardKind { none | tip | whats_new }
+
+value StartupPrefs {
+    tips_enabled: Boolean       -- default true
+    next_tip: Integer           -- default 0; sanitized to >= 0
+    last_seen_version: String?  -- null on a fresh profile
+}
+
+entity Launch {
+    running_version: String
+    fresh_install: Boolean      -- consent given this session
+    has_notes_for_running: Boolean
+    prefs: StartupPrefs
+    card: CardKind
+    dismissed: Boolean
+
+    -- FR-006: a first run has nothing new to announce
+    invariant FreshInstallNoWhatsNew { this.fresh_install implies this.card != whats_new }
+
+    -- FR-005: tips off means no TIP (what's-new is exempt)
+    invariant TipsOffNoTip { not this.prefs.tips_enabled implies this.card != tip }
+}
+
+rule DecideCard {
+    when: status_became_klar(l: Launch)
+    let upgraded = not l.fresh_install and
+        (l.prefs.last_seen_version = null or l.prefs.last_seen_version != l.running_version)
+    -- FR-001 (never over the wizard) is structural: only the zone grid mounts the card.
+    ensures:
+        if upgraded and l.has_notes_for_running: l.card = whats_new  -- FR-006
+        else if l.prefs.tips_enabled: l.card = tip               -- FR-002
+        else: l.card = none
+        l.prefs.last_seen_version = l.running_version           -- FR-006 persist
+        if l.card = tip: l.prefs.next_tip = l.prefs.next_tip + 1 -- FR-002 rotate
+}
+
+rule NextTip {
+    when: user_clicks_nasta_tips(l: Launch)
+    requires: l.card = tip
+    ensures: l.prefs.next_tip = l.prefs.next_tip + 1            -- FR-003
+}
+
+rule Dismiss {
+    when: user_dismisses(l: Launch)
+    requires: l.card != none
+    ensures: l.dismissed = true                                  -- FR-004 / FR-007
+}
+
+rule ToggleTips {
+    when: user_sets_tips(l: Launch, on: Boolean)
+    ensures: l.prefs.tips_enabled = on                           -- FR-005
+}

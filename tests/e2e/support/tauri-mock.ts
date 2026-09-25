@@ -39,6 +39,9 @@ declare global {
       metadata?: unknown;
     };
     __JURADROP_TEST__?: JuradropTest;
+    __TAURI_EVENT_PLUGIN_INTERNALS__?: {
+      unregisterListener(event: string, eventId: number): void;
+    };
   }
 }
 
@@ -110,6 +113,17 @@ export function installTauriMock(canned: CannedState): void {
   }
 
   // ---- the SDK-facing bridge ----
+  // The real Tauri runtime injects this alongside __TAURI_INTERNALS__; the
+  // SDK's unlisten() calls it synchronously before invoking
+  // plugin:event|unlisten. Spec 050 made every listener actually unlisten
+  // (they used to leak), which is what first exercised this path.
+  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    unregisterListener(event: string, eventId: number): void {
+      for (const l of listeners) {
+        if (l.event === event && l.eventId === eventId) l.live = false;
+      }
+    },
+  };
   window.__TAURI_INTERNALS__ = {
     transformCallback(cb: (arg: unknown) => void, once?: boolean): number {
       const id = nextCallbackId++;

@@ -11,6 +11,7 @@ import { GearIcon } from '@/components/GearIcon';
 import { HelpIcon } from '@/components/HelpIcon';
 import { HelpPanel } from '@/components/HelpPanel';
 import { SettingsPanel } from '@/components/SettingsPanel';
+import { StartupCard } from '@/components/StartupCard';
 import { UpdateIndicator } from '@/components/UpdateIndicator';
 import { UpdateRetryFootnote } from '@/components/UpdateRetryFootnote';
 import { Wizard } from '@/components/Wizard';
@@ -217,6 +218,10 @@ export function App() {
       ) : (
         <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-4 pt-12">
           <WelcomeCard />
+          {/* Spec 051 — one tip per launch, or "Nytt i versionen" once
+              after an update. Only in the zone-grid path (never over the
+              wizard). */}
+          <StartupCard />
           {/* Spec 041 — per-drop instruction "half-zone": steering for
               the NEXT drop on any zone, pinned at dispatch time. */}
           <InstructionField />

@@ -6,6 +6,10 @@ Formatet följer [Keep a Changelog](https://keepachangelog.com/sv/1.1.0/), och p
 
 ## [Unreleased]
 
+### Added
+- **Ett tips varje gång du startar appen** (spec 051). Ett kort tips ovanför zonerna visar något du kanske inte visste att appen kan, till exempel egna instruktioner, ”Välj fil” eller IRAC-zonen. Det är ett nytt tips varje gång. Du kan klicka fram nästa, stänga det, eller stänga av tipsen helt under Inställningar → Start.
+- **”Nytt i versionen”** Första gången du startar en ny version får du se vad som ändrats. Det visas en gång och sedan kommer tipsen tillbaka. Allt finns i appen, så inget hämtas från nätet.
+
 ### Fixed
 - **Uppdateringar startar om appen som de ska** (spec 050). På Mac installerades uppdateringen, men appen visade ändå "misslyckades" och fortsatte köra den gamla versionen tills du stängde den själv. Nu startar den om direkt på den nya versionen.
 - **Nedladdningen av AI-modellen ger inte upp på långsamma nät.** Förut avbröts den efter fem minuter oavsett hur det gick, och på en vanlig hemmauppkoppling räckte det sällan för 3,3 GB. Nu får den ta den tid den behöver. Den avbryts bara om inget alls kommer in på 90 sekunder.

@@ -225,6 +225,37 @@ flowchart TD
 | SC-046 | happy   | Download completes                                      | Wizard fades (~300ms min), zones become interactive          | ☐      |
 | SC-047 | happy   | Subsequent launch (consent + model present)             | No wizard; zones visible immediately                         | ✓      |
 
+### Feature: Startup tips & "Nytt i versionen"   (spec: 051-startup-tips-whats-new)
+
+User flow:
+
+```mermaid
+flowchart TD
+  A[Status klar → zone grid] --> B{Consent given this session?}
+  B -- yes: fresh install --> T
+  B -- no --> C{Upgraded and notes for this version?}
+  C -- yes --> W[Nytt i version X · SC-162]
+  C -- no --> D{Tips on?}
+  D -- yes --> T[Tip n, next launch n+1 · SC-157 SC-158]
+  D -- no --> N[No card · SC-161]
+  T -- Nästa tips --> T2[Tip n+1, remembered · SC-159]
+  T -- × --> H[Hidden this session · SC-160]
+  W -- Okej / × --> H
+  S[(corrupt or blocked storage)] --> Def[Defaults, still renders · SC-164]
+```
+
+| ID     | Type    | Scenario                                                | Expected outcome                                              | Status |
+|--------|---------|---------------------------------------------------------|--------------------------------------------------------------|--------|
+| SC-157 | happy   | Launch with the app ready                               | One Swedish tip above the zones                              | ◐      |
+| SC-158 | happy   | Next launch                                             | The next tip; the whole list cycles before a repeat          | ◐      |
+| SC-159 | happy   | Click "Nästa tips"                                      | Next tip shown and remembered for the next launch            | ◐      |
+| SC-160 | edge    | Click ×                                                 | Card hidden this session, back next launch                   | ◐      |
+| SC-161 | edge    | "Visa tips vid start" off in Settings                   | No tip card, survives restart                                | ◐      |
+| SC-162 | happy   | First launch after an update                            | "Nytt i version X" once, then tips again                     | ◐      |
+| SC-163 | edge    | Fresh install (consent given this session)              | A tip, never "Nytt i versionen"                              | ◐      |
+| SC-164 | error   | Corrupt or blocked localStorage                         | Defaults (tips on), app keeps working                        | ◐      |
+| SC-165 | loading | Before the decision is made                             | Nothing renders (no flash of the wrong card)                 | ◐      |
+
 ### Feature: Settings panel & model tiers   (specs: 010-settings-panel, 025-local-crash-diagnostics, 042-privacy-visibility)
 
 User flow:
@@ -402,6 +433,7 @@ flowchart TD
 | SC-149 | adversarial | Drop the same file again while the zone is Processing | Single-flight slot ignores the 2nd drop — no parallel job/corruption | ◐    |
 
 ## Scenario history
+- 2026-09-25 — spec 051 (startup-tips-whats-new): added the feature block with SC-157..165; ◐ (vitest + Playwright against the real bundle), ✓ pending a look in the real app.
 - 2026-09-25 — spec 050 (reliability-fixes): SC-044 re-worded (90 s stall, no 5-min total cap — Johan's decision); added SC-150..154 (first-run recovery) and SC-155..156 (updater install/restart). All ☐ — need a Mac at runtime.
 - 2026-06-20 — seeded from existing specs during fleet sync (derived, awaiting validation interview)
 - 2026-06-20 — spec 048 (pii-scrub-overlap-resolution): added SC-108 (whitespace-glued postnummer+phone → gap re-scan catches both) and SC-109 (glued-PII chain stress, terminates) to the Anonymisera feature; flowchart node C4 (overlap resolution: gap re-scan).
