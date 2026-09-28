@@ -46,9 +46,14 @@ mkledger() {
 }
 
 # $1 dir · $2 id — prints the status box for that id
-status_of() { grep -oE "^- \[.\] $2 " "$1/specs/FINDINGS.md" | head -1 | cut -c4-4; }
+#
+# `grep -m1 … file | cut` rather than `grep … file | head -1 | cut`: head exits
+# after the first line and leaves grep writing into a reader-less pipe, which is
+# SIGPIPE and 141 under pipefail. Bounding the match at the producer gets the
+# same one line with nothing downstream that can close early.
+status_of() { grep -m1 -oE "^- \[.\] $2 " "$1/specs/FINDINGS.md" | cut -c4-4; }
 # $1 dir · $2 id — prints the decision text, or empty
-decision_of() { grep -E "^- \[.\] $2 " "$1/specs/FINDINGS.md" | head -1 | sed -n 's/.*  →  //p'; }
+decision_of() { grep -m1 -E "^- \[.\] $2 " "$1/specs/FINDINGS.md" | sed -n 's/.*  →  //p'; }
 
 printf 'finding.sh self-test (--resolve id parsing)\n'
 

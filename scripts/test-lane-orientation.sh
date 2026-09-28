@@ -29,7 +29,7 @@ fixture() {
   [ $# -ge 2 ] && printf '# Questions\n\n%s\n' "$2" > "$ROOT/QUESTIONS.md"
 }
 
-run() { CLAUDE_PROJECT_DIR="$ROOT" SPEC_OWNER="$1" bash "$HOOK" 2>/dev/null | jq -r '.systemMessage // ""'; }
+run() { CLAUDE_PROJECT_DIR="$ROOT" SPEC_OWNER="$1" bash "$HOOK" 2>/dev/null | jq -r '.hookSpecificOutput.additionalContext // .systemMessage // ""'; }
 
 check() {
   # $1 = label, $2 = haystack, $3 = needle, $4 = present|absent

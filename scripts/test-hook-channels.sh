@@ -27,7 +27,13 @@ bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
 echo "== 1. no hook emits a top-level additionalContext =="
 # The CLI answers such a payload with "Did you mean
 # hookSpecificOutput.additionalContext (with a hookEventName)?" and drops it.
+# Test scripts are excluded because they carry the pattern as DATA — this very
+# file greps for it. Until 2026-09-12 that exclusion was accidental: this file
+# happened to also mention hookSpecificOutput, which the filter below read as
+# "nested, therefore fine". A test that passes itself by coincidence is a test
+# that stops passing when someone edits an unrelated line.
 HITS=$(grep -ln "'{additionalContext:\|\"additionalContext\":" scripts/*.sh 2>/dev/null \
+       | grep -v '/test-' \
        | while read -r f; do
            grep -q 'hookSpecificOutput' "$f" || printf '%s\n' "$f"
          done)
@@ -48,7 +54,8 @@ echo "== 2. every hookSpecificOutput carries a hookEventName =="
 MISSING=""
 for f in scripts/*-hook.sh scripts/emit-*.sh scripts/feature-pipeline-detect.sh; do
   [ -f "$f" ] || continue
-  grep 'hookSpecificOutput' "$f" | grep -qv 'jq -r' || continue
+  EMITS=$(grep 'hookSpecificOutput' "$f" 2>/dev/null | grep -cv 'jq -r')
+  [ "${EMITS:-0}" -eq 0 ] && continue
   grep -q 'hookEventName' "$f" || MISSING="$MISSING $f"
 done
 [ -z "$MISSING" ] && ok "all nested payloads name their event" \
@@ -88,8 +95,10 @@ print(d.get('systemMessage','').count(chr(10))+1)")
 
 echo "== 5. notice_model produces no user-visible field =="
 OUT=$(notice_model PostToolUse "hello")
-printf '%s' "$OUT" | grep -q systemMessage && bad "notice_model leaked a systemMessage" \
-  || ok "notice_model is model-only"
+case "$OUT" in
+  *systemMessage*) bad "notice_model leaked a systemMessage" ;;
+  *)               ok  "notice_model is model-only" ;;
+esac
 printf '%s' "$OUT" | python3 -c "
 import sys,json; d=json.load(sys.stdin)
 h=d['hookSpecificOutput']
@@ -171,6 +180,37 @@ CLAUDE_PROJECT_DIR="$GCT" bash "$ROOT/scripts/harness-state-gc.sh" >/dev/null 2>
 [ ! -d "$GCT/model/states/26-08-05-11-47-33" ] && ok "TLC scratch is collected" \
   || bad "GC left TLC scratch behind"
 rm -rf "$GCT"
+
+echo "== 10. the sync repairs an inline payload the CLI would discard =="
+# sync-core-hooks.py preserves inline hooks verbatim by design, which is right
+# for what a hook SAYS and wrong for whether it is heard. The template fixed its
+# own settings.json and nothing moved: 41 projects kept an inert .ssh/.aws/.env
+# read-block — a security rule that was present in the file and did nothing.
+RT=$(mktemp -d) || exit 1
+mkdir -p "$RT/.claude" "$RT/scripts"
+cat > "$RT/.claude/settings.json" <<'JSON'
+{ "hooks": { "PreToolUse": [ { "matcher": "Read",
+  "hooks": [ { "type": "command",
+    "command": "echo '{\"hookSpecificOutput\": {\"permissionDecision\": \"deny\", \"permissionDecisionReason\": \"no\"}}'" } ] } ],
+  "PostToolUse": [ { "hooks": [ { "type": "command",
+    "command": "echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"fine\"}}'" } ] } ] } }
+JSON
+BEFORE=$(cat "$RT/.claude/settings.json")
+( cd "$RT" && python3 "$ROOT/scripts/sync-core-hooks.py" "$ROOT/.claude/settings.json" ) >/dev/null 2>&1
+python3 - "$RT/.claude/settings.json" <<'PY2'
+import json,sys
+d=json.load(open(sys.argv[1]))
+pre=d["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+post=[h["command"] for g in d["hooks"]["PostToolUse"] for h in g["hooks"] if "fine" in h["command"]]
+assert '"hookEventName": "PreToolUse"' in pre, "deny not repaired"
+assert post and post[0].count("hookEventName")==1, "correct hook was rewritten"
+PY2
+[ $? -eq 0 ] && ok "inert deny repaired, correct hook left alone" || bad "repair pass wrong"
+# idempotent: a second run must change nothing
+A=$(cat "$RT/.claude/settings.json")
+( cd "$RT" && python3 "$ROOT/scripts/sync-core-hooks.py" "$ROOT/.claude/settings.json" ) >/dev/null 2>&1
+[ "$A" = "$(cat "$RT/.claude/settings.json")" ] && ok "repair is idempotent" || bad "repair is not idempotent"
+rm -rf "$RT"
 
 echo
 printf 'passed %s, failed %s\n' "$PASS" "$FAIL"
