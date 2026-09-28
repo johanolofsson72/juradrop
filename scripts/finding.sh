@@ -122,5 +122,22 @@ for l in p.read_text(encoding="utf-8").split("\n"):
 p.write_text("\n".join(out), encoding="utf-8")
 PY
     echo "$ID decided: $TEXT"
+    # DECIDING A FINDING *IS* THE REVIEW, so clear the due-state here rather than asking someone to
+    # remember a second command. `maintenance-due.sh` has always had `--stamp findings`, and nothing
+    # in the template ever called it: `project-maintenance.sh` stamps suite, secrets, mutation and
+    # similarity, and the findings job was left to a hand-run `--stamp` nobody ran. So the banner
+    # said "findings review — never run in this project" on agentcrm through four reviews that
+    # decided 33 findings and produced three register rows, and a spec's own status report had to be
+    # corrected against the register history because it had sourced that line.
+    #
+    # The instrument was right about its file and wrong about the world, which is the shape
+    # `.claude/rules/spec-register.md` already names for the row archiver: a mechanism that depends
+    # on memory has an expiry date. A review is not a command anyone types; it is a batch of
+    # decisions, and this is where a decision lands.
+    #
+    # Silent and best-effort on purpose: a missing or failing due-state must never turn a recorded
+    # decision into an error. The ledger write above has already happened.
+    [ -f "$ROOT/scripts/maintenance-due.sh" ] &&
+      bash "$ROOT/scripts/maintenance-due.sh" --stamp findings >/dev/null 2>&1 || true
     ;;
 esac

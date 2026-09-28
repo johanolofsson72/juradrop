@@ -33,8 +33,25 @@ trap cleanup EXIT
 ok()  { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n       expected: %s\n       actual:   %s\n' "$1" "$2" "$3"; }
 
-# Run the real script in a fixture and capture everything it says.
-run() { ( cd "$1" && bash "$FRESH" --deps --no-install 2>&1 ); }
+# Run the real script in a fixture and capture everything it says. osv-scanner and dotnet
+# point at paths that do not exist unless a case overrides them, so the suite does not depend
+# on what this machine has installed and never reaches the network.
+NO_BIN="$TMP/no-such-bin"
+OSV_UNDER_TEST="$NO_BIN/osv-scanner"
+DOTNET_UNDER_TEST="$NO_BIN/dotnet"
+run() {
+  ( cd "$1" && FRESHNESS_OSV_SCANNER="$OSV_UNDER_TEST" FRESHNESS_DOTNET="$DOTNET_UNDER_TEST" \
+      bash "$FRESH" --deps --no-install 2>&1 )
+}
+
+# A stub binary: prints $2 and exits $3. Each call is logged, so a case can assert the
+# arguments the script actually passed. Assertions match path suffixes, not $P: the script
+# roots at `git rev-parse --show-toplevel`, which resolves /var to /private/var on macOS.
+mkstub() {
+  mkdir -p "$(dirname "$1")"
+  printf '#!/bin/sh\necho "$0 $*" >> "%s.calls"\nprintf "%%s\\n" "%s"\nexit %s\n' "$1" "$2" "$3" > "$1"
+  chmod +x "$1"
+}
 
 # $1 name · $2 expected count · $3 output
 expect_pkg_count() {
@@ -198,7 +215,11 @@ printf '{ "name": "web-root", "version": "1.0.0", "workspaces": ["packages/*"] }
 printf '{ "name": "web-root", "lockfileVersion": 3, "packages": {} }\n' > "$P/src/web/package-lock.json"
 mkpkg "$P/src/web/packages/ui/package.json" ui
 mkpkg "$P/src/web/packages/api/package.json" api
-OUT=$(run "$P")
+# A stub npm, because the walk stops at the first package when npm is missing and never reaches
+# the members — so without one this case measured whether the machine had Node, not the member
+# logic. It passed on every Mac and failed in the Linux container (spec 073, test-on-linux.sh).
+NPM_STUB_DIR="$TMP/npm-stub"; mkstub "$NPM_STUB_DIR/npm" '{"vulnerabilities":{},"metadata":{"vulnerabilities":{"total":0}}}' 0
+OUT=$(PATH="$NPM_STUB_DIR:$PATH" run "$P")
 expect_contains "the member is reported as covered by its root" "npm workspaces member" "$OUT"
 expect_absent   "…and is NOT told to run npm install in itself" \
                 "run 'npm install' in $P/src/web/packages/ui" "$OUT"
@@ -211,6 +232,88 @@ mkpkg "$P/client/package.json" lonely
 OUT=$(run "$P")
 expect_contains "it is still skipped for want of a lockfile" "No lockfile" "$OUT"
 expect_absent   "…and is not claimed to be a workspaces member" "npm workspaces member" "$OUT"
+
+# ---------------------------------------------- C11 — osv-scanner absent: loud skip, not clean
+printf '\n  -- C11 osv-scanner missing is a loud one-line skip, and the summary repeats it\n'
+P=$(mkrepo noosv)
+mkpkg "$P/package.json" app
+OUT=$(run "$P"); RC=$?
+expect_contains "the skip line names what went unscanned" \
+  "[skip] osv-scanner not installed — NuGet/pub lockfiles unscanned; install:" "$OUT"
+expect_contains "the summary does not call it clean" "OSV:     SKIPPED" "$OUT"
+if [ "$RC" -eq 0 ]; then ok "…and it fails open (exit 0)"; else bad "…and it fails open (exit 0)" "0" "$RC"; fi
+
+# ------------------------------------------ C12 — osv-scanner verdicts map onto its exit codes
+printf '\n  -- C12 osv-scanner exit codes: 0 clean, 1 finding, 128 nothing to scan, other = error\n'
+P=$(mkrepo osv)
+mkpkg "$P/package.json" app
+OSV_UNDER_TEST="$TMP/stubs/osv0/osv-scanner"; mkstub "$OSV_UNDER_TEST" "No issues found" 0
+OUT=$(run "$P"); RC=$?
+expect_contains "exit 0 reads as clean" "OSV:     clean" "$OUT"
+expect_contains "…and it was called as a recursive source scan" "scan source -r " \
+  "$(cat "$OSV_UNDER_TEST.calls" 2>/dev/null)"
+if [ "$RC" -eq 0 ]; then ok "…and the pass stays green"; else bad "…and the pass stays green" "0" "$RC"; fi
+OSV_UNDER_TEST="$TMP/stubs/osv1/osv-scanner"; mkstub "$OSV_UNDER_TEST" "GHSA-xxxx NuGet Newtonsoft.Json" 1
+OUT=$(run "$P"); RC=$?
+expect_contains "exit 1 is a finding" "[FINDING] osv-scanner reported vulnerabilities" "$OUT"
+if [ "$RC" -eq 1 ]; then ok "…and the pass exits 1"; else bad "…and the pass exits 1" "1" "$RC"; fi
+OSV_UNDER_TEST="$TMP/stubs/osv128/osv-scanner"; mkstub "$OSV_UNDER_TEST" "No package sources found" 128
+OUT=$(run "$P")
+expect_contains "exit 128 is 'nothing to scan', not clean" "OSV:     no lockfiles found" "$OUT"
+OSV_UNDER_TEST="$TMP/stubs/osv127/osv-scanner"; mkstub "$OSV_UNDER_TEST" "boom" 127
+OUT=$(run "$P"); RC=$?
+expect_contains "any other exit is an error that verified nothing" "ERROR (exit 127)" "$OUT"
+if [ "$RC" -eq 0 ]; then ok "…and a tool error is not a vulnerability finding"; else bad "…and a tool error is not a vulnerability finding" "0" "$RC"; fi
+OSV_UNDER_TEST="$NO_BIN/osv-scanner"
+
+# ----------------------------------------------- C13 — dotnet: solution first, text verdicts
+printf '\n  -- C13 dotnet list package --vulnerable over the solution, not each project\n'
+P=$(mkrepo dotnet)
+mkdir -p "$P/src/App" "$P/tests/App.Tests"
+: > "$P/App.sln"; : > "$P/src/App/App.csproj"; : > "$P/tests/App.Tests/App.Tests.csproj"
+DOTNET_UNDER_TEST="$TMP/stubs/dn-clean/dotnet"
+mkstub "$DOTNET_UNDER_TEST" "The given project App has no vulnerable packages given the current sources." 0
+OUT=$(run "$P"); RC=$?
+CALLS=$(cat "$DOTNET_UNDER_TEST.calls" 2>/dev/null)
+expect_contains "the solution is the target" "/App.sln package --vulnerable --include-transitive" "$CALLS"
+expect_absent   "…and its projects are not listed a second time" "App.csproj" "$CALLS"
+expect_contains "no vulnerable packages reads as clean" ".NET:    clean" "$OUT"
+if [ "$RC" -eq 0 ]; then ok "…and the pass stays green"; else bad "…and the pass stays green" "0" "$RC"; fi
+
+DOTNET_UNDER_TEST="$TMP/stubs/dn-vuln/dotnet"
+mkstub "$DOTNET_UNDER_TEST" "Project App has the following vulnerable packages" 0
+OUT=$(run "$P"); RC=$?
+expect_contains "the text verdict is a finding even though dotnet exits 0" \
+  "[FINDING] vulnerable NuGet packages in App.sln" "$OUT"
+if [ "$RC" -eq 1 ]; then ok "…and the pass exits 1"; else bad "…and the pass exits 1" "1" "$RC"; fi
+
+DOTNET_UNDER_TEST="$TMP/stubs/dn-norestore/dotnet"
+mkstub "$DOTNET_UNDER_TEST" "No assets file was found for App.csproj. Please run restore." 1
+OUT=$(run "$P")
+expect_contains "an unrestored solution is unscanned, not clean" ".NET:    unscanned — restore first" "$OUT"
+
+printf '\n  -- C13 loose projects are targets only when there is no solution\n'
+P=$(mkrepo loosecsproj)
+mkdir -p "$P/src/Api"; : > "$P/src/Api/Api.csproj"
+mkdir -p "$P/src/Api/bin/Debug"; : > "$P/src/Api/bin/Debug/Copy.csproj"
+DOTNET_UNDER_TEST="$TMP/stubs/dn-loose/dotnet"
+mkstub "$DOTNET_UNDER_TEST" "has no vulnerable packages" 0
+OUT=$(run "$P")
+CALLS=$(cat "$DOTNET_UNDER_TEST.calls" 2>/dev/null)
+expect_contains "the loose project is listed" "/loosecsproj/src/Api/Api.csproj package" "$CALLS"
+expect_absent   "…and bin/ output is not" "Copy.csproj" "$CALLS"
+
+# ------------------------------------------ C14 — dotnet missing / no .NET project, said plainly
+printf '\n  -- C14 a .NET project without dotnet is a named skip; no .NET project is silent-ish\n'
+P=$(mkrepo nodotnet)
+: > "$P/App.sln"
+DOTNET_UNDER_TEST="$NO_BIN/dotnet"
+OUT=$(run "$P")
+expect_contains "missing dotnet is reported as unscanned" ".NET:    SKIPPED — dotnet not installed" "$OUT"
+P=$(mkrepo notdotnet)
+mkpkg "$P/package.json" app
+OUT=$(run "$P")
+expect_contains "a Node-only project says it is not .NET" ".NET:    no .NET project" "$OUT"
 
 # ------------------------------------------------------------------------------- verdict
 printf '\n%s\n' "----------------------------------------------------------"

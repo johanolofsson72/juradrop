@@ -62,6 +62,25 @@ After browser tests are written, `/tla` automatically runs `/allium:distill` to 
 
 ## Validation
 
-If the Allium CLI is installed (`allium` command available), `.allium` files are validated automatically after every write or edit. Install via:
+`scripts/allium-check-hook.sh` (PostToolUse) runs `allium check` on every `.allium` file that is
+written or edited:
+
+- **Any diagnostic with `severity: error` blocks.** The errors come back as `line:col message`, so
+  the file gets fixed in the turn that wrote it.
+- **Warnings and info never block.** The CLI exits 1 on a warning, and the deferred location-hint
+  lint warns on nearly every spec, so the hook reads severities, never the exit code.
+- **A report it cannot read blocks** (crash, non-JSON, a 30 s timeout). An unreadable report is not
+  a clean file.
+- **No CLI installed → pass, with one notice per session** saying nothing was validated.
+
+`bash scripts/allium-census.sh` lists every `specs/*/spec.allium` that still has errors (exit 0
+clean, 1 debt, 2 cannot tell). `project-maintenance.sh` prints its summary as a note and never fails
+on it.
+
+Until 2026-09-26 this section said validation was automatic, and nothing ran it. Rocky had 136 of
+592 baselines with errors, 107 of them declaring the current `-- allium: 3`. The cause was not
+grammar drift: the skill's own reference example did not parse, and elicits copied it.
+
+Install the CLI via:
 - Homebrew: `brew tap juxt/allium && brew install allium`
 - Cargo: `cargo install allium-cli`

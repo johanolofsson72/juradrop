@@ -58,6 +58,18 @@
 set -u
 
 INPUT=$(cat)
+
+# Cheapest exit first (spec 073, R9): only a write to specs/INDEX.md is examined, and that path is in
+# the raw JSON verbatim (escaping leaves letters, dots and slashes alone). Every other Edit/Write in
+# the session — nearly all of them — used to start two jq processes to learn the same thing.
+# Bounded to small payloads: bash's matchers are slow on long strings (a 200 KB Write took longer to
+# scan than jq takes to start), so a large payload skips this and pays exactly what it paid before.
+if [ "${#INPUT}" -le 4096 ]; then
+  case "$INPUT" in
+    *specs/INDEX.md*) ;;
+    *) exit 0 ;;
+  esac
+fi
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 [ -z "$FILE" ] && exit 0
 

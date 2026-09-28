@@ -77,6 +77,12 @@ cases = [
     ("H6s2",        "H6s2",  "alpha"),      # letters-digits-letter-digit: the case `[a-z]?` would miss
     ("**H7b**",     "H7b",   "alpha"),
     ("F2b",         "F2b",   "alpha"),
+    ("501.1",       "501.1", "numeric"),    # a sub-spec dotted onto its parent (rocky row 568)
+    ("450.7",       "450.7", "numeric"),
+    ("**505.2**",   "505.2", "numeric"),
+    ("1.2.3",       "1.2.3", "numeric"),    # the dotted segment repeats
+    ("501.",        "501.",  "malformed"),  # a dot with nothing after it is not a sub-spec
+    (".1",          ".1",    "malformed"),
     ("7-x",         "7-x",   "malformed"),  # a character outside [A-Za-z0-9]
     ("H",           "H",     "malformed"),  # letters, no digit
     ("checkpoint",  "checkpoint", "malformed"),
@@ -92,6 +98,10 @@ for token, want_id, want_shape in cases:
 ident, _ = classify_id("H6s2")
 if ident != "H6s2":
     print("TRUNCATION H6s2 -> %r" % ident); bad += 1
+# Nor 501.1 as 501 — the parent, a different real row directly above it.
+ident, _ = classify_id("501.1")
+if ident != "501.1":
+    print("TRUNCATION 501.1 -> %r" % ident); bad += 1
 
 # kind comes from the TRACK FIELD.
 kind_cases = [
@@ -112,7 +122,7 @@ print("GRAMMAR-OK" if bad == 0 else "GRAMMAR-BAD %d" % bad)
 PY
 )
 case "$GRAMMAR" in
-  *GRAMMAR-OK*) ok "id grammar + kind derivation (20 cases)" ;;
+  *GRAMMAR-OK*) ok "id grammar + kind derivation (26 cases)" ;;
   *) bad "id grammar / kind derivation:"; printf '%s\n' "$GRAMMAR" | sed 's/^/        /' ;;
 esac
 
@@ -266,6 +276,8 @@ echo "== falsification: a narrowed grammar must turn this gate red =="
 #   pre-007m   NUMERIC ^[0-9]+$            never knew a letter suffix   (004a, 007a..007o went dark)
 #   pre-007ab  NUMERIC ^[0-9]+[a-z]?$      never knew a SECOND letter   (007aa onward went dark)
 #   pre-H7b    ALPHA   ^[A-Za-z]+[0-9]+$   never knew H6a, never H6s2   (69 of 114 rows went dark)
+#   pre-dotted NUMERIC ^[0-9]+[a-z]*$      never knew 501.1             (22 of 123 rocky rows; widened
+#                                          2026-09-03 with no entry here — found by rocky row 568)
 #
 # The arm this replaces tested only the third, and on a register whose alpha ids are H1 and H2 — both
 # of which the narrowed alpha grammar still accepts — it fells 0 rows and concluded "this gate cannot
@@ -301,7 +313,8 @@ else
 # label | module attribute | narrowed pattern | canary the CURRENT grammar accepts and this one must not
 NARROWINGS='pre-007m|NUMERIC_ID_RE|^\**\s*([0-9]+)\**\s*$|007m
 pre-007ab|NUMERIC_ID_RE|^\**\s*([0-9]+[a-z]?)\**\s*$|007ab
-pre-H7b|ALPHA_ID_RE|^\**\s*([A-Za-z]+[0-9]+)\**\s*$|H6s2'
+pre-H7b|ALPHA_ID_RE|^\**\s*([A-Za-z]+[0-9]+)\**\s*$|H6s2
+pre-dotted|NUMERIC_ID_RE|^\**\s*([0-9]+[a-z]*)\**\s*$|501.1'
 
 # BASELINE FIRST, and it is not ceremony. "Narrowing turns the gate red" is a claim about a CHANGE,
 # and a change needs a starting point: if the shipped grammar is ALREADY red on this register, every
@@ -396,7 +409,8 @@ if [ "$LIVE" -eq 0 ] && [ "$fail" -eq 0 ] && [ -n "$NARROWINGS" ]; then
   SYNTH=$(make_register falsification-synthetic \
     "- [x] 007m — numeric-with-one-letter — spec-only — the pre-007m shape" \
     "- [ ] 007ab — numeric-with-two-letters — spec-only — the pre-007ab shape" \
-    "- [ ] H6s2 — letters-digits-letter-digit — checkpoint — the pre-H7b shape")
+    "- [ ] H6s2 — letters-digits-letter-digit — checkpoint — the pre-H7b shape" \
+    "- [ ] 501.1 — dotted-sub-spec — spec-only — the pre-dotted shape")
   while IFS='|' read -r LABEL ATTR PATTERN CANARY; do
     [ -n "$LABEL" ] || continue
     NDIR="$WORK/narrow-$LABEL"
@@ -421,7 +435,7 @@ elif [ "${SLIVE:-0}" -gt 0 ] && [ "$fail" -eq 0 ]; then
   # The gate is proven to catch a narrowed grammar. What is NOT proven is that this repo's own
   # register exercises it — it does not, and that stays on the record rather than being rounded up.
   echo "  ----  every narrowing applied and none fells a row of THIS register (001..025, H1);"
-  echo "        falsified against a synthetic register instead — $SLIVE of 3 narrowings caught."
+  echo "        falsified against a synthetic register instead — $SLIVE of 4 narrowings caught."
 elif [ "$fail" -eq 0 ]; then
   # Every narrowing applied and none of them found anything to fell. That is a fact about THIS
   # register, not about the gate, and the two must not share a verdict.

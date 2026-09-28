@@ -16,6 +16,13 @@
 #      every package is labelled by its path relative to the project root so two
 #      manifests sharing a basename stay distinguishable. Outside a git repo the
 #      ignore filter is inert and only the path exclusions apply.
+#   3. osv-scanner — one pass over the lockfiles npm audit cannot read: NuGet
+#      packages.lock.json, Dart pubspec.lock, pnpm/yarn lockfiles. Never self-
+#      installed (it is optional); when absent the pass prints one [skip] line
+#      with the install command for this OS and the SUMMARY repeats it.
+#   4. dotnet list package --vulnerable --include-transitive — when the project
+#      has a .sln/.slnx/.csproj and dotnet is on PATH. NuGetAudit already warns
+#      at restore; this is the explicit report, per solution.
 #
 # REPORT-FIRST by default: it tells you what is wrong and prints the exact
 # remediation commands, but it does NOT mutate the tree. `npm audit fix --force`
@@ -35,8 +42,12 @@
 #   bash scripts/project-freshness.sh             # report only (default), auto-installs trufflehog if missing
 #   bash scripts/project-freshness.sh --fix       # also run `npm audit fix --force` + verify
 #   bash scripts/project-freshness.sh --secrets   # only the trufflehog pass
-#   bash scripts/project-freshness.sh --deps      # only the npm audit pass
+#   bash scripts/project-freshness.sh --deps      # only the dependency passes (npm audit, osv-scanner, dotnet)
 #   bash scripts/project-freshness.sh --no-install # never self-install trufflehog; skip + hint if absent
+#
+# Test seams: FRESHNESS_OSV_SCANNER and FRESHNESS_DOTNET name the binaries to run
+# (default: osv-scanner / dotnet on PATH). The self-test points them at stubs so it
+# neither touches the network nor depends on what this machine has installed.
 #
 # Exit codes: 0 = clean (or only skipped checks), 1 = findings reported,
 #             2 = a requested --fix step failed verification.
@@ -108,6 +119,10 @@ FINDINGS=0
 # secret verdict entirely — these one-liners guarantee both land at the bottom.
 SECRETS_STATUS="not run (--deps)"
 DEPS_STATUS="not run (--secrets)"
+OSV_STATUS="not run (--secrets)"
+DOTNET_STATUS="not run (--secrets)"
+OSV_BIN="${FRESHNESS_OSV_SCANNER:-osv-scanner}"
+DOTNET_BIN="${FRESHNESS_DOTNET:-dotnet}"
 
 echo "=========================================================="
 echo " project-freshness — $ROOT"
@@ -116,7 +131,7 @@ echo "=========================================================="
 # ---- 1. trufflehog: verified secret scan ------------------------------------
 if [ "$DO_SECRETS" -eq 1 ]; then
   echo
-  echo "── [1/2] trufflehog secret scan ──────────────────────────"
+  echo "── [1/4] trufflehog secret scan ──────────────────────────"
   ensure_trufflehog
   if command -v trufflehog >/dev/null 2>&1; then
     # --only-verified: live-checked credentials only (kills the false-positive
@@ -165,7 +180,7 @@ fi
 # ---- 2. npm audit: dependency vulnerability report --------------------------
 if [ "$DO_DEPS" -eq 1 ]; then
   echo
-  echo "── [2/2] npm audit (dependency CVEs) ─────────────────────"
+  echo "── [2/4] npm audit (dependency CVEs) ─────────────────────"
   # Scan every package.json that is not vendored/build output.
   PKG_FOUND=0
   DEPS_VULN=0; DEPS_CLEAN=0; DEPS_SKIPPED=0; DEPS_IGNORED=0; DEPS_SUMMARY=""
@@ -321,16 +336,122 @@ EOF
   fi
 fi
 
+# ---- 3. osv-scanner: every lockfile npm audit cannot read ------------------
+if [ "$DO_DEPS" -eq 1 ]; then
+  echo
+  echo "── [3/4] osv-scanner (NuGet / pub / npm lockfiles) ───────"
+  if command -v "$OSV_BIN" >/dev/null 2>&1; then
+    # `scan source -r` walks the tree and honours .gitignore, so the dead worktrees
+    # and Stryker sandboxes the npm walk declines are declined here too.
+    "$OSV_BIN" scan source -r "$ROOT"; OSV_RC=$?
+    case "$OSV_RC" in
+      0)   echo "[OK] osv-scanner: no known vulnerabilities in any lockfile."
+           OSV_STATUS="clean" ;;
+      1)   echo "[FINDING] osv-scanner reported vulnerabilities (table above)."
+           FINDINGS=1
+           OSV_STATUS="vulnerabilities found — see table above" ;;
+      128) # Documented as "no packages found": nothing to scan is not a clean scan.
+           echo "[SKIP] osv-scanner found no lockfiles to scan."
+           OSV_STATUS="no lockfiles found" ;;
+      *)   # A scanner that errored has vouched for nothing. Say so, but do not turn
+           # a tool failure into a vulnerability finding.
+           echo "[WARN] osv-scanner exited $OSV_RC (an error, not a finding) — nothing was verified."
+           OSV_STATUS="ERROR (exit $OSV_RC) — lockfiles unscanned" ;;
+    esac
+  else
+    case "$(uname -s 2>/dev/null)" in
+      Darwin) OSV_HINT="brew install osv-scanner" ;;
+      Linux)  OSV_HINT="brew install osv-scanner | pacman -S osv-scanner | go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest | binary: github.com/google/osv-scanner/releases" ;;
+      MINGW*|MSYS*|CYGWIN*) OSV_HINT="scoop install osv-scanner | winget install Google.OSVScanner" ;;
+      *)      OSV_HINT="see https://google.github.io/osv-scanner/installation/" ;;
+    esac
+    # Fail open, but loud: optional tooling must not block the pass, and "not scanned"
+    # must never read like "no findings". The SUMMARY repeats it for the same reason.
+    echo "[skip] osv-scanner not installed — NuGet/pub lockfiles unscanned; install: $OSV_HINT"
+    OSV_STATUS="SKIPPED — osv-scanner not installed (NuGet/pub lockfiles unscanned)"
+  fi
+fi
+
+# ---- 4. dotnet list package --vulnerable ------------------------------------
+if [ "$DO_DEPS" -eq 1 ]; then
+  echo
+  echo "── [4/4] dotnet vulnerable packages (incl. transitive) ───"
+  # Target solutions first: one `dotnet list` over a solution covers all its projects,
+  # and listing each .csproj as well would report every package twice. Loose project
+  # files become targets only when there is no solution at all. Same path exclusions
+  # and gitignore oracle as the npm walk above.
+  DOTNET_TARGETS=""
+  for pattern in '*.sln' '*.slnx' '*.csproj'; do
+    [ "$pattern" = '*.csproj' ] && [ -n "$DOTNET_TARGETS" ] && break
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      if [ "$IS_GIT_REPO" -eq 1 ] && git check-ignore -q "$f" 2>/dev/null; then continue; fi
+      DOTNET_TARGETS="$DOTNET_TARGETS
+$f"
+    done <<LIST
+$(find "$ROOT" -name "$pattern" \
+    -not -path '*/node_modules/*' -not -path '*/bin/*' -not -path '*/obj/*' \
+    -not -path '*/.claude/worktrees/*' 2>/dev/null)
+LIST
+  done
+
+  if [ -z "$DOTNET_TARGETS" ]; then
+    echo "  [SKIP] No .sln/.slnx/.csproj found — not a .NET project."
+    DOTNET_STATUS="no .NET project"
+  elif ! command -v "$DOTNET_BIN" >/dev/null 2>&1; then
+    echo "  [SKIP] .NET project found but dotnet is not installed — NuGet packages unscanned here."
+    DOTNET_STATUS="SKIPPED — dotnet not installed"
+  else
+    DN_VULN=0; DN_CLEAN=0; DN_UNSCANNED=0; DN_SUMMARY=""
+    while IFS= read -r t; do
+      [ -n "$t" ] || continue
+      rel="${t#$ROOT/}"
+      echo
+      echo "  target: $rel"
+      DN_OUT=$("$DOTNET_BIN" list "$t" package --vulnerable --include-transitive 2>&1); DN_RC=$?
+      printf '%s\n' "$DN_OUT"
+      # dotnet exits 0 whether or not it found anything, so the verdict comes from the
+      # text. An unrestored project (non-zero exit, or "No assets file") was not
+      # scanned, and must not be counted as clean.
+      if [ "$DN_RC" -ne 0 ] || printf '%s\n' "$DN_OUT" | grep -qi 'no assets file'; then
+        echo "  [SKIP] could not list packages for $rel — run 'dotnet restore' first."
+        DN_UNSCANNED=$((DN_UNSCANNED + 1))
+      elif printf '%s\n' "$DN_OUT" | grep -qi 'has the following vulnerable packages'; then
+        echo "  [FINDING] vulnerable NuGet packages in $rel (see above)."
+        echo "  [NEXT] dotnet package update --vulnerable   (.NET 10 SDK) — review the diff, then build + test."
+        FINDINGS=1; DN_VULN=1; DN_SUMMARY="$DN_SUMMARY $rel;"
+      else
+        echo "  [OK] no vulnerable packages in $rel."
+        DN_CLEAN=1
+      fi
+    done <<LIST
+$DOTNET_TARGETS
+LIST
+    DN_NOTE=""
+    [ "$DN_UNSCANNED" -gt 0 ] && DN_NOTE=" (+$DN_UNSCANNED unscanned — restore first)"
+    if [ "$DN_VULN" -eq 1 ]; then
+      DOTNET_STATUS="vulnerable packages —$DN_SUMMARY$DN_NOTE"
+    elif [ "$DN_CLEAN" -eq 1 ]; then
+      DOTNET_STATUS="clean$DN_NOTE"
+    else
+      DOTNET_STATUS="unscanned — restore first$DN_NOTE"
+    fi
+  fi
+fi
+
 # ---- summary ----------------------------------------------------------------
 echo
 echo "=========================================================="
 echo " SUMMARY  Secrets: $SECRETS_STATUS"
 echo "          Deps:    $DEPS_STATUS"
+echo "          OSV:     $OSV_STATUS"
+echo "          .NET:    $DOTNET_STATUS"
 if [ "$FINDINGS" -eq 0 ]; then
   echo " RESULT: clean (no verified secrets, no reported advisories)."
   exit 0
 else
   echo " RESULT: findings above need attention. Nothing was committed."
-  echo "         Secrets → rotate. Deps → review then 'npm audit fix [--force]'."
+  echo "         Secrets → rotate. npm → review then 'npm audit fix [--force]'."
+  echo "         NuGet → 'dotnet package update --vulnerable'. OSV → upgrade per its table."
   exit 1
 fi

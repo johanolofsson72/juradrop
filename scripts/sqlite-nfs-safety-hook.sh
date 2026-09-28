@@ -18,6 +18,17 @@
 set -u
 
 INPUT=$(cat)
+
+# Cheapest exit first (spec 073, R9): only docker-compose*.yml is inspected, and that name is in the
+# raw JSON verbatim. Every other edit used to start two jq processes and a grep to learn so.
+# Bounded to small payloads: bash's matchers are slow on long strings (a 200 KB Write took longer to
+# scan than jq takes to start), so a large payload skips this and pays exactly what it paid before.
+if [ "${#INPUT}" -le 4096 ]; then
+  case "$INPUT" in
+    *docker-compose*) ;;
+    *) exit 0 ;;
+  esac
+fi
 FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 

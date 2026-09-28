@@ -11,11 +11,13 @@ written to stop. A guard that cannot be loaded is a guard that allows, which is
 the exact failure this row exists to remove, so the parser lives in its own file
 where the shell never reads it.
 
-THREE MODES
+THREE MODES (and one that runs the first two together)
   extract   CMD_TEXT + CWD_PATH in the environment -> absolute write targets
   --opaque  CMD_TEXT + CWD_PATH in the environment -> paths named inside an
             interpreter's program (see OPAQUE REGIONS below)
   --group   newline-separated paths on stdin       -> one representative per group
+  --combined  extract, extract --all, --opaque and --opaque --all in one start,
+            each under an ``@@ <mode>`` header (spec 073; see combined())
 
 GROUPING — exact for THREE guards, and the premise expired (row S5)
 -------------------------------------------------------------------
@@ -349,6 +351,45 @@ def representatives(paths: list[str]) -> list[str]:
     return [groups[k] for k in order]
 
 
+def _emit(paths: list[str], every: bool) -> None:
+    if not paths:
+        return
+    print(len(paths))
+    for r in (paths if every else representatives(paths)):
+        print(r)
+
+
+def combined(cmd: str, cwd: str) -> int:
+    """All four answers from ONE interpreter start (spec 073, R9).
+
+    The pre-layer used to start python up to four times per command — extract,
+    extract --all, --opaque, --opaque --all — and on a loaded machine each start
+    was the single most expensive thing in the hook. The four sections below are
+    byte-for-byte what those four invocations print, each under a ``@@ <mode>``
+    header; a path is absolute, so no path line can begin with ``@@ ``.
+
+    The opaque pass is guarded separately because the caller used to reach it only
+    after the extract arm had been asked, and a failure there meant "allow" at that
+    point and no earlier. ``@@ opaque-failed`` carries that ordering across: the
+    caller still asks the guards about the extracted targets first.
+    """
+    targets = absolutize(extract(cmd), cwd)
+    print("@@ extract")
+    _emit(targets, False)
+    print("@@ extract-all")
+    _emit(targets, True)
+    try:
+        opaque = absolutize(opaque_paths(cmd), cwd)
+    except Exception:  # noqa: BLE001 — mirrors the old separate process failing
+        print("@@ opaque-failed")
+        return 0
+    print("@@ opaque")
+    _emit(opaque, False)
+    print("@@ opaque-all")
+    _emit(opaque, True)
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if "--group" in argv:
         paths = [ln.strip() for ln in sys.stdin.read().split("\n") if ln.strip()]
@@ -360,6 +401,8 @@ def main(argv: list[str]) -> int:
     cwd = os.environ.get("CWD_PATH", "") or os.getcwd()
     if not cmd:
         return 0
+    if "--combined" in argv:
+        return combined(cmd, cwd)
     # Same output contract in both modes — count on line 1, representatives after —
     # so the hook parses one shape and not two.
     finder = opaque_paths if "--opaque" in argv else extract

@@ -123,6 +123,12 @@ awk -v filter="$FILTER_EPOCH" '
     if (filter > 0) {
       cmd = "date -j -f %Y-%m-%dT%H:%M:%S%z \"" ts "\" +%s 2>/dev/null \
              || date -d \"" ts "\" +%s 2>/dev/null"
+      # Either order is safe here: GNU date rejects -j and BSD date rejects -d, so the
+      # first form fails cleanly on the wrong platform. What is NOT safe is getline
+      # leaving epoch untouched when both fail -- it would silently reuse the timestamp
+      # of the previous row. Reset it per row so an unparseable ts counts as 0 and is
+      # filtered out. (No apostrophes in this comment: it lives inside a quoted awk program.)
+      epoch = 0
       cmd | getline epoch; close(cmd)
       if (epoch + 0 < filter) next
     }

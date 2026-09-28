@@ -14,6 +14,15 @@ set -u
 . "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hook-notice.sh"
 
 INPUT=$(cat)
+
+# Cheapest exit first (spec 073, R9): only a speckit spec/plan/tasks file is looked at,
+# and that name appears in the raw JSON verbatim (escaping leaves letters, dots and slashes alone),
+# so a payload without it needs no jq to be ruled out. A match only means
+# "look properly" — the tests below still decide. Bounded, because bash's matcher is slow on long
+# strings; a large payload skips this and pays what it paid before.
+if [ "${#INPUT}" -le 4096 ]; then
+  case "$INPUT" in *.specify/*|*spec.md*|*plan.md*|*tasks.md*) ;; *) exit 0 ;; esac
+fi
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 SID=$(hn_session_id "$INPUT")
 [ -z "$FILE" ] && exit 0

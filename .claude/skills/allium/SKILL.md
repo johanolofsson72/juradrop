@@ -33,7 +33,7 @@ Use `$ARGUMENTS` to determine the sub-command and target. If no argument, look a
 4. **Extract rules** — state transitions, business operations, event handlers
 5. **Extract invariants** — conditions that must ALWAYS hold across all entities
 6. **Write the `.allium` file** in the same directory as the spec
-7. **Validate** — run `allium check <file>` if the CLI is installed
+7. **Validate** — `allium-check-hook.sh` runs `allium check` on the write and blocks on errors; fix and rewrite until it passes
 
 ### VALID TOP-LEVEL KEYWORDS (ONLY these — anything else is WRONG)
 
@@ -72,6 +72,13 @@ open question         (unresolved design decision)
 | `enum { Val1, Val2 }` (comma-separated) | `enum Name { val1 \| val2 }` (pipe-separated, lowercase values) |
 | `type: draft \| active` in enum | Inline unions go on entity fields, not in standalone types |
 | `exposes: a, b` / `provides: a, b` | One clause per line: `exposes: a` then `exposes: b`. Measured against allium-cli 2026-09-02 — the comma list parses as a block item and is rejected |
+| `entity User { id: String; role: String }` (one line, `;`-separated) | One field per line inside the braces. The first error in 27 of rocky's 130 unparseable baselines (measured 2026-09-26) |
+| `when: Ship(order: Order)` (typed trigger parameters) | `when: Ship(order)`. The typed form parses as named arguments and binds nothing, so every `order.` below it is an undefined binding |
+| `x = if c then a else b` | Not Allium. Use the block form `if c:` / `else:` inside `ensures:`, or one rule per outcome |
+| `Float` / `Double` | `Decimal` |
+| `[a, b]` list literals | `{a, b}` set literals, typed `Set<T>` |
+| `for each x in xs:` | `for x in xs:` |
+| Referencing a type you never declared (`Email.created(...)`) | Declare it, even as a stub `external entity Email { ... }` |
 
 ### Allium v3 language syntax
 
@@ -108,8 +115,22 @@ entity Order {
     invariant NonNegativeTotal { this.total >= 0 }
 }
 
-external entity Customer { email: String; name: String }
-value Address { street: String; city: String; postcode: String }
+external entity Customer {
+    email: String
+    name: String
+}
+
+external entity Email {
+    to: String
+    template: String
+}
+
+value Address {
+    street: String
+    city: String
+    postcode: String
+}
+
 config { max_retries: Integer = 3 }
 
 -- Rules: when (trigger), requires (precondition), ensures (postcondition)
@@ -278,15 +299,10 @@ This rule applies whether the skill was invoked manually (`/allium`, `/allium:el
 
 ## Validation
 
-After writing any `.allium` file, attempt validation:
-
-```bash
-if command -v allium &>/dev/null; then
-  allium check <file.allium>
-fi
-```
-
-If `allium check` reports errors, fix them before considering the file complete. If the CLI is not installed, note this but still write the file — the syntax is still valuable for drift detection and TLA+ extraction.
+`scripts/allium-check-hook.sh` runs `allium check` after every write and blocks on any
+`severity: error`. When it blocks, fix the listed lines and write the file again. Warnings do not
+block. If the CLI is not installed the hook says so once and lets the write through: still write the
+file, but check it by hand against the INVALID SYNTAX table above, because nothing else will.
 
 ## Auto-install Allium CLI
 

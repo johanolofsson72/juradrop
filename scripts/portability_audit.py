@@ -12,7 +12,12 @@ platform-specific commands, because the established idiom is to pair them:
     stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0
     date -j -f "%Y-%m-%d" "$S" +%s 2>/dev/null || date -d "$S" +%s 2>/dev/null
 
-Both are portable, and a token matcher flags both. So a hit is a finding only when its counterpart is
+Both are portable, and a token matcher flags both. A pair is not the same as a CORRECT pair, though:
+for stat the ORDER is load-bearing. On GNU, `stat -f` is --file-system and succeeds -- it prints a
+filesystem block for the file and complains about '%m' as a missing operand -- so in
+`stat -f %m f || stat -c %Y f` the capture holds garbage whether or not the fallback runs. BSD stat
+rejects `-c` outright, which makes the GNU form the only safe probe. This audit itself recommended the
+wrong order until 2026-09-28, and project-maintenance.sh followed it (see ORDER_CHECKS). So a hit is a finding only when its counterpart is
 absent from a small window -- the line itself plus the next two, which is how every correct pair in
 this repo is written. A line ending in `# portability-ok` is a recorded exception.
 """
@@ -35,10 +40,19 @@ CHECKS = [
     # stat form and not merely a second GNU-ism. Accepting it stops the gate flagging a fix that is
     # already correct -- which is how a gate loses its reader.
     ("stat -c",      re.compile(r"\bstat\s+-c\b"),        re.compile(r"stat\s+-f|date\s+-r\b"), "pair it: stat -c %Y f 2>/dev/null || stat -f %m f 2>/dev/null (or date -r f)"),
-    ("stat -f",      re.compile(r"\bstat\s+-f\b"),        re.compile(r"stat\s+-c|date\s+-r\b"), "pair it: stat -f %m f 2>/dev/null || stat -c %Y f 2>/dev/null (or date -r f)"),
+    ("stat -f",      re.compile(r"\bstat\s+-f\b"),        re.compile(r"stat\s+-c|date\s+-r\b"), "pair it, GNU first: stat -c %Y f 2>/dev/null || stat -f %m f 2>/dev/null (or date -r f)"),
     ("date -d",      re.compile(r"\bdate\s+-d\b"),        re.compile(r"date\s+-[vj]"), "pair it with the BSD form (date -v / date -j) first"),
     ("date -v",      re.compile(r"\bdate\s+-v\b"),        re.compile(r"date\s+-d"), "pair it with the GNU form (date -d) as the fallback"),
     ("date -j",      re.compile(r"\bdate\s+-j\b"),        re.compile(r"date\s+-d"), "pair it with the GNU form (date -d) as the fallback"),
+]
+
+# A pair whose halves are in the wrong order. Unlike CHECKS these fire WHEN the counterpart is present:
+# (label, first-form, fallback-reached-by-||, advice). The date pairs are deliberately absent -- GNU
+# date rejects -j/-v and BSD date rejects -d, so either order fails cleanly on the wrong platform.
+ORDER_CHECKS = [
+    ("stat -f || stat -c", re.compile(r"\bstat\s+-f\b"), re.compile(r"\|\|[\s\\]*(?:stat\s+-c|date\s+-r)\b"),
+     "wrong order: GNU `stat -f` succeeds with filesystem info, so the fallback never fixes it. "
+     "Use stat -c %Y f 2>/dev/null || stat -f %m f 2>/dev/null"),
 ]
 
 def audit(paths, root):
@@ -59,6 +73,19 @@ def audit(paths, root):
             # per project on code that is already right, and a gate that cries wolf is a gate that
             # gets skipped, which is precisely what the pairing rule exists to prevent.
             window = "\n".join(lines[max(0, i - 2):i + 3])
+            # Order is checked FORWARD only, from the match: `|| stat -f` on the line after a
+            # correct `stat -c` has nothing after it and must stay silent.
+            for label, first, fallback, why in ORDER_CHECKS:
+                m = first.search(line)
+                if m is None:
+                    continue
+                forward = "\n".join([line[m.end():]] + lines[i + 1:i + 3])
+                if not fallback.search(forward):
+                    continue
+                findings += 1
+                print(f"  {rel}:{i+1}  [{label}]")
+                print(f"      {stripped[:104]}")
+                print(f"      -> {why}")
             for label, pat, pair, why in CHECKS:
                 if not pat.search(line):
                     continue

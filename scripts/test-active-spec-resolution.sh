@@ -372,6 +372,53 @@ if want missingdir; then
   fi
 fi
 
+# ----------------------------------------------------------------- DOTTED
+# A sub-spec numbered by dotting its parent: 501.1 under 501. rocky's register
+# carries 22 such rows; until 2026-09-03 the grammar could not classify one, so
+# the moment any of them went active both guards denied every source edit as
+# "unparseable". The fix (NUMERIC_ID_RE's `(?:\.[0-9]+)*`) shipped with no
+# fixture, so reverting it left this whole harness green (rocky row 568).
+#
+# Two ways to get it wrong, one fixture each: deny the dotted row as
+# unclassifiable, or truncate it to its PARENT — "501" is a real, ticked row
+# directly above with a complete artifact set, so a truncating guard would
+# approve an edit for a sub-spec that has done nothing.
+# Pre-007m guards predate spec_active.py and know no dotted form at all; the
+# fixture asserts current behaviour only.
+if want dotted && [ "$EXPECT_PREFIX" -eq 0 ]; then
+  echo "FIXTURE dotted — active 501.1 has zero artifacts; its parent 501 is complete"
+  ROOT=$(make_fixture dotted '# Spec register
+
+## Specs
+
+- [x] 501 — parent — full track — done, complete artifacts
+- [/] 501.1 — active-sub — full track — IN PROGRESS, no artifacts at all
+- [ ] 502 — later — full track — later')
+  seed_complete_spec "$ROOT/specs/501-parent"
+  mkdir -p "$ROOT/specs/501.1-active-sub"        # deliberately empty
+  S=$(run_guard "$GUARD_STATE" "$ROOT")
+  I=$(run_guard "$GUARD_INTERVIEW" "$ROOT")
+  check "state-guard"     "$S" deny "501.1-active-sub"
+  check "interview-guard" "$I" deny "501.1-active-sub"
+
+  # The positive control: the same dotted row with its homework done is
+  # allowed. Without it, "denies naming 501.1" is indistinguishable from
+  # "denies every dotted row".
+  echo "FIXTURE dotted-satisfied — active 501.1 with complete artifacts is allowed"
+  ROOT=$(make_fixture dottedok '# Spec register
+
+## Specs
+
+- [x] 501 — parent — full track — done
+- [/] 501.1 — active-sub — full track — complete artifacts
+- [ ] 502 — later — full track — later')
+  seed_complete_spec "$ROOT/specs/501.1-active-sub"
+  S=$(run_guard "$GUARD_STATE" "$ROOT")
+  I=$(run_guard "$GUARD_INTERVIEW" "$ROOT")
+  check "state-guard"     "$S" allow
+  check "interview-guard" "$I" allow
+fi
+
 # ---------------------------------------------------------------------------
 # spec-register-guard must resolve the PROJECT ROOT the same way the other two
 # do. It used to pin the root to whichever directory held a language marker, so

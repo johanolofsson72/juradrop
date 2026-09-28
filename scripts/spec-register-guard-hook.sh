@@ -20,6 +20,28 @@
 set -u
 
 INPUT=$(cat)
+
+# The extensions this guard blocks. One list, read by both the raw precheck below and step 2, so the
+# precheck can never quietly disagree with the test it stands in front of.
+SOURCE_EXTS='cs|ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm'
+
+# Cheapest exit first (spec 073, R9). This hook runs on every Edit/Write in every project, and nearly
+# every one of those is to a file it ignores — but the extension test in step 2 needs FILE, and FILE
+# costs a jq process. The raw payload already rules most edits out: a path ending in a source
+# extension appears in the JSON as `.<ext>"`, because JSON escaping never touches letters, dots or
+# the closing quote. So an input without one cannot pass step 2 either. The converse is not claimed —
+# a match means only "look properly", and steps 1-2 still decide. Case-folded because step 2
+# lower-cases the extension.
+#
+# Bounded to small payloads on purpose. Bash's matchers are slow on long strings — measured, a 200 KB
+# Write took longer to scan than jq takes to start — so a large payload skips the precheck and goes
+# straight to the exact test, at exactly the cost it had before.
+if [ "${#INPUT}" -le 4096 ]; then
+  shopt -s nocasematch
+  [[ $INPUT =~ \.($SOURCE_EXTS)\" ]] || exit 0
+  shopt -u nocasematch
+fi
+
 FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 [ -z "$FILE" ] && exit 0
 
@@ -36,13 +58,7 @@ esac
 # 2) Extension-based allow list — only block clearly-source-code extensions
 EXT="${FILE##*.}"
 EXT_LC=$(printf '%s' "$EXT" | tr '[:upper:]' '[:lower:]')
-case "$EXT_LC" in
-  cs|ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm)
-    ;;
-  *)
-    exit 0
-    ;;
-esac
+[[ $EXT_LC =~ ^($SOURCE_EXTS)$ ]] || exit 0
 
 # 3) Walk up from the file's dir to the .git boundary, collecting three separate
 #    things. They are separate on purpose: this hook used to conflate the first
@@ -61,6 +77,10 @@ esac
 #    pipeline-state-guard and spec-interview-guard already resolve it this way,
 #    and .claude/rules/spec-register.md requires all three to agree — three gates
 #    that disagree about which spec you are on block work for opposite reasons.
+# Builtin stand-in for `ls "$DIR"/*.csproj >/dev/null 2>&1` (spec 073, R9): true when the glob
+# matched anything. The walk below visits every directory from the file up to the git root, and an
+# `ls` plus a `dirname` per level was most of this hook's own cost — processes, not work.
+has_match() { local f; for f in "$@"; do { [ -e "$f" ] || [ -L "$f" ]; } && return 0; done; return 1; }
 DIR=$(dirname "$FILE")
 LANG_MARKER=""
 REGISTER=""
@@ -72,14 +92,15 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ] && [ "$DIR" != "." ]; do
     done
   fi
   if [ -z "$LANG_MARKER" ]; then
-    if ls "$DIR"/*.csproj >/dev/null 2>&1; then LANG_MARKER="*.csproj"; fi
+    if has_match "$DIR"/*.csproj; then LANG_MARKER="*.csproj"; fi
   fi
   if [ -z "$LANG_MARKER" ]; then
-    if ls "$DIR"/*.sln >/dev/null 2>&1; then LANG_MARKER="*.sln"; fi
+    if has_match "$DIR"/*.sln; then LANG_MARKER="*.sln"; fi
   fi
   if [ -z "$REGISTER" ] && [ -f "$DIR/specs/INDEX.md" ]; then REGISTER="$DIR/specs/INDEX.md"; fi
   if [ -d "$DIR/.git" ]; then GIT_ROOT="$DIR"; break; fi
-  DIR=$(dirname "$DIR")
+  # `dirname` without the process: "/a/b" -> "/a", "/a" -> "/", "a" -> ".".
+  case "$DIR" in */*) DIR="${DIR%/*}"; [ -n "$DIR" ] || DIR="/" ;; *) DIR="." ;; esac
 done
 
 # Not in a git repo OR no language marker in this repo → silent (template/scratch)

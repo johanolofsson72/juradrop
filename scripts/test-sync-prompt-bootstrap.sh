@@ -89,8 +89,11 @@ ORIGIN="$TMP/johanolofsson72/Claude.git"
 mkdir -p "$(dirname "$ORIGIN")"; git init -q --bare -b main "$ORIGIN"
 
 SEED="$TMP/seed"; git init -q -b main "$SEED"
-mkdir -p "$SEED/.claude/skills/sync-template" "$SEED/.claude/rules"
+mkdir -p "$SEED/.claude/skills/sync-template" "$SEED/.claude/rules" "$SEED/scripts"
 echo v1 > "$SEED/CLAUDE.md"; echo v1 > "$SEED/.claude/skills/sync-template/SKILL.md"
+# Spec 073: a template clone is identified the way the sync engine identifies it —
+# scripts/sync-prompt.md plus .claude/rules/ — so Step -1 and autosync agree on what counts.
+echo v1 > "$SEED/scripts/sync-prompt.md"; echo v1 > "$SEED/.claude/rules/keep.md"
 git -C "$SEED" add -A && git -C "$SEED" commit -qm v1
 git -C "$SEED" remote add origin "$ORIGIN" && git -C "$SEED" push -q origin main
 echo v2 > "$SEED/CLAUDE.md"; git -C "$SEED" commit -qam v2 && git -C "$SEED" push -q origin main
@@ -148,6 +151,7 @@ echo "== a foreign repo at the path is never fetched =="
 H="$TMP/h-foreign"; mkdir -p "$H/repos/Claude/.claude/skills/sync-template"
 C="$H/repos/Claude"; git init -q -b main "$C"
 echo x > "$C/CLAUDE.md"; echo x > "$C/.claude/skills/sync-template/SKILL.md"
+mkdir -p "$C/scripts" "$C/.claude/rules"; echo x > "$C/scripts/sync-prompt.md"; echo x > "$C/.claude/rules/keep.md"
 git -C "$C" add -A && git -C "$C" commit -qm x
 git -C "$C" remote add origin "https://github.com/someone/else.git"
 S=$(git -C "$C" rev-parse HEAD)

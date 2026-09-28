@@ -31,6 +31,14 @@ set -uo pipefail
 INPUT=$(cat 2>/dev/null || true)
 [ -n "$INPUT" ] || exit 0
 
+# Cheapest exit first (spec 073, R9): this runs after every Bash call, and the SUBCMD test below can
+# only match a command that contains the word graphify — which then appears in the raw JSON verbatim.
+# Bounded to small payloads because bash's matcher is slow on long strings (tool_response carries the
+# command's whole output); a large payload skips this and pays what it paid before.
+if [ "${#INPUT}" -le 4096 ]; then
+  case "$INPUT" in *graphify*) ;; *) exit 0 ;; esac
+fi
+
 # jq is the universal parser the rest of the template depends on — bail
 # silently if it isn't present rather than parsing JSON in bash.
 command -v jq >/dev/null 2>&1 || exit 0

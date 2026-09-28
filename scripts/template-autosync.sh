@@ -69,6 +69,7 @@
 #   template-autosync.sh [--check] [--dry-run] [--force] [--no-commit] [--quiet]
 #   template-autosync.sh --accept-local <path>...
 #   template-autosync.sh --is-core <project-relative-path>
+#   template-autosync.sh --template-dir   (print the local template clone this sync would use)
 #     --check         report drift and exit 0 without writing anything
 #     --dry-run       same as --check but also prints the file list it would write
 #     --force         sync even when the template SHA matches the stamp
@@ -102,7 +103,7 @@ TEMPLATE_TARBALL="https://codeload.github.com/johanolofsson72/Claude/tar.gz/refs
 
 MODE_CHECK=0; MODE_DRYRUN=0; FORCE=0; DO_COMMIT=1; QUIET=0; MODE_ACCEPT=0; ACCEPT_PATHS=""
 MODE_IS_CORE=0; IS_CORE_PATH=""
-MODE_LIST_SCRIPTS=0; MODE_LIST_RULES=0
+MODE_LIST_SCRIPTS=0; MODE_LIST_RULES=0; MODE_TEMPLATE_DIR=0
 # Spec 007ca. Declared beside MODE_IS_CORE because it is the same shape of question — a query mode
 # that answers and exits rather than syncing — and because `set -u` is on and the report block below
 # runs on every path, including the ones that never reach the flag loop's default.
@@ -140,6 +141,7 @@ while [ $# -gt 0 ]; do
     # how the other reader asks the question instead of answering it itself.
     --list-core-scripts) MODE_LIST_SCRIPTS=1 ;;
     --list-core-rules)   MODE_LIST_RULES=1 ;;
+    --template-dir)      MODE_TEMPLATE_DIR=1 ;;
     --owed)     MODE_OWED=1 ;;
     --is-core)
       MODE_IS_CORE=1
@@ -212,7 +214,10 @@ template-sync-verify.sh template-sync-verify-hook.sh
 test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
 test-template-autosync-unlisted.sh
 test-sync-prompt-bootstrap.sh
-hook-notice.sh harness-state-gc.sh test-hook-channels.sh"
+hook-notice.sh harness-state-gc.sh test-hook-channels.sh
+allium-check-hook.sh test-allium-check-hook.sh allium-census.sh test-allium-census.sh
+speckit-sync.sh speckit-version test-speckit-sync.sh
+test-portability-audit.sh test-sync-prompt-zsh.sh"
 
 # Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
 # (spec 007ca) reports twelve files at every session start in the template, forever — which is the
@@ -253,7 +258,8 @@ hook-notice.sh harness-state-gc.sh test-hook-channels.sh"
 TEMPLATE_ONLY_SCRIPTS="after-specify-hook.sh allium-hook.sh tla-hook.sh ui-design-hook.sh
 sqlite-nfs-safety-hook.sh test-coverage-hook.sh
 run-mutation-gate.sh
-update-template.sh verify-local-llm-hooks.sh"
+update-template.sh verify-local-llm-hooks.sh
+bench-hooks.sh install-global-skills.sh test-install-global-skills.sh test-on-linux.sh"
 
 CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
 spec-register.md spec-interview.md spec-hardening.md scenarios.md specs.md tests.md
@@ -262,8 +268,43 @@ carve-budget.md"
 
 # Answered from the sets above and nothing else: no clone, no network, no stamp.
 # A caller in a project asks the template what CORE is; it does not keep a copy.
+# The one list of places a template clone may live (spec 073). The wizard, /project-update and
+# sync-template each used to carry their own list, and they disagreed: one never read
+# CLAUDE_TEMPLATE_DIR, one hardcoded /Users/jool. A clone outside ~/repos — ordinary on Linux —
+# silently sent this script to the tarball path. `--template-dir` prints the answer, so the other
+# readers ask this function instead of keeping a second copy of it.
+template_candidates() {
+  printf '%s\n' "${CLAUDE_TEMPLATE_DIR:-}" \
+    "$HOME/repos/Claude" "$HOME/repos/claude" \
+    "$HOME/Projects/Claude" "$HOME/projects/Claude" "$HOME/projects/claude" \
+    "$HOME/src/Claude" "$HOME/code/Claude" "$HOME/dev/Claude" "$HOME/git/Claude"
+}
+
+# Spec 073. Answers from the same list resolve_local_template walks, with the same test for "this is
+# a template clone", and exits before the project-root walk so it works from any directory —
+# including a project that has never been synced, which is exactly where the wizard asks it.
+# 0 + the path on stdout = found; 1 = no local clone (the sync would use the tarball).
+if [ "$MODE_TEMPLATE_DIR" -eq 1 ]; then
+  while IFS= read -r cand; do
+    [ -n "$cand" ] || continue
+    if [ -f "$cand/scripts/sync-prompt.md" ] && [ -d "$cand/.claude/rules" ]; then
+      printf '%s\n' "$cand"; exit 0
+    fi
+  done <<CANDIDATES
+$(template_candidates)
+CANDIDATES
+  exit 1
+fi
 if [ "$MODE_LIST_SCRIPTS" -eq 1 ]; then printf '%s\n' $CORE_SCRIPTS; exit 0; fi
 if [ "$MODE_LIST_RULES"   -eq 1 ]; then printf '%s\n' $CORE_RULES;   exit 0; fi
+
+# Spec 073. The long form of each CORE rule. The rules were cut to their contracts and point at
+# these by path, so a project that receives the short rule and not its doc holds a pointer to a file
+# it does not have. Docs are otherwise never ADDED (a doc a project deleted stays deleted), so these
+# are named: added when missing, and after that updated under the manifest like every other doc —
+# NOT CORE, so a local edit is reported and kept rather than overwritten, and no guard, --owed or
+# --accept-local arm has to learn a third class.
+RULE_DOCS="supply-chain.md carve-budget-rationale.md continuous-execution-rationale.md feature-pipeline-rationale.md github-actions-rationale.md lane-handoff-rationale.md project-workflow-rationale.md spec-hardening-rationale.md spec-interview-rationale.md spec-register-rationale.md validation-followup-rationale.md"
 
 is_core() {
   case "$2" in
@@ -961,10 +1002,12 @@ report_eol_divergence() {
 }
 
 resolve_local_template() {
-  for cand in "${CLAUDE_TEMPLATE_DIR:-}" "$HOME/repos/Claude" "$HOME/repos/claude"; do
+  # A here-doc, not a pipe: the loop assigns TEMPLATE_DIR and returns, and a pipe would run it in
+  # a subshell and lose both. Line-wise, so a home directory with a space in it survives.
+  while IFS= read -r cand; do
     [ -n "$cand" ] || continue
     if [ -f "$cand/scripts/sync-prompt.md" ] && [ -d "$cand/.claude/rules" ]; then
-      refresh_local_template "$cand"
+      refresh_local_template "$cand" </dev/null   # stdin is the candidate list; keep git off it
       TEMPLATE_DIR="$cand"
       TEMPLATE_SHA=$(git -C "$cand" rev-parse --short=12 HEAD 2>/dev/null || echo "local-unknown")
       # A dirty working tree means the files being copied are NOT what the SHA
@@ -988,7 +1031,9 @@ resolve_local_template() {
       fi
       return 0
     fi
-  done
+  done <<CANDIDATES
+$(template_candidates)
+CANDIDATES
   return 1
 }
 
@@ -1368,10 +1413,30 @@ if [ "$MODE_OWED" -eq 1 ]; then
   exit 0
 fi
 
+# ------------------------------------------------- spec-kit pin (spec 073)
+# Reported, never carried out. Bringing a project to the pin means `uv tool install` plus
+# `specify init`, which is network, tens of seconds and a rewrite of .claude/skills/speckit-* —
+# none of which belongs inside a SessionStart budget or in a commit the developer did not ask for.
+# The pin travels with this sync (scripts/speckit-version is CORE); the line below is what stops a
+# project sitting on an old snapshot without anyone knowing, which is how two developers ended up
+# running different pipelines. A function because it is called from the two "already at template"
+# exits too — those are the steady state, and a report only the syncing run could reach would say
+# it once per template commit and then fall silent. sed, not python: this runs at every session start.
+report_speckit_pin() {
+  [ -f "$PROJECT_ROOT/scripts/speckit-version" ] && [ -f "$PROJECT_ROOT/.specify/init-options.json" ] || return 0
+  _pin=$(grep -v '^[[:space:]]*#' "$PROJECT_ROOT/scripts/speckit-version" | tr -d '[:space:]')
+  _have=$(sed -n 's/.*"speckit_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+          "$PROJECT_ROOT/.specify/init-options.json" | head -1)
+  if [ -n "$_pin" ] && [ "${_have:-none}" != "${_pin#v}" ]; then
+    tell "[speckit] project .specify/ is at ${_have:-unknown}, the template pins $_pin — run: bash scripts/speckit-sync.sh"
+  fi
+  return 0
+}
+
 if ! resolve_local_template; then
   resolve_remote_template
   RC=$?
-  if [ "$RC" -eq 2 ]; then say "[ok] already at template $TEMPLATE_SHA"; exit 0; fi
+  if [ "$RC" -eq 2 ]; then say "[ok] already at template $TEMPLATE_SHA"; report_speckit_pin; exit 0; fi
   if [ "$RC" -ne 0 ]; then
     # A sync that cannot reach the template does nothing and says so quietly; it runs
     # from a SessionStart hook and must never make offline look like breakage. An
@@ -1391,6 +1456,7 @@ fi
 STAMP_SHA=$(sed -n 's/^sha=//p' "$STAMP" 2>/dev/null | head -1)
 if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
   say "[ok] already at template $TEMPLATE_SHA"
+  report_speckit_pin
   # Rendered here rather than collected for later, because on this path there is no later.
   report_owed "$(core_divergence)"
   # Spec 007ca. Between the two deliberately: [owed] and [unlisted] both ask for a decision about
@@ -1809,14 +1875,17 @@ $SRCREL
     # removed — but a missing skill is never a decision, it is just a project that
     # predates the skill. Skills are add-if-missing yet manifest-protected on
     # update (they are not in the CORE set), so a customized skill is still safe.
-    is_core "$BASE" "$CLASS" || [ "$CLASS" = "skills" ] || return 0
+    is_core "$BASE" "$CLASS" || [ "$CLASS" = "skills" ] \
+      || { [ "$CLASS" = "docs" ] && printf '%s\n' $RULE_DOCS | grep -qx "$BASE"; } || return 0
     [ "$MODE_CHECK" -eq 1 ] || { mkdir -p "$(dirname "$DEST")"; atomic_copy "$SRC" "$DEST"; }
     ADDED="$ADDED $REL"
   fi
   printf '%s  %s\n' "$SRC_HASH" "$REL" >> "$NEW_MANIFEST"
 }
 
-for f in "$TEMPLATE_DIR"/scripts/*.sh "$TEMPLATE_DIR"/scripts/*.py; do
+# speckit-version is data, not code, and the only CORE file under scripts/ without a .sh or .py
+# suffix — so it is named here rather than widening the glob to everything in scripts/ (spec 073).
+for f in "$TEMPLATE_DIR"/scripts/*.sh "$TEMPLATE_DIR"/scripts/*.py "$TEMPLATE_DIR"/scripts/speckit-version; do
   [ -f "$f" ] || continue
   copy_file "$f" "scripts/$(basename "$f")" scripts
 done
@@ -2378,12 +2447,36 @@ fi
 # here so a project cannot silently regain feature-branch + auto-commit skills
 # that contradict spec-register.md. Idempotent and silent when already correct.
 if [ -f "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" ]; then
-  POL=$(bash "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" --repo "$PROJECT_ROOT" 2>/dev/null | head -1)
-  if [ -n "$POL" ]; then
-    say "[speckit] $POL"
-    record_write .specify/extensions/.registry
+  # Spec 073: the exit status is read, not discarded. 2 means a pipeline-stop patch found no
+  # anchor — spec-kit reworded the prompt and the STOP may be live — and that goes through `tell`,
+  # which --quiet cannot silence, because the SessionStart wrapper runs this with --quiet.
+  POL_ALL=$(bash "$PROJECT_ROOT/scripts/speckit-extension-policy.sh" --repo "$PROJECT_ROOT" 2>&1); POL_RC=$?
+  POL=$(printf '%s\n' "$POL_ALL" | grep -v 'FAIL' | head -1)
+  [ -n "$POL" ] && say "[speckit] $POL"
+  # Record only what the policy actually wrote, and only paths that exist. `git add -- $WROTE`
+  # stages nothing when one path is missing, and a spec-kit 1.0 project has no .registry at all —
+  # so recording it on any output line (the old rule) turned a stop-patch run into a failed commit
+  # that also dropped the two SKILL.md files the patch had rewritten.
+  case "$POL_ALL" in *"speckit-extension-policy: disabled"*)
+    [ -f "$PROJECT_ROOT/.specify/extensions/.registry" ] && record_write .specify/extensions/.registry ;;
+  esac
+  case "$POL_ALL" in *"neutralized implement"*)
+    [ -f "$PROJECT_ROOT/.claude/skills/speckit-implement/SKILL.md" ] && record_write .claude/skills/speckit-implement/SKILL.md ;;
+  esac
+  case "$POL_ALL" in *"neutralized specify"*)
+    [ -f "$PROJECT_ROOT/.claude/skills/speckit-specify/SKILL.md" ] && record_write .claude/skills/speckit-specify/SKILL.md ;;
+  esac
+  case "$POL_ALL" in *"disable-model-invocation on"*)
+    for _sk in "$PROJECT_ROOT"/.claude/skills/speckit-git-*/SKILL.md; do
+      [ -f "$_sk" ] && record_write "${_sk#"$PROJECT_ROOT"/}"
+    done ;;
+  esac
+  if [ "$POL_RC" -eq 2 ]; then
+    printf '%s\n' "$POL_ALL" | grep 'FAIL' | while IFS= read -r _l; do tell "[speckit] $_l"; done
   fi
 fi
+
+report_speckit_pin
 
 # ------------------------------------------------- stack marker (derive if absent)
 # `.claude/.sync-stack` gates which testing docs this project receives. When it is

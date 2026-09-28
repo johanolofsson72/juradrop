@@ -26,7 +26,9 @@
 # `specify init --force`, which re-enables everything.
 #
 # Usage: speckit-extension-policy.sh [--repo <path>] [--dry-run]
-# Exit: 0 = policy holds (changed or already correct), 1 = could not apply.
+# Exit: 0 = policy holds (changed or already correct), 1 = could not apply,
+#       2 = a pipeline-stop patch found no anchor: spec-kit reworded the prompt and the
+#           STOP it guards may be live again. Everything else was still applied.
 
 set -u
 
@@ -117,17 +119,24 @@ for path, old, new, label in targets:
 
 for label in done:
     print(f"speckit-extension-policy: neutralized {label}")
+# Stdout AND a distinct exit code (spec 073). This used to be a stderr line with exit 0, and the
+# autosync caller runs this with 2>/dev/null — so the one message that meant "the permission stop
+# is back" was the one message nobody could ever see. spec-kit is pinned now, which makes a moved
+# anchor rare; rare is exactly when it has to be loud.
 for label in absent:
-    print(f"speckit-extension-policy: WARNING — could not find the {label}; spec-kit changed its wording. "
-          f"The rule in .claude/rules/feature-pipeline.md still governs: never relay that prompt.", file=sys.stderr)
+    print(f"speckit-extension-policy: FAIL — could not find the {label}; spec-kit changed its wording "
+          f"and the stop may be live. Update the anchor in scripts/speckit-extension-policy.sh. "
+          f"Until then .claude/rules/feature-pipeline.md governs: never relay that prompt.")
+sys.exit(2 if absent else 0)
 PYEOF
-  return 0
 }
-neutralize_stops "$REPO"
+STOPS_RC=0
+neutralize_stops "$REPO" || STOPS_RC=$?
+[ "$STOPS_RC" -eq 2 ] || STOPS_RC=0
 
 REG="$REPO/.specify/extensions/.registry"
-[ -f "$REG" ] || exit 0            # no spec-kit extensions here — nothing to enforce
-command -v python3 >/dev/null 2>&1 || exit 0
+[ -f "$REG" ] || exit "$STOPS_RC"  # no spec-kit extensions here — nothing more to enforce
+command -v python3 >/dev/null 2>&1 || exit "$STOPS_RC"
 
 # Extensions this project refuses to run. Space-separated.
 DISABLE="${SPECKIT_DISABLED_EXTENSIONS:-git}"
@@ -220,3 +229,6 @@ print(f"speckit-extension-policy: {'would disable' if dry else 'disabled'} "
 print("  reason: feature branches / per-phase auto-commit conflict with "
       ".claude/rules/spec-register.md (one spec, one commit, direct push)")
 PY
+REG_RC=$?
+[ "$REG_RC" -eq 0 ] || exit "$REG_RC"   # 1 = registry unreadable, as before
+exit "$STOPS_RC"

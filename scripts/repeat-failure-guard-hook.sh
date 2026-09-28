@@ -66,21 +66,34 @@ command -v jq >/dev/null 2>&1 || exit 0
 INPUT=$(cat 2>/dev/null || true)
 [ -z "$INPUT" ] && exit 0
 
+# ------------------------------------------------- only track verification runs
+# A function because the same list answers twice: once against the raw payload, once against CMD.
+is_verification_run() {
+  case "$1" in
+    *"dotnet build"*|*"dotnet test"*|*"dotnet run"*|*"dotnet format"*|*"dotnet stryker"*) return 0 ;;
+    *"npm test"*|*"npm run build"*|*"npm run lint"*|*"npm run typecheck"*|*"npm run test"*) return 0 ;;
+    *"pnpm "*test*|*"pnpm "*build*|*"yarn "*test*|*"yarn "*build*) return 0 ;;
+    *"npx tsc"*|*"tsc --noEmit"*|*"eslint"*|*"vitest"*|*"jest"*|*"playwright test"*) return 0 ;;
+    *"pytest"*|*"ruff check"*|*"mypy"*) return 0 ;;
+    *"go test"*|*"go build"*|*"cargo test"*|*"cargo build"*|*"cargo clippy"*) return 0 ;;
+    *"flutter test"*|*"flutter build"*|*"flutter analyze"*|*"maestro test"*|*"patrol test"*) return 0 ;;
+    *"gradlew test"*|*"mvn test"*|*"mvn verify"*) return 0 ;;
+  esac
+  return 1
+}
+
+# Cheapest exit first (spec 073, R9): this runs after every Bash call and acts on a handful of them.
+# Every pattern above is letters, spaces and dashes, which JSON leaves verbatim, so a raw payload the
+# list does not match holds a command it does not match either — and needs no jq to say so. Bounded,
+# because bash's matcher is slow on long strings and tool_response carries the command's whole output.
+if [ "${#INPUT}" -le 4096 ]; then
+  is_verification_run "$INPUT" || exit 0
+fi
+
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null) || exit 0
 [ -z "$CMD" ] && exit 0
+is_verification_run "$CMD" || exit 0
 
-# ------------------------------------------------- only track verification runs
-case "$CMD" in
-  *"dotnet build"*|*"dotnet test"*|*"dotnet run"*|*"dotnet format"*|*"dotnet stryker"*) ;;
-  *"npm test"*|*"npm run build"*|*"npm run lint"*|*"npm run typecheck"*|*"npm run test"*) ;;
-  *"pnpm "*test*|*"pnpm "*build*|*"yarn "*test*|*"yarn "*build*) ;;
-  *"npx tsc"*|*"tsc --noEmit"*|*"eslint"*|*"vitest"*|*"jest"*|*"playwright test"*) ;;
-  *"pytest"*|*"ruff check"*|*"mypy"*) ;;
-  *"go test"*|*"go build"*|*"cargo test"*|*"cargo build"*|*"cargo clippy"*) ;;
-  *"flutter test"*|*"flutter build"*|*"flutter analyze"*|*"maestro test"*|*"patrol test"*) ;;
-  *"gradlew test"*|*"mvn test"*|*"mvn verify"*) ;;
-  *) exit 0 ;;
-esac
 
 # ------------------------------------------------------------ project root
 DIR="${CLAUDE_PROJECT_DIR:-$PWD}"

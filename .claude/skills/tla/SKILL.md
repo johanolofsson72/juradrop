@@ -214,60 +214,106 @@ This rule applies whether `/tla` was invoked manually, automatically after brows
 - Missing retry logic for transient failures
 - Timeout handling gaps
 
-## TLC model checker (auto-install)
+## TLC model checker (discover, then auto-install)
 
-Check if TLC is available. If not, install it automatically — do NOT fall back to reasoning-based verification without trying to install first.
+Find TLC before installing anything — do NOT fall back to reasoning-based verification without trying first. The search order is fixed, and each step exists because a real machine keeps TLC there:
+
+1. **`tlc` on `PATH`** — a wrapper someone already installed.
+2. **`$TLA2TOOLS_JAR`** — an explicit override; set it when the jar lives somewhere unusual.
+3. **`~/.local/lib/tla2tools.jar`** — where `/project-wizard` installs it on Linux, and where the download below lands. User-writable on every platform, no `sudo`.
+4. **Homebrew prefixes** — `/opt/homebrew/lib` (Apple Silicon) and `/usr/local/lib` (Intel, and hand installs), plus the TLA+ Toolbox app bundle (`brew install --cask tla+-toolbox`). There is **no** `tlaplus` Homebrew formula; `brew install tlaplus` fails, which is why the old instruction to run it never worked.
+5. **Download** the release jar into `~/.local/lib` — never `/tmp`, which macOS and systemd-tmpfiles both reap, so a `/tmp` jar is re-downloaded on the next run and gone in the middle of a session.
+
+Run discovery and the model check as **one** Bash call (the shell does not keep variables between calls). It is written to run unchanged under bash 3.2 (macOS), bash 5 (Linux), Git Bash and zsh — which is why it builds the command with `set --` rather than an unquoted string: zsh does not word-split `$VAR`, so `TO="timeout 300"; $TO java …` runs a command literally named `timeout 300`.
 
 ```bash
-# Check if TLC is available
-if ! command -v tlc &>/dev/null && ! java -cp tla2tools.jar tlc2.TLC --help &>/dev/null 2>&1; then
-  echo "TLC not found — installing via Homebrew..."
-  if command -v brew &>/dev/null; then
-    brew install --quiet tlaplus
+SPEC=FeatureName.tla   # the spec you wrote
+
+# --- discover ---------------------------------------------------------------
+TLA_JAR=""
+if command -v tlc >/dev/null 2>&1; then
+  set -- tlc
+else
+  for j in "${TLA2TOOLS_JAR:-}" "$HOME/.local/lib/tla2tools.jar" \
+           /opt/homebrew/lib/tla2tools.jar /usr/local/lib/tla2tools.jar \
+           "/Applications/TLA+ Toolbox.app/Contents/Eclipse/tla2tools.jar"; do
+    if [ -n "$j" ] && [ -f "$j" ]; then TLA_JAR="$j"; break; fi
+  done
+  if [ -z "$TLA_JAR" ]; then
+    echo "TLC not found — downloading the release jar to ~/.local/lib"
+    mkdir -p "$HOME/.local/lib"
+    # .part + mv: an interrupted download must not leave a truncated jar that
+    # step 3 would then find and trust on every later run.
+    curl -fsSL -o "$HOME/.local/lib/tla2tools.jar.part" \
+         https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar \
+      && mv "$HOME/.local/lib/tla2tools.jar.part" "$HOME/.local/lib/tla2tools.jar" \
+      && TLA_JAR="$HOME/.local/lib/tla2tools.jar"
+  fi
+  if [ -z "$TLA_JAR" ]; then
+    echo "ERROR: no TLC and the download failed — report 'TLC installed: no'"
+    set --
+  elif ! command -v java >/dev/null 2>&1; then
+    echo "ERROR: java is not installed — TLC needs a JRE 11+. Report 'TLC installed: no'"
+    set --
   else
-    echo "Homebrew not available — downloading TLA+ tools JAR..."
-    curl -fsSL -o /tmp/tla2tools.jar https://github.com/tlaplus/tlaplus/releases/latest/download/tla2tools.jar
-    echo "Downloaded to /tmp/tla2tools.jar — use: java -jar /tmp/tla2tools.jar tlc2.TLC"
+    # -cp + main class, not `-jar jar tlc2.TLC`: with -jar the class name is passed
+    # to the jar's own main as a stray argument.
+    set -- java -Xmx1g -cp "$TLA_JAR" tlc2.TLC
   fi
 fi
+
+# --- bound it ---------------------------------------------------------------
+# GNU `timeout` on Linux and Git Bash; `gtimeout` on macOS with coreutils. macOS
+# ships neither, so the third branch is real, not theoretical.
+if [ $# -eq 0 ]; then
+  :   # nothing to bound — discovery already said why
+elif command -v timeout >/dev/null 2>&1; then
+  set -- timeout -k 10 300 "$@"
+elif command -v gtimeout >/dev/null 2>&1; then
+  set -- gtimeout -k 10 300 "$@"
+else
+  echo "WARNING: neither timeout nor gtimeout is installed — this TLC run is UNBOUNDED."
+  echo "         Keep the state space small, and install coreutils (brew install coreutils)."
+fi
+
+# --- run (foreground, never backgrounded) -----------------------------------
+if [ $# -gt 0 ]; then
+  "$@" -workers auto -deadlock "$SPEC"
+  echo "TLC exit: $?"
+fi
 ```
+
+Exit 124 from `timeout` means the 5-minute bound fired: treat it as an inconclusive run (per `validation-followup.md`), reduce the state space, and do not simply retry.
 
 ### CRITICAL: Process lifecycle rules
 
 TLC and Java processes MUST be managed with a strict lifecycle. Runaway TLC processes will pin all CPU cores and overheat the machine.
 
-1. **Always use `timeout 300`** (5 minutes max) — no TLC run should ever exceed this
+1. **Always bound the run at 300 s** (`timeout`/`gtimeout`, as above) — no TLC run should ever exceed this. When neither exists, say so in the report.
 2. **Always use `-Xmx1g`** for JAR-based execution — caps heap at 1 GB
 3. **Always run cleanup after execution** — see "Process cleanup" section below
 4. **Never run TLC in the background** without explicit cleanup
 5. **If TLC hangs or times out** — kill it immediately, do NOT retry without reducing the state space
 
-Once available, write the TLA+ spec to a temp file and run with **mandatory timeout and memory limits**:
-
-```bash
-# MANDATORY: Always use timeout (5 min max) and memory cap (1GB max)
-# TLC with -workers auto will consume ALL cores — the timeout prevents runaway processes
-
-# Option 1: Homebrew-installed TLC
-timeout 300 tlc -workers auto -deadlock FeatureName.tla
-
-# Option 2: JAR-based (with memory cap)
-timeout 300 java -Xmx1g -jar /tmp/tla2tools.jar tlc2.TLC -workers auto -deadlock FeatureName.tla
-```
-
 ### Process cleanup (MANDATORY — this is law)
 
-After TLC finishes (success, failure, OR timeout), **always verify no TLC/Java processes are left running**:
+After TLC finishes (success, failure, OR timeout), **always verify no TLC/Java processes are left running** — in a **separate** Bash call from the one that ran TLC:
 
 ```bash
-# Kill any lingering TLC processes after execution
-pkill -f "tla2tools" 2>/dev/null
-pkill -f "tlc2.TLC" 2>/dev/null
+bash scripts/tlc-cleanup.sh
+```
 
-# Verify nothing is left
-if pgrep -f "tla2tools|tlc2.TLC" >/dev/null 2>&1; then
+**Why a separate call.** `pkill -f` matches against every process's full command line, including the shell the Bash tool started. A single call that both runs `… tla2tools.jar …` and then `pkill -f tla2tools` kills its own shell (exit 143/144) and the output of the run can be lost with it — the same self-kill register row 069 records for the hook that calls `tlc-cleanup.sh`. Keeping the cleanup in its own call keeps the pattern out of the shell it runs in.
+
+If `scripts/tlc-cleanup.sh` is not present, run this instead (also as its own call). The bracket in each pattern is deliberate: `tla2tool[s]` still matches `tla2tools` in a java command line but does not match the text `tla2tool[s]` in this shell's own command line, so the cleanup cannot kill the shell running it.
+
+```bash
+pkill -f "tla2tool[s]" 2>/dev/null
+pkill -f "tlc2[.]TLC" 2>/dev/null
+sleep 1
+if pgrep -f "tla2tool[s]|tlc2[.]TLC" >/dev/null 2>&1; then
   echo "WARNING: TLC processes still running — force killing"
-  pkill -9 -f "tla2tools|tlc2.TLC" 2>/dev/null
+  pkill -9 -f "tla2tool[s]|tlc2[.]TLC" 2>/dev/null
 fi
 ```
 

@@ -5,6 +5,7 @@ tools: Read, Grep, Glob
 model: sonnet
 memory: project
 isolation: worktree
+omitClaudeMd: true
 ---
 
 You are a security specialist reviewing code for vulnerabilities.

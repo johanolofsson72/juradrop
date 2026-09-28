@@ -43,6 +43,19 @@
 set -u
 
 INPUT=$(cat)
+
+# Cheapest exit first (spec 073, R9): both branches below act only on a path under scripts/ or
+# .claude/rules/, and such a path appears in the raw JSON verbatim — JSON escaping leaves letters,
+# dots and slashes alone. Without either substring there is nothing to decide, and no reason to start
+# jq to find that out. A match only means "look properly"; the case statements below still decide.
+# Bounded to small payloads: bash's matchers are slow on long strings (a 200 KB Write took longer to
+# scan than jq takes to start), so a large payload skips this and pays exactly what it paid before.
+if [ "${#INPUT}" -le 4096 ]; then
+  case "$INPUT" in
+    */scripts/*|*/.claude/rules/*) ;;
+    *) exit 0 ;;
+  esac
+fi
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 [ -z "$FILE" ] && exit 0
 

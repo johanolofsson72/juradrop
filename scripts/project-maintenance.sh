@@ -275,6 +275,20 @@ if [ -f specs/INDEX.md ] && [ -x scripts/register-convergence.sh ]; then
   esac
 fi
 
+# --------------------------------------------------- 3f. allium baseline census
+# /tla compares its distilled spec against each spec.allium, so a baseline the CLI cannot parse
+# makes the drift report meaningless. New writes are blocked by allium-check-hook.sh; this is
+# the backlog, reported and never failed on (rocky carried 131 closed-row baselines with errors
+# when the hook landed, and a run that is red every night is a run nobody reads).
+if [ -f scripts/allium-census.sh ] && ls specs/*/spec.allium >/dev/null 2>&1; then
+  ALLIUM_OUT=$(bash scripts/allium-census.sh 2>&1); ALLIUM_RC=$?
+  case "$ALLIUM_RC" in
+    0) : ;;
+    1) note "[note] $(printf '%s\n' "$ALLIUM_OUT" | tail -1) — list: bash scripts/allium-census.sh" ;;
+    *) note "[note] allium census could not tell: $(printf '%s\n' "$ALLIUM_OUT" | tail -1)" ;;
+  esac
+fi
+
 # ------------------------------------------------------- 3e. script mode drift
 # A .sh without its executable bit still runs as `bash X`, so nothing fails --
 # it fails only where something guards with `-x`, and then it fails SILENTLY.
@@ -433,9 +447,12 @@ if [ -d .claude/worktrees ]; then
       case "$WT_SZ" in (''|*[!0-9]*) WT_SZ=0 ;; esac
       WT_KB=$((WT_KB + WT_SZ))
 
-      # BSD form first (macOS), GNU second (Linux, Git Bash). If both fail the age is
-      # omitted from the finding rather than printed as garbage.
-      WT_MT=$(stat -f %m "$wt" 2>/dev/null || stat -c %Y "$wt" 2>/dev/null)
+      # GNU form first (Linux, Git Bash), BSD second (macOS). The order is load-bearing:
+      # on GNU, `stat -f` is --file-system and succeeds, printing a filesystem block to
+      # stdout, so a BSD-first chain never reaches its fallback there. `stat -c` is an
+      # unknown option to BSD stat and fails cleanly, which makes it the safe probe.
+      # If both fail the age is omitted from the finding rather than printed as garbage.
+      WT_MT=$(stat -c %Y "$wt" 2>/dev/null || stat -f %m "$wt" 2>/dev/null)
       case "$WT_MT" in (''|*[!0-9]*) WT_MT=0 ;; esac
       if [ "$WT_MT" -gt 0 ] && [ "$WT_NOW" -gt "$WT_MT" ]; then
         WT_AGE=$(( (WT_NOW - WT_MT) / 86400 ))

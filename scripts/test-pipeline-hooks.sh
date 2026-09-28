@@ -1000,14 +1000,16 @@ _expect "autosync: a no-op sync stays silent (SC-1300)"          "" "$COUT"
 _expect "autosync: a no-op sync marks the marker ok (SC-1300)"   ok "$(autosync_marker "$CD")"
 rm -rf "$CD"
 
-# Control — a non-timeout failure stays silent. H6t names the timeout and
-# nothing else; making every failure loud is a different trade-off.
+# A non-timeout failure is named (spec 073). It used to stay silent and stamp `ok`, which bought
+# a broken sync the full 6-hour window with nobody told; now it gets the short backoff, one line
+# for the developer, and the tail of its output for Claude. Still exits 0: SessionStart must start.
 DD=$(autosync_sandbox 'echo "boom" >&2
 exit 3')
 DOUT=$(autosync_hook "$DD" TEMPLATE_AUTOSYNC_LIMIT=2); DRC=$?
-_expect "autosync: another failure stays silent (SC-1301)"        "" "$DOUT"
-_expect "autosync: another failure exits 0 (SC-1301)"             0  "$DRC"
-_expect "autosync: another failure marks the marker ok (SC-1301)" ok "$(autosync_marker "$DD")"
+case "$DOUT" in *"auto-sync failed (exit 3)"*boom*) DSAID=named ;; *) DSAID="$DOUT" ;; esac
+_expect "autosync: another failure is named, with its output (SC-1301)" named "$DSAID"
+_expect "autosync: another failure exits 0 (SC-1301)"                   0     "$DRC"
+_expect "autosync: another failure marks the marker failed (SC-1301)"   failed "$(autosync_marker "$DD")"
 rm -rf "$DD"
 
 # 143 (128+TERM) is in the timeout class for the sake of `timeout`

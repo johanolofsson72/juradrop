@@ -107,6 +107,24 @@ if [ -d "$STATE_DIR" ]; then
   fi
 fi
 
+# ------------------------------------------ 1b. orphaned bash-write markers
+# bash-write-guard-hook.sh stamps one marker per Bash tool call (spec 073) and
+# bash-write-detect-hook.sh consumes it in PostToolUse. A call that is denied or
+# fails fires no PostToolUse, so its marker is never consumed — the same
+# producer-owns-no-cleanup shape as the attempt files above. A day is far past
+# the longest a tool call can run, so nothing older can still be waited on.
+REMOVED_MARKERS=0
+MARKER_DIR="$PROJECT_ROOT/.claude/state/bash-write"
+if [ -d "$MARKER_DIR" ]; then
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    _act "$f"
+    REMOVED_MARKERS=$((REMOVED_MARKERS + 1))
+  done <<EOF
+$(find "$MARKER_DIR" -maxdepth 1 -type f -mmin +1440 2>/dev/null)
+EOF
+fi
+
 # ------------------------------------------------------------ 2. TLC scratch
 # The timestamp directory is the signature. TLC writes it as YY-MM-DD-HH-MM-SS.
 TS_RE='^[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}$'
@@ -163,6 +181,14 @@ NOTICE_BASE="${TMPDIR:-/tmp}"
 NOTICE_BASE="${NOTICE_BASE%/}/claude-hook-notices"
 if [ -d "$NOTICE_BASE" ] && [ "$MODE" = "clean" ]; then
   find "$NOTICE_BASE" -maxdepth 1 -type d -mtime +2 -exec rm -rf {} + 2>/dev/null
+fi
+
+if [ "$REMOVED_MARKERS" -gt 0 ]; then
+  if [ "$MODE" = "clean" ]; then
+    printf 'harness-state-gc: removed %s orphaned bash-write marker(s).\n' "$REMOVED_MARKERS"
+  else
+    printf 'harness-state-gc (%s): %s orphaned bash-write marker(s) past a day.\n' "$MODE" "$REMOVED_MARKERS"
+  fi
 fi
 
 TOTAL=$((REMOVED_ATTEMPTS + REMOVED_TLC))

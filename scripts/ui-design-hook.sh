@@ -9,6 +9,18 @@
 # state), so this hook provides an unavoidable reminder via additionalContext.
 
 INPUT=$(cat)
+
+# Cheapest exit first (spec 073, R9): a path ending in a UI extension appears in the raw JSON as
+# `.<ext>"` (escaping leaves letters, dots and the closing quote alone), so an input without one of
+# these cannot pass the extension test below. That saves a jq and two greps on every non-UI edit. A
+# match only means "look properly" — the tests below still decide.
+# Bounded to small payloads: bash's matchers are slow on long strings (a 200 KB Write took longer to
+# scan than jq takes to start), so a large payload skips this and pays exactly what it paid before.
+if [ "${#INPUT}" -le 4096 ]; then
+  shopt -s nocasematch
+  [[ $INPUT =~ \.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml)\" ]] || exit 0
+  shopt -u nocasematch
+fi
 FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 
 [ -z "$FILE" ] && exit 0

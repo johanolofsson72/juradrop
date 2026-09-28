@@ -23,6 +23,17 @@ HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 . "$HOOK_DIR/hook-notice.sh"
 
 INPUT=$(cat)
+
+# Cheapest exit first (spec 073, R9): only a test file is looked at (the case-insensitive name test below),
+# and that name appears in the raw JSON verbatim (escaping leaves letters, dots and slashes alone),
+# so a payload without it needs no jq to be ruled out. A match only means
+# "look properly" — the tests below still decide. Bounded, because bash's matcher is slow on long
+# strings; a large payload skips this and pays what it paid before.
+if [ "${#INPUT}" -le 4096 ]; then
+  shopt -s nocasematch
+  case "$INPUT" in *test*|*spec*|*e2e*|*playwright*) ;; *) exit 0 ;; esac
+  shopt -u nocasematch
+fi
 FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 SID=$(hn_session_id "$INPUT")
 

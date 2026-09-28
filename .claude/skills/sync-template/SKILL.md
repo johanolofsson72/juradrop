@@ -10,27 +10,41 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 
 Update this project's Claude Code configuration from the local Claude template repo. The template's location is **auto-detected** per developer — Johan's macOS box has it at `/Users/jool/repos/Claude`, David's Linux box has it at `/home/david/repos/Claude`, etc. Do not hardcode either.
 
-**Resolve `TEMPLATE` once at the start of every sync session** using this probe (in bash, runnable on macOS / Linux / Windows Git Bash):
+**Resolve `TEMPLATE` once at the start of every sync session.** Ask the sync engine; it owns the
+one list of places a clone may live (`$CLAUDE_TEMPLATE_DIR` first, then the usual macOS/Linux roots):
 
 ```bash
-# Auto-detect the template repo location. Stop at the first directory
-# that contains CLAUDE.md AND .claude/skills/sync-template/SKILL.md
-# (the two files that together unambiguously identify this template).
-for CAND in "$HOME/repos/Claude" "$HOME/Projects/Claude" "$HOME/Code/Claude" "$HOME/code/Claude" "$HOME/src/Claude" "$HOME/dev/Claude" "/Users/jool/repos/Claude"; do
-  if [ -f "$CAND/CLAUDE.md" ] && [ -f "$CAND/.claude/skills/sync-template/SKILL.md" ]; then
-    TEMPLATE="$CAND"
-    break
-  fi
-done
-
-if [ -z "${TEMPLATE:-}" ]; then
-  echo "[ERROR] Could not locate the Claude template repo on this machine." >&2
-  echo "        Clone it: git clone https://github.com/johanolofsson72/Claude.git \$HOME/repos/Claude" >&2
-  echo "        Or set TEMPLATE manually before re-running this sync." >&2
+TEMPLATE=$(bash scripts/template-autosync.sh --template-dir 2>/dev/null)
+# A project synced before spec 073 has an engine without --template-dir (it exits "unknown flag").
+# The same list, literally, so this skill still finds a clone on the first run after the upgrade.
+if [ -z "$TEMPLATE" ]; then
+  for CAND in "${CLAUDE_TEMPLATE_DIR:-}" "$HOME/repos/Claude" "$HOME/repos/claude" \
+              "$HOME/Projects/Claude" "$HOME/projects/Claude" "$HOME/projects/claude" \
+              "$HOME/src/Claude" "$HOME/code/Claude" "$HOME/dev/Claude" "$HOME/git/Claude"; do
+    [ -n "$CAND" ] && [ -f "$CAND/scripts/sync-prompt.md" ] && [ -d "$CAND/.claude/rules" ] && { TEMPLATE="$CAND"; break; }
+  done
+fi
+if [ -z "$TEMPLATE" ]; then
+  echo "[ERROR] No template clone on this machine." >&2
+  echo "        git clone https://github.com/johanolofsson72/Claude.git \$HOME/repos/Claude" >&2
+  echo "        (or set CLAUDE_TEMPLATE_DIR to where yours lives) and re-run." >&2
   exit 1
 fi
 echo "[OK] Template at: $TEMPLATE"
 ```
+
+**For `full`, the mechanical half is the engine, not this document.** Run it first — it fetches and
+fast-forwards the clone, copies every CORE script/rule/doc, rewires the core hooks and stamps
+`.claude/.template-sync` — then bring spec-kit to the pin:
+
+```bash
+CLAUDE_TEMPLATE_DIR="$TEMPLATE" bash "$TEMPLATE/scripts/template-autosync.sh" --force --no-commit
+bash scripts/speckit-sync.sh
+```
+
+The per-scope steps below are then the judgment half (merges the engine refuses to make) and the
+verification. Until spec 073 this skill copied files itself, never refreshed the clone, and so could
+sync months-old content while reporting success.
 
 Throughout this skill, every reference to the template path uses `$TEMPLATE`, never a hardcoded absolute path. If you are reading this skill as instructions to execute, **resolve `$TEMPLATE` first** with the probe above, then substitute it everywhere the skill mentions the template repo location.
 

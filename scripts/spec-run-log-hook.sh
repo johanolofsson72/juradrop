@@ -237,6 +237,15 @@ fi
 # ------------------------------------------------------------------ hook mode
 command -v jq >/dev/null 2>&1 || exit 0
 INPUT=$(cat 2>/dev/null || true)
+
+# Cheapest exit first (spec 073, R9): only the five pipeline artifacts are logged,
+# and that name appears in the raw JSON verbatim (escaping leaves letters, dots and slashes alone),
+# so a payload without it needs no jq to be ruled out. A match only means
+# "look properly" — the tests below still decide. Bounded, because bash's matcher is slow on long
+# strings; a large payload skips this and pays what it paid before.
+if [ "${#INPUT}" -le 4096 ]; then
+  case "$INPUT" in *spec.md*|*interview.md*|*.allium*|*plan.md*|*tasks.md*) ;; *) exit 0 ;; esac
+fi
 [ -z "$INPUT" ] && exit 0
 
 FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null) || exit 0

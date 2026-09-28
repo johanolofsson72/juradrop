@@ -28,53 +28,14 @@ $ARGUMENTS
 
 This phase ensures speckit is installed/updated and the project has the latest Claude Code configuration synced from the template repo. It runs automatically — no user interaction needed unless something goes wrong.
 
-**Step 1 — Install/update speckit CLI:**
-
-```bash
-uv tool install specify-cli --force --from git+https://github.com/github/spec-kit.git
-```
-
-If `uv` is not installed, tell the user to install it first (`curl -LsSf https://astral.sh/uv/install.sh | sh`) and stop.
-
-**Step 2 — Backup existing constitution (if present):**
-
-```bash
-if [ -f .specify/memory/constitution.md ]; then
-  cp .specify/memory/constitution.md .specify/memory/constitution-backup.md
-  echo "[BACKUP] Constitution backed up"
-else
-  echo "[SKIP] No existing constitution to back up"
-fi
-```
-
-**Step 3 — Initialize/reinitialize speckit:**
-
-```bash
-specify init --here --force --integration claude
-```
-
-This creates/resets the `.specify/` directory structure with templates, scripts, and Claude integration.
-
-> **NOTE**: The `--ai` flag was **removed in spec-kit v0.10.0** (deprecated in the v0.9.x line) — it no longer exists. Always use `--integration claude` instead.
-
-**Step 4 — Restore constitution backup:**
-
-```bash
-if [ -f .specify/memory/constitution-backup.md ]; then
-  mv .specify/memory/constitution-backup.md .specify/memory/constitution.md
-  echo "[RESTORED] Constitution restored from backup"
-else
-  echo "[SKIP] No backup to restore"
-fi
-```
-
-**Step 4.5 — Apply the spec-kit extension policy (after every `specify init --force`):**
-
-```bash
-bash scripts/speckit-extension-policy.sh 2>/dev/null || true   # installed by the sync in Step 5; re-run there if missing
-```
-
-spec-kit 0.16.x enables its `git` extension by default, registering five skills that create feature branches, enforce branch naming, and auto-commit per phase — all of which contradict `.claude/rules/spec-register.md` (one spec → one commit → direct push). Disable it here, and again after Step 5 if the script only landed during the sync. `agent-context` stays enabled.
+**Steps 1–4 — spec-kit (pinned):** nothing to run here. spec-kit is installed and initialised by
+`scripts/speckit-sync.sh --init-new` inside Step 5 (sync-prompt Step 0.5), at the tag pinned in the
+template's `scripts/speckit-version`. That script backs up and restores the constitution around the
+init and applies `speckit-extension-policy.sh` afterwards, so the old backup / init / restore /
+policy steps that lived here are one call now — and, unlike the old unconditional
+`specify init --force`, a re-run on an initialised project is a no-op instead of restoring
+spec-kit's two pipeline stops. If `uv` is missing the script says so and stops; install it
+(`curl -LsSf https://astral.sh/uv/install.sh | sh`, Windows: `irm https://astral.sh/uv/install.ps1 | iex`).
 
 **Step 5 — Run the COMPLETE template sync (identical to `/project-update`):**
 
@@ -82,26 +43,12 @@ This single step puts **everything** in place — every skill (`allium`, `tla`, 
 
 The wizard does NOT paraphrase the sync into a summary and curl files one at a time — that approach reliably dropped `allium`, the pipeline rules, and the graphify wiring on the floor. Instead it resolves the template **locally** (cloning once if absent, which is far more reliable than ~50 individual HTTP fetches) and executes the canonical `sync-prompt.md` verbatim — the exact same instruction set `/project-update` runs. Single source of truth, zero drift.
 
-**Step 5.1 — Resolve `$TEMPLATE` (local clone preferred, clone-once fallback):**
-
-```bash
-for CAND in "$HOME/repos/Claude" "$HOME/Projects/Claude" "$HOME/Code/Claude" "$HOME/code/Claude" "$HOME/src/Claude" "$HOME/dev/Claude" "/Users/jool/repos/Claude"; do
-  if [ -f "$CAND/CLAUDE.md" ] && [ -f "$CAND/.claude/skills/sync-template/SKILL.md" ]; then
-    TEMPLATE="$CAND"; break
-  fi
-done
-
-if [ -z "${TEMPLATE:-}" ]; then
-  echo "[BOOTSTRAP] No local template clone found — cloning it once (more reliable than per-file curl)…"
-  git clone --depth 1 https://github.com/johanolofsson72/Claude.git "$HOME/repos/Claude" && TEMPLATE="$HOME/repos/Claude"
-fi
-
-if [ -z "${TEMPLATE:-}" ] || [ ! -f "$TEMPLATE/.claude/skills/sync-template/SKILL.md" ]; then
-  echo "[ERROR] Template unavailable and clone failed. Fix connectivity (or clone manually to \$HOME/repos/Claude) and re-run the wizard." >&2
-  exit 1
-fi
-echo "[OK] Template at: $TEMPLATE"
-```
+**Step 5.1 — Resolve `$TEMPLATE`:** run the Step -1 block of `sync-prompt.md` exactly as written. It
+asks the sync engine for the clone (`template-autosync.sh --template-dir`, which honours
+`$CLAUDE_TEMPLATE_DIR` and the usual macOS/Linux locations), clones once to `~/repos/Claude` when
+the machine has none, and fast-forwards a clone that is behind. Before any clone exists, read that
+block from `https://raw.githubusercontent.com/johanolofsson72/Claude/main/scripts/sync-prompt.md`.
+This skill keeps no candidate list of its own: four copies of that list is how they came to disagree.
 
 **Step 5.2 — Execute the canonical sync flow verbatim:**
 
@@ -111,7 +58,8 @@ Read `$TEMPLATE/scripts/sync-prompt.md` and **execute every step it defines (Ste
 2. **Step 5c** — `python3 scripts/sync-local-llm-hooks.py "$TEMPLATE/.claude/settings.json"` (deterministic local-LLM wiring + script mirror) AND `python3 scripts/sync-core-hooks.py "$TEMPLATE/.claude/settings.json"` (deterministic core-hook wiring — pipeline/spec-register/execution/tech-stack, script-presence gated). Both are mandatory; the second is what guarantees the pipeline + register enforcement hooks land without a follow-up `/project-update`.
 3. **Step 5d** — `python3 scripts/sync-graphify-wiring.py "$TEMPLATE/.claude/settings.json"` then `bash scripts/graphify-bootstrap.sh` (deterministic Graphify wiring, then install + AST graph build; the bootstrap eligibility-gates itself under 30 source files).
 4. **Step 6 / 6b** — install the external skills (`frontend-design` via anthropics/skills, superpowers, qa-test, playwright-skill, ui-ux-pro-max, …) and the TLC model checker.
-5. **Step 8 / 8b** — normalize hook paths (`python3 scripts/fix-hook-paths.py .claude/settings.json`) and record `.claude/.sync-version`.
+5. **Step 0.5** — the sync engine and then `bash scripts/speckit-sync.sh --init-new` (the wizard is the one caller that passes `--init-new`: it is creating the project's `.specify/`).
+6. **Step 8 / 8b** — normalize hook paths (`python3 scripts/fix-hook-paths.py .claude/settings.json`) and confirm the stamp `.claude/.template-sync` carries a `sha=` line.
 
 **Step 5.3 — Exit gate (BLOCKING — the wizard does not proceed until this prints `[OK]`):**
 
@@ -141,7 +89,10 @@ for f in \
   scripts/scenario-map-reminder-hook.sh \
   scripts/sync-graphify-wiring.py \
   scripts/sync-core-hooks.py \
-  scripts/graphify-bootstrap.sh; do
+  scripts/graphify-bootstrap.sh \
+  scripts/speckit-sync.sh \
+  scripts/speckit-version \
+  .specify/init-options.json; do
   [ -e "$f" ] || { echo "[MISSING] $f"; fail=1; }
 done
 python3 -m json.tool .claude/settings.json >/dev/null 2>&1 || { echo "[INVALID] settings.json is not valid JSON"; fail=1; }
@@ -174,7 +125,7 @@ After the sync completes, present a brief summary:
 ```markdown
 ## Bootstrap Complete
 
-**Speckit**: [installed/updated] — version [X]
+**Speckit**: [initialised at pin vX.Y.Z / already at pin / FAIL: <speckit-sync.sh output>]
 **Sync-prompt**: fetched from johanolofsson72/Claude (main)
 **Files synced**: [count created] created, [count updated] updated, [count skipped] skipped
 **Constitution**: [preserved from backup / fresh from speckit / not found]
@@ -1155,6 +1106,65 @@ Add Patrol as a dev dependency (`flutter pub add --dev patrol`) and note `dart p
 
 **Both frameworks:** the scaffolded directory is the home for the destructive flows mandated per interactive UI function (sized to each function's input domain, not a flat quota and not one batch per spec). State explicitly in the Phase 4 summary that this harness was created and that destructive coverage is a native-E2E (Maestro/Patrol) requirement, not a widget-test one.
 
+#### 3F: Supply-chain defaults and browser install (ALL projects, after the stack is decided)
+
+Run this from the project root once the Phase 2 stack answers exist. It writes release-age cooldowns for the package
+managers the project actually uses and the NuGetAudit build gate, and only where they are absent. It never overwrites
+a setting that is already there, so re-running it is safe. Print the `TODO` lines in the Phase 4 summary. Background:
+`.claude/docs/supply-chain.md`. Mention in the summary that npm 12 blocks dependency install scripts until they are
+approved (`npm approve-scripts`, then commit `package.json`), since esbuild, sharp and Expo native modules hit it on
+the first install.
+
+```bash
+# Supply-chain defaults (.claude/docs/supply-chain.md). Writes a setting only where it is absent and
+# never rewrites one that exists, so a second run changes nothing and prints "kept" for each file.
+sc_find() { find . -maxdepth 4 -name "$1" -not -path '*/node_modules/*' -not -path '*/bin/*' \
+  -not -path '*/obj/*' -not -path '*/.claude/worktrees/*' 2>/dev/null; }
+# Append on a line of its own, even when the file lacks a trailing newline.
+sc_add() { [ -s "$1" ] && [ -n "$(tail -c1 "$1")" ] && printf '\n' >> "$1"; printf '%s\n' "$2" >> "$1"; echo "wrote  $1: $2"; }
+sc_find package-lock.json | while IFS= read -r f; do       # npm: unit is DAYS
+  rc="$(dirname "$f")/.npmrc"
+  grep -qs '^min-release-age' "$rc" && echo "kept   $rc" || sc_add "$rc" 'min-release-age=3'
+done
+sc_find pnpm-lock.yaml | while IFS= read -r f; do         # pnpm: unit is MINUTES
+  ws="$(dirname "$f")/pnpm-workspace.yaml"
+  grep -qs '^minimumReleaseAge:' "$ws" && echo "kept   $ws" || sc_add "$ws" 'minimumReleaseAge: 4320'
+done
+sc_find uv.lock | while IFS= read -r f; do
+  d="$(dirname "$f")"
+  if grep -qs 'exclude-newer' "$d/uv.toml" "$d/pyproject.toml"; then echo "kept   $d (exclude-newer set)"
+  # A uv.toml would silently shadow an existing [tool.uv] table, so never create one beside it.
+  elif grep -qs '^\[tool\.uv\]' "$d/pyproject.toml"; then echo "TODO   $d/pyproject.toml: add exclude-newer = \"3 days\" under [tool.uv]"
+  else sc_add "$d/uv.toml" 'exclude-newer = "3 days"'; fi
+done
+if [ -f .github/dependabot.yml ] && ! grep -qs 'cooldown:' .github/dependabot.yml; then
+  echo "TODO   .github/dependabot.yml: add a cooldown: block to each updates: entry (see supply-chain.md)"
+fi
+if [ -n "$(sc_find '*.csproj' | head -1)" ]; then
+  if [ ! -f Directory.Build.props ]; then
+    printf '%s\n' '<Project>' '  <PropertyGroup>' \
+      '    <!-- NuGetAudit high/critical fail the build: .claude/docs/supply-chain.md -->' \
+      '    <WarningsAsErrors>$(WarningsAsErrors);NU1903;NU1904</WarningsAsErrors>' \
+      '  </PropertyGroup>' '</Project>' > Directory.Build.props
+    echo "wrote  Directory.Build.props: NU1903;NU1904 as errors"
+  elif grep -qs 'NU1904' Directory.Build.props; then echo "kept   Directory.Build.props"
+  else echo "TODO   Directory.Build.props exists: add NU1903;NU1904 to <WarningsAsErrors> by hand"; fi
+fi
+```
+
+**Playwright stacks only (web/.NET, or a Node frontend using `@playwright/test`):** the browsers are not installed with
+the package, and tests fail without them. Once a test project exists and builds, install the browsers as the normal
+user. On Linux the system libraries need root, and the template denies `Bash(sudo *)`, so that one line goes to the
+developer instead of being run by Claude:
+
+```bash
+pwsh tests/<Name>.Tests.UI/bin/Debug/net*/playwright.ps1 install chromium     # .NET (no pwsh? dotnet tool install --global PowerShell)
+npx playwright install chromium                                              # Node
+# Linux only, run by the developer: sudo pwsh …/playwright.ps1 install-deps chromium   (or: sudo npx playwright install-deps chromium)
+```
+
+If no test project exists yet, put this under "Next steps" in the Phase 4 summary so spec 001 runs it.
+
 ### Phase 4: Summary
 
 After writing all files, present:
@@ -1170,6 +1180,7 @@ After writing all files, present:
 - `design-system/MASTER.md` — visual identity locked down [if generated]
 - `.maestro/` or `integration_test/` — native E2E destructive-flow harness scaffolded [mobile projects only; Maestro for RN, Patrol for Flutter — parity with web's Playwright]
 - `PROJECT-BRIEF.md` — human-readable project description
+- Supply-chain defaults — [files written / kept / TODO lines from 3F]
 
 **Constitution Principles:**
 I. [Principle name]

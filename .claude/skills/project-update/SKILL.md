@@ -37,72 +37,23 @@ If `uv` or `python3` is missing, tell the user to install it and stop. A missing
 
 If `$ARGUMENTS` is `sync-only`, skip to Step 4.
 
-### Step 2: Install/update speckit CLI
+### Step 2–3: spec-kit (pinned, handled by the sync)
 
-```bash
-uv tool install specify-cli --force --from git+https://github.com/github/spec-kit.git
-```
+spec-kit is brought to the template's pin by `scripts/speckit-sync.sh`, which the sync runs in
+sync-prompt Step 0.5. The pin is one tag in `scripts/speckit-version` (spec 073), so you and every
+other developer run the same phases. The script installs the CLI at the pinned tag only when the
+installed version differs, re-initialises `.specify/` only when the project's recorded version
+differs (`specify init --force` is not idempotent — an unconditional re-init restores spec-kit 1.0's
+two pipeline stops), keeps the constitution across the init, and runs
+`speckit-extension-policy.sh` afterwards. Exit 2 means the policy could not find the stop it
+removes — spec-kit reworded it — and must be reported in Step 8, never swallowed.
 
-### Step 3: Reinitialize speckit (with constitution protection)
+If `$ARGUMENTS` is `speckit-only`: run sync-prompt Step -1 to resolve `$TEMPLATE`, then
+`bash "$TEMPLATE/scripts/speckit-sync.sh" --repo "$PWD"`, and skip to Step 7.
 
-**Backup constitution if it exists:**
-
-```bash
-if [ -f .specify/memory/constitution.md ]; then
-  cp .specify/memory/constitution.md .specify/memory/constitution-backup.md
-  echo "[BACKUP] Constitution backed up"
-else
-  echo "[SKIP] No existing constitution to back up"
-fi
-```
-
-**Reinitialize speckit — but only when it is actually out of date:**
-
-`specify init --here --force` is **not idempotent**. On an already-current project it regenerates
-`speckit-implement/SKILL.md` and `speckit-specify/SKILL.md` — putting spec-kit 1.0's two pipeline stops straight back — and
-rewrites `.specify/integrations/claude.manifest.json` because the regenerated skills hash differently from the patched ones.
-Step 3's own extension-policy call then strips the stops again, so an unconditional re-init churns three files on every run and
-`/project-update` can never be a no-op on a healthy project.
-
-So compare first, and skip when they match:
-
-```bash
-CLI_VER=$(specify --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([._a-z0-9]*)?' | head -1)
-PROJ_VER=$(python3 -c 'import json;print(json.load(open(".specify/init-options.json")).get("speckit_version",""))' 2>/dev/null)
-
-if [ -n "$CLI_VER" ] && [ "$CLI_VER" = "$PROJ_VER" ]; then
-  echo "[SKIP] spec-kit already at $PROJ_VER — not re-initialising (init is not idempotent; it would restore the pipeline stops)"
-else
-  echo "[INIT] spec-kit $PROJ_VER -> $CLI_VER"
-  specify init --here --force --integration claude
-fi
-```
-
-When the versions match, the constitution backup/restore around this step is a no-op too — nothing was regenerated to overwrite it.
-Force a re-init deliberately (a corrupted `.specify/`, a changed integration) by deleting `.specify/init-options.json` first.
-
-> **NOTE**: The `--ai` flag was **removed in spec-kit v0.10.0** (deprecated in the v0.9.x line) — it no longer exists. Always use `--integration claude` (this matches `/project-wizard`'s bootstrap — the two skills must stay in sync).
-
-**Restore constitution:**
-
-```bash
-if [ -f .specify/memory/constitution-backup.md ]; then
-  mv .specify/memory/constitution-backup.md .specify/memory/constitution.md
-  echo "[RESTORED] Constitution restored from backup"
-else
-  echo "[SKIP] No backup to restore"
-fi
-```
-
-**Apply the extension policy (MANDATORY whenever the init above actually ran — it re-enables everything and restores the 1.0 pipeline stops; harmless and silent when it was skipped):**
-
-```bash
-bash scripts/speckit-extension-policy.sh
-```
-
-**On spec-kit 1.0.x (2026-08-21+) extensions are opt-in (`--extension`)**, so there is no registry and no `speckit-git-*` skills, and this script is a confirmation rather than a repair — it exits silently. Keep the step: 0.16.x projects still exist and it is the only thing holding them. On 0.16.x, spec-kit enables its `git` extension by default, and that extension registers five skills — `speckit-git-feature`, `-git-validate`, `-git-commit`, `-git-remote`, `-git-initialize` — which create numbered feature branches, enforce branch naming, and auto-commit after every phase. All three contradict `.claude/rules/spec-register.md` (one spec → one commit → direct push, no branches, no merge step). The script switches `git` off and leaves `agent-context` on. It is idempotent and silent when the policy already holds. Report its output in Step 8; if the script is missing, the sync in Step 5 will install it — run it then.
-
-If `$ARGUMENTS` is `speckit-only`, skip to Step 7.
+To force a re-init (a corrupted `.specify/`, a changed integration), delete
+`.specify/init-options.json` first. To move every project to a newer spec-kit, change
+`scripts/speckit-version` in the template — never add `--from git+…spec-kit.git` without a tag.
 
 ### Step 4: Fetch sync-prompt from template repo
 
@@ -118,11 +69,11 @@ Read the fetched content carefully.
 
 Execute all instructions between the `---` markers in the fetched sync-prompt. Specifically:
 
-1. **Read template files** — For each file referenced in the sync-prompt, fetch it from the GitHub raw URL:
-   - `/Users/jool/repos/Claude/CLAUDE.md` → `curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/CLAUDE.md`
-   - `/Users/jool/repos/Claude/.claude/rules/dotnet.md` → `curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/.claude/rules/dotnet.md`
-   - `/Users/jool/repos/Claude/.claude/docs/testing.md` → `curl -sL https://raw.githubusercontent.com/johanolofsson72/Claude/main/.claude/docs/testing.md`
-   - etc. — translate ALL `/Users/jool/repos/Claude/` paths to `https://raw.githubusercontent.com/johanolofsson72/Claude/main/`
+1. **Run Step -1, Step 0 and Step 0.5 first.** Step 0.5 runs the sync engine
+   (`template-autosync.sh --force --no-commit`), which does every mechanical copy and the core hook
+   wiring — the same program that runs at every SessionStart, so this skill and autosync cannot
+   disagree about what a synced project contains. Everything below is the judgment half. Read
+   template files from the local clone, `$TEMPLATE/<path>` — Step -1 has just fast-forwarded it.
 
 2. **Read this project's files** — Read existing `CLAUDE.md`, `.claude/settings.json`, and all files under `.claude/` in THIS project.
 
@@ -178,6 +129,53 @@ Use `AskUserQuestion` to confirm the project's tech stack (the sync-prompt has t
 
 > This project was previously synced. Should I re-evaluate the tech stack, or keep the current file selection?
 
+### Step 6b: Supply-chain defaults
+
+Once the stack is settled, add release-age cooldowns for the package managers this project uses and the NuGetAudit
+build gate, only where absent. Existing settings are never rewritten, so a re-sync reports `kept` and changes nothing.
+Put any `TODO` lines in the Step 8 report under "Manual review recommended". Background: `.claude/docs/supply-chain.md`.
+The block is the same as `/project-wizard` Phase 3F. Keep the two copies identical.
+
+```bash
+# Supply-chain defaults (.claude/docs/supply-chain.md). Writes a setting only where it is absent and
+# never rewrites one that exists, so a second run changes nothing and prints "kept" for each file.
+sc_find() { find . -maxdepth 4 -name "$1" -not -path '*/node_modules/*' -not -path '*/bin/*' \
+  -not -path '*/obj/*' -not -path '*/.claude/worktrees/*' 2>/dev/null; }
+# Append on a line of its own, even when the file lacks a trailing newline.
+sc_add() { [ -s "$1" ] && [ -n "$(tail -c1 "$1")" ] && printf '\n' >> "$1"; printf '%s\n' "$2" >> "$1"; echo "wrote  $1: $2"; }
+sc_find package-lock.json | while IFS= read -r f; do       # npm: unit is DAYS
+  rc="$(dirname "$f")/.npmrc"
+  grep -qs '^min-release-age' "$rc" && echo "kept   $rc" || sc_add "$rc" 'min-release-age=3'
+done
+sc_find pnpm-lock.yaml | while IFS= read -r f; do         # pnpm: unit is MINUTES
+  ws="$(dirname "$f")/pnpm-workspace.yaml"
+  grep -qs '^minimumReleaseAge:' "$ws" && echo "kept   $ws" || sc_add "$ws" 'minimumReleaseAge: 4320'
+done
+sc_find uv.lock | while IFS= read -r f; do
+  d="$(dirname "$f")"
+  if grep -qs 'exclude-newer' "$d/uv.toml" "$d/pyproject.toml"; then echo "kept   $d (exclude-newer set)"
+  # A uv.toml would silently shadow an existing [tool.uv] table, so never create one beside it.
+  elif grep -qs '^\[tool\.uv\]' "$d/pyproject.toml"; then echo "TODO   $d/pyproject.toml: add exclude-newer = \"3 days\" under [tool.uv]"
+  else sc_add "$d/uv.toml" 'exclude-newer = "3 days"'; fi
+done
+if [ -f .github/dependabot.yml ] && ! grep -qs 'cooldown:' .github/dependabot.yml; then
+  echo "TODO   .github/dependabot.yml: add a cooldown: block to each updates: entry (see supply-chain.md)"
+fi
+if [ -n "$(sc_find '*.csproj' | head -1)" ]; then
+  if [ ! -f Directory.Build.props ]; then
+    printf '%s\n' '<Project>' '  <PropertyGroup>' \
+      '    <!-- NuGetAudit high/critical fail the build: .claude/docs/supply-chain.md -->' \
+      '    <WarningsAsErrors>$(WarningsAsErrors);NU1903;NU1904</WarningsAsErrors>' \
+      '  </PropertyGroup>' '</Project>' > Directory.Build.props
+    echo "wrote  Directory.Build.props: NU1903;NU1904 as errors"
+  elif grep -qs 'NU1904' Directory.Build.props; then echo "kept   Directory.Build.props"
+  else echo "TODO   Directory.Build.props exists: add NU1903;NU1904 to <WarningsAsErrors> by hand"; fi
+fi
+```
+
+A new `Directory.Build.props` turns high and critical advisories into build errors. If `dotnet build` now fails with
+NU1903/NU1904, the project already had the vulnerable package. Report it and fix it; do not remove the gate.
+
 ### Step 7: Verify
 
 - Verify `settings.json` is valid JSON: `python3 -m json.tool .claude/settings.json`
@@ -206,7 +204,7 @@ Use `AskUserQuestion` to confirm the project's tech stack (the sync-prompt has t
 ```markdown
 ## Project Update Complete
 
-**Speckit**: [installed/updated/skipped] — version [X]
+**Speckit**: [at pin / upgraded X → Y / FAIL: <speckit-sync.sh output>] — pin [vX.Y.Z]
 **Sync source**: johanolofsson72/Claude (main branch)
 **Constitution**: [preserved/untouched]
 
@@ -245,5 +243,5 @@ Run `/project-wizard` if you need to update the project's core documents (CLAUDE
 3. NEVER overwrite the constitution with speckit's default — always backup and restore.
 4. If unsure about a merge conflict: report and ask instead of changing.
 5. Do NOT commit automatically — let the developer review first.
-6. All template file reads MUST go through GitHub raw URLs, not local paths. This ensures the skill works on any machine.
+6. Template files are read from the local clone Step -1 resolves and refreshes (`$TEMPLATE`), never from GitHub raw URLs file by file. Only sync-prompt.md itself is fetched from GitHub, so the instructions are current even when the clone is not yet.
 7. Communicate in English.

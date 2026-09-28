@@ -507,6 +507,36 @@ for root in $ROOTS; do
   # So the images are excluded by NAME instead. `*-snapshots` directories hold nothing but PNGs,
   # and the extension list covers the rest. What is left is source, which `-a` now reads whether
   # or not it happens to contain a control byte.
+  #
+  # THE UNDERSCORE FORM IS A REFERENCE TOO, and leaving it out made this gate wrong about the very
+  # convention `.claude/rules/scenarios.md:113` prescribes: `Checkout_SC014_DoubleSubmit_...`. A C#
+  # or Java test method name CANNOT carry a hyphen, so a suite that embeds the id in the method name
+  # has no choice but to write `SC1700_ASecondReservationIsRefused...` — and this extractor read only
+  # the hyphenated form, so every such citation was invisible. Measured on agentcrm 2026-09-25, by
+  # running the gate before and after: coverage 1716 → 1767 of 1824, so 51 of its 108 "uncovered"
+  # rows — 47% of the gate's headline finding — were the gate failing to read its own house style.
+  # Wrong in the direction that looks like diligence, which is why it stood for as long as it did.
+  #
+  # A hand-rolled census beforehand said 50, because it anchored on `\bSC[0-9]+_` and `_` IS a word
+  # character: the mid-name `Checkout_SC014_` shape has no word boundary to its left and was invisible
+  # to the census exactly as it was to the gate. Prefer the before/after run to any count of your own.
+  #
+  # An earlier count of 59 came from a grep that did NOT prune build output; nine of those citations
+  # lived only in a stale `bin/` DLL, which is exactly the coverage-by-artifact lie the prune above
+  # exists to refuse. The honest figure is the pruned one, and the difference is the reminder that a
+  # measurement taken without the gate's own exclusions is not a measurement of the gate.
+  #
+  # THE TRAILING `_` IS REQUIRED, and it is what keeps this safe. Without it `SC2086` (a shellcheck
+  # directive) and every other SC-prefixed token would enter the reference set and silently cover a
+  # row. With it, a match needs the id followed by the separator the naming convention itself uses.
+  # The leading `[^A-Za-z0-9]` (or line start) does the job `\b` cannot: `_` IS a word character, so
+  # `\b` never fires between `Checkout_` and `SC014`, and both known shapes — `_SC014_` mid-name and
+  # `SC1700_` at the start of a method name — need it. Validated against known positives and
+  # negatives before it was believed: `SC1700_A...`, `Checkout_SC014_D...` and `SC-741` all match;
+  # `SC2086`, `DESC-741` and a bare `SC1700` do not.
+  #
+  # The `sed` normalises what grep returns — leading separator stripped, trailing `_` dropped, the
+  # missing hyphen inserted — so everything downstream still sees exactly one id shape.
   # >>> build-prune
   find "$rp" -type d \( -name bin -o -name obj -o -name node_modules -o -name TestResults \
        -o -name StrykerOutput -o -name playwright-report -o -name test-results -o -name dist \
@@ -516,7 +546,9 @@ for root in $ROOTS; do
        ! -name '*.ico' ! -name '*.pdf' ! -name '*.zip' ! -name '*.webm' ! -name '*.mp4' \
        ! -name '*.woff' ! -name '*.woff2' ! -name '*.ttf' ! -name '*.otf' \
        -print0 2>/dev/null \
-    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?\\b" 2>/dev/null >> "$TMP/refs" || true
+    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?\\b|(^|[^A-Za-z0-9])${PREFIX}[0-9]+[a-z]?_" 2>/dev/null \
+      | sed -e "s/^[^${PREFIX}]*//" -e 's/_$//' -e "s/^${PREFIX}\\([0-9]\\)/${PREFIX}-\\1/" \
+      >> "$TMP/refs" || true
   # <<< build-prune
   IFS=,
 done

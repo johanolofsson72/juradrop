@@ -21,3 +21,11 @@ If you add new deny rules for security-critical files, always create a matching 
 ## Subprocess credentials
 
 Set `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` in your environment to automatically strip Anthropic and cloud provider credentials from subprocess environments. Prevents API keys and tokens from leaking to child processes.
+
+## Dependencies and supply chain
+
+Third-party packages are the largest attack surface a project has, and most of it arrives transitively.
+See `.claude/docs/supply-chain.md` for the defaults: npm 12's install-script approvals, release-age
+cooldowns, NuGet audit as a build error, lockfile-only installs, SHA-pinned actions, and osv-scanner.
+`bash scripts/project-freshness.sh` runs the scans locally (trufflehog, npm audit, osv-scanner,
+`dotnet list package --vulnerable`).

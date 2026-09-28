@@ -79,7 +79,7 @@ if [ "${CLAUDE_TEMPLATE_AUTOSYNC_ALWAYS:-0}" != "1" ] && [ -f "$MARKER" ]; then
   # waiting for nothing. A deferral that wrote `ok` here would buy itself six hours of silence,
   # which is the pre-H6t bug in this very block arriving by a new door.
   case "$(head -1 "$MARKER" 2>/dev/null | tr -d ' \t')" in
-    timeout|deferred) WINDOW="$BACKOFF" ;;
+    timeout|deferred|failed) WINDOW="$BACKOFF" ;;
   esac
   [ $((NOW - MT)) -lt "$WINDOW" ] && exit 0
 fi
@@ -195,6 +195,7 @@ fi
 case "$VERDICT" in
   timeout)  echo timeout  > "$MARKER" 2>/dev/null ;;
   deferred) echo deferred > "$MARKER" 2>/dev/null ;;
+  other)    echo failed   > "$MARKER" 2>/dev/null ;;
   *)        echo ok       > "$MARKER" 2>/dev/null ;;
 esac
 
@@ -205,9 +206,17 @@ if [ "$VERDICT" = "timeout" ]; then
   exit 0
 fi
 
-# Any other failure stays silent: this hook names the timeout, and making every
-# failure loud is a separate trade-off nobody has asked for.
-[ "$VERDICT" = "other" ] && exit 0
+# Spec 073. A failed sync used to be silent AND stamped `ok`, which bought it the full 6-hour window
+# before anyone would try again — so a project whose sync broke stayed broken, quietly, for as long
+# as nobody ran it by hand (konsultradar went 16 days without a sync commit). It now gets the short
+# backoff and one line to the developer, with the tail of its own output for Claude.
+if [ "$VERDICT" = "other" ]; then
+  notice_both SessionStart \
+    "Template auto-sync failed (exit $RC) — the project config was not updated. Run: bash scripts/template-autosync.sh" \
+    "Template auto-sync failed with exit $RC, so this project's config was not updated. It retries at the first session start after ${BACKOFF} s. Last lines of its output:
+$(printf '%s\n' "$OUT" | tail -8)"
+  exit 0
+fi
 
 # Spec 007be. Above the [synced] gate because a deferral prints [deferred] INSTEAD of it, so the
 # gate would drop it on the floor — measured, and it is the whole reason this branch exists: with
@@ -248,20 +257,32 @@ $OUT"
     ;;
 esac
 
+# Spec 073. The spec-kit lines are about the project's pipeline, not about which files moved, so
+# they are forwarded whatever the file count — a pin the project has not caught up with, or a stop
+# patch whose anchor moved, is news on a sync that wrote nothing at all.
+SPECKIT_NEWS=$(printf '%s\n' "$OUT" | grep '^\[speckit\].*\(FAIL\|pins\)')
 case "$OUT" in
   *"[synced]"*) ;;                   # the sync ran
-  *) exit 0 ;;                       # up to date / skipped — stay silent
+  *)
+    [ -n "$SPECKIT_NEWS" ] && notice_both SessionStart \
+      "spec-kit is not at the template's pin on this project — see the session context." \
+      "$SPECKIT_NEWS"
+    exit 0 ;;                        # up to date / skipped — otherwise silent
 esac
 
 # A run that wrote nothing is not news. Only speak when files actually moved —
 # otherwise every session start after a template no-op costs context for nothing.
 case "$OUT" in
-  *"0 updated, 0 added"*) exit 0 ;;
+  *"0 updated, 0 added"*)
+    [ -n "$SPECKIT_NEWS" ] && notice_both SessionStart \
+      "spec-kit is not at the template's pin on this project — see the session context." \
+      "$SPECKIT_NEWS"
+    exit 0 ;;
 esac
 
 notice_both SessionStart \
   "Template auto-sync updated this project's config — see the session context for the file list." \
   "Template auto-sync ran on this project.
 $OUT
-Config files changed on disk. Hooks and rules reload at session start, so this session already has the new versions. If the summary lists locally-modified files that were skipped, run /project-update to merge those by hand."
+Config files changed on disk. Scripts take effect on their next run; changed hook wiring (settings.json) and rules may only apply from the next session, so restart if the summary lists settings.json. If it lists locally-modified files that were skipped, run /project-update to merge those by hand."
 exit 0

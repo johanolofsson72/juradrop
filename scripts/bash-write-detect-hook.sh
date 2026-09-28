@@ -98,8 +98,15 @@ INPUT=$(cat 2>/dev/null || true)
 
 HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
-CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+# One jq for the three fields (spec 073, R9) — see the same block in bash-write-guard-hook.sh. A
+# payload jq cannot read leaves all three empty, exactly as the two separate calls used to.
+FIELDS=$(printf '%s' "$INPUT" | jq -r '@sh "CMD=\(.tool_input.command // "") CWD=\(.cwd // "") TUID=\(.tool_use_id // "")"' 2>/dev/null) || FIELDS=""
+CMD=""; CWD=""; TUID=""
+eval "$FIELDS"
+NL='
+'
+while [ "${CMD%"$NL"}" != "$CMD" ]; do CMD="${CMD%"$NL"}"; done
+while [ "${CWD%"$NL"}" != "$CWD" ]; do CWD="${CWD%"$NL"}"; done
 
 ROOT=""
 if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "${CLAUDE_PROJECT_DIR}/.git" ]; then
@@ -109,7 +116,15 @@ elif [ -n "$CWD" ]; then
 fi
 [ -z "$ROOT" ] && exit 0
 
-MARKER="$ROOT/.claude/.bash-write-marker"
+# The pre-layer's marker for THIS call (spec 073, R9): one per tool_use_id, so parallel Bash calls
+# no longer consume each other's before-time. Same rule as the pre-layer for which name applies, and
+# deliberately no fallback from one to the other — a missing per-call marker means the pre-layer judged
+# the command read-only (or never ran), and borrowing the shared file would scan from someone else's
+# before-time.
+case "$TUID" in
+  ''|*[!A-Za-z0-9_-]*) MARKER="$ROOT/.claude/.bash-write-marker" ;;
+  *)                   MARKER="$ROOT/.claude/state/bash-write/$TUID" ;;
+esac
 BLOCKED="$ROOT/.claude/.bash-write-blocked"
 
 # No before-time means nothing can be said about what this command changed, and inventing a finding is
@@ -129,11 +144,73 @@ esac
 
 # Everything that changed since the marker. Pruned to what a gate could ever care about: .git and build
 # output are noise, .claude/worktrees holds stale whole copies of the repo, and graphify-out is generated.
+# .claude/state is where these very markers live: a parallel Bash call's marker is newer than ours, and
+# on a project that does not gitignore it (rundan) it would be reported as a file this command wrote.
 # Measured at 23 ms over 802 .cs files on this tree — cheap enough to run after every shell command.
-CHANGED=$(find "$ROOT" \
-  -type d \( -name .git -o -name node_modules -o -name bin -o -name obj -o -name graphify-out \
-             -o -name StrykerOutput -o -name TestResults -o -name worktrees -o -name .venv \) -prune -o \
-  -type f -newer "$MARKER" -print 2>/dev/null)
+changed_since_marker() {   # "$@" = extra `-o -path P` prune terms
+  find "$ROOT" \
+    -type d \( -name .git -o -name node_modules -o -name bin -o -name obj -o -name graphify-out \
+               -o -name StrykerOutput -o -name TestResults -o -name worktrees -o -name .venv \
+               -o -path "$ROOT/.claude/state" "$@" \) -prune -o \
+    -type f -newer "$MARKER" -print 2>/dev/null
+}
+
+# WHOLLY-IGNORED DIRECTORIES ARE NOT WALKED (spec 073, R9)
+# --------------------------------------------------------
+# The walk was the single most expensive step on the Bash hot path: 1.8 s per command in a Flutter
+# project whose build/ and ios/Pods/ held 43 000 files, 1.4 s in agentcrm — measured 2026-09-28. The
+# list above cannot fix that by growing (row S6 below says why: `build/` is output in one project and
+# a Nuke build project's source in another). So the question goes to git, once: which directories are
+# ignored as a WHOLE? `--directory` reports a directory only when nothing inside it is tracked, so
+# every file under one is untracked-and-ignored — exactly what the check-ignore filter below removes
+# anyway. Not walking it changes the cost, not the answer.
+#
+# One case where it would change the answer, handled: when the ignore rules themselves moved since the
+# marker, the filter is not trusted (see IGNORE_RULES_MOVED), and a directory ignored only by the NEW
+# rules must be seen. So that case walks again without these prunes. The single remaining difference is
+# a .gitignore written INSIDE a directory git already ignores as a whole: it used to count as "the
+# rules moved"; it cannot move them (git never reads it), so it no longer does.
+#
+# No git, or a tree git cannot answer about: no prune terms, the old walk.
+#
+# And only a directory excluded by a rule from OUTSIDE it. `git check-ignore -v` names the file each
+# verdict came from, and a directory can be ignored by its OWN .gitignore (`*` inside it) — a file a
+# command can write in the same breath as the one it wants hidden. A directory excluded from above has
+# no such lever inside it: git never reads a .gitignore below an excluded directory. A negated rule
+# (`!pattern`) means "not ignored" and is skipped; so is a C-quoted path, which -path could not match.
+PRUNE_TERMS=()
+while IFS= read -r _line; do
+  _ign="${_line##*	}"; _src="${_line%%	*}"
+  [ -n "$_ign" ] && [ "$_ign" != "$_line" ] || continue
+  case "$_ign" in '"'*) continue ;; esac
+  [[ $_src =~ ^(.*):[0-9]+:(.*)$ ]] || continue
+  case "${BASH_REMATCH[2]}" in '!'*) continue ;; esac
+  case "${BASH_REMATCH[1]}" in "$_ign"*) continue ;; esac       # the rule lives inside the directory
+  _ign="${_ign%/}"
+  _ign="${_ign//\\/\\\\}"; _ign="${_ign//\*/\\*}"; _ign="${_ign//\?/\\?}"; _ign="${_ign//\[/\\[}"
+  PRUNE_TERMS+=(-o -path "$ROOT/$_ign")
+done < <(git -C "$ROOT" ls-files -z --others --ignored --exclude-standard --directory 2>/dev/null \
+           | tr '\0' '\n' | grep '/$' | git -C "$ROOT" check-ignore -v --stdin 2>/dev/null)
+
+# .git is pruned from the walk, and a global excludes file lives outside $ROOT, so both are asked
+# directly. A function because it is asked twice: the pruned walk can come back empty while these moved.
+excludes_moved() {
+  local _ex
+  for _ex in "$ROOT/.git/info/exclude" \
+             "$(git -C "$ROOT" config --get core.excludesFile 2>/dev/null | sed "s#^~#$HOME#")"; do
+    [ -n "$_ex" ] && [ -f "$_ex" ] && [ "$_ex" -nt "$MARKER" ] && return 0
+  done
+  return 1
+}
+
+if [ "${#PRUNE_TERMS[@]}" -gt 0 ]; then
+  CHANGED=$(changed_since_marker "${PRUNE_TERMS[@]}")
+  # Nothing outside the pruned directories — but if the exclude files moved, what the old rules
+  # ignored is not trusted either, so walk them too before concluding there is nothing.
+  [ -z "$CHANGED" ] && excludes_moved && CHANGED=$(changed_since_marker)
+else
+  CHANGED=$(changed_since_marker)
+fi
 
 if [ -z "$CHANGED" ]; then
   cleanup; exit 0
@@ -168,17 +245,19 @@ fi
 # it the same way it already breaks the grouping. Not a regression; not fixed here.
 IGNORE_RULES_MOVED=0
 printf '%s\n' "$CHANGED" | grep -q '/\.gitignore$' && IGNORE_RULES_MOVED=1
-# .git is pruned above, and a global excludes file lives outside $ROOT, so both are asked directly.
-for _ex in "$ROOT/.git/info/exclude" \
-           "$(git -C "$ROOT" config --get core.excludesFile 2>/dev/null | sed "s#^~#$HOME#")"; do
-  [ -n "$_ex" ] && [ -f "$_ex" ] && [ "$_ex" -nt "$MARKER" ] && IGNORE_RULES_MOVED=1
-done
+excludes_moved && IGNORE_RULES_MOVED=1
 
 # WHY THAT CHECK EXISTS: a quieter layer is where a bypass lives. After this filter, a line appended
 # to .gitignore hides a path from detection. .gitignore is tracked, so the line itself is visible in
 # `git status` and read by the PRE-layer when written through the shell — but that is visibility, not
 # a gate. This is the gate: if the ignore rules themselves moved since the marker, they are not
 # trusted for this command and the layer reports exactly as it did before row S6.
+# The rules moved and the walk above skipped directories the OLD rules ignored: walk again without
+# them (spec 073), so what the new rules hide is still seen.
+if [ "$IGNORE_RULES_MOVED" -eq 1 ] && [ "${#PRUNE_TERMS[@]}" -gt 0 ]; then
+  CHANGED=$(changed_since_marker)
+fi
+
 if [ "$IGNORE_RULES_MOVED" -eq 0 ]; then
   IGNORED=$(printf '%s\n' "$CHANGED" | git -C "$ROOT" check-ignore --stdin 2>/dev/null)
   if [ -n "$IGNORED" ]; then

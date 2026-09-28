@@ -723,6 +723,98 @@ if want ignored; then
   fi
 fi
 
+# --------------------------------------------------------------- SPEED (spec 073, R9)
+# The hot-path changes must not open a gap. Each one is pinned where it could: one marker per tool
+# call (so parallel calls stop consuming each other's), no marker for a read-only command, the fd-only
+# redirects no longer waking the parser — and none of that hiding a real write.
+run_pre_id() {   # $1 root  $2 tool_use_id  $3 command
+  local out
+  out=$(jq -n --arg c "$3" --arg w "$1" --arg i "$2" '{tool_input:{command:$c}, cwd:$w, tool_use_id:$i}' \
+        | CLAUDE_PROJECT_DIR="$1" bash "$PRE" 2>/dev/null)
+  [ -z "$out" ] && { printf 'ALLOW'; return 0; }
+  printf 'DENY %s' "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' | tr '\n' ' ')"
+}
+run_post_id() {  # $1 root  $2 tool_use_id  $3 command
+  local out
+  out=$(jq -n --arg c "$3" --arg w "$1" --arg i "$2" '{tool_input:{command:$c}, cwd:$w, tool_use_id:$i}' \
+        | CLAUDE_PROJECT_DIR="$1" bash "$POST" 2>/dev/null)
+  [ -z "$out" ] && { printf 'SILENT'; return 0; }
+  printf 'BLOCK+MSG %s' "$(printf '%s' "$out" | jq -r '.reason // empty' | tr '\n' ' ')"
+}
+
+if want speed; then
+  echo "FIXTURE speed — per-call markers, read-only commands, fd-only redirects (spec 073)"
+  ROOT=$(make_fixture speed)
+  MK="$ROOT/.claude/state/bash-write"
+
+  run_pre_id "$ROOT" toolu_A 'npm run build' >/dev/null
+  [ -f "$MK/toolu_A" ] && ok "a tool call with an id gets its own marker" \
+    || bad "no per-call marker for toolu_A"
+  [ -f "$ROOT/.claude/.bash-write-marker" ] && bad "the shared marker was stamped alongside the per-call one" \
+    || ok "...and the shared marker is left alone"
+
+  # Two calls in flight. Before spec 073 the first post-layer to finish deleted the one shared marker,
+  # and the second post-layer then saw nothing at all.
+  run_pre_id "$ROOT" toolu_B 'npm test' >/dev/null
+  sleep 1
+  echo "class Changed {}" > "$ROOT/src/App.cs"
+  expect_block "call A's post-layer reports the write" "$(run_post_id "$ROOT" toolu_A 'npm run build')"
+  [ -f "$MK/toolu_B" ] && ok "...and consumed only its own marker" || bad "call A consumed call B's marker"
+  rm -f "$ROOT/.claude/.bash-write-blocked"
+  expect_block "call B's post-layer still has its before-time" "$(run_post_id "$ROOT" toolu_B 'npm test')"
+
+  # A read-only command stamps nothing, so its post-layer exits before the walk.
+  for ro in 'ls -la src' 'git status' 'grep -rn class src 2>/dev/null | head -5' 'find . -name "*.cs"' 'cat src/App.cs | wc -l'; do
+    run_pre_id "$ROOT" toolu_RO "$ro" >/dev/null
+    [ -f "$MK/toolu_RO" ] && bad "read-only '$ro' stamped a marker" || ok "read-only '$ro' stamps no marker"
+  done
+  for rw in 'dotnet build' 'find . -name x -delete' 'sort -o out.txt in.txt' 'git commit -m x' 'ls > out.txt' \
+            'FOO=1 ls' 'echo $(touch x)' 'xargs rm < list' 'bash -c ls' 'git -c core.pager=x log'; do
+    run_pre_id "$ROOT" toolu_RW "$rw" >/dev/null
+    [ -f "$MK/toolu_RW" ] && ok "could-write '$rw' is stamped" || bad "could-write '$rw' got no marker"
+    rm -f "$MK/toolu_RW"
+  done
+  : > "$ROOT/.claude/.bash-write-marker"
+  run_pre "$ROOT" 'git log --oneline' >/dev/null
+  [ -f "$ROOT/.claude/.bash-write-marker" ] && bad "a read-only call left a stale shared marker behind" \
+    || ok "a read-only call without an id clears a stale shared marker"
+
+  # fd-only redirects no longer wake the parser — and a real redirect next to one still does.
+  expect_allow "2>/dev/null alone is not a write"            "$(run_pre "$ROOT" 'grep -rn x src 2>/dev/null')"
+  expect_deny  "a real redirect after 2>/dev/null is seen"   "$(run_pre "$ROOT" 'ls 2>/dev/null >src/App.cs')" "src/App.cs"
+  expect_deny  "a redirect to a /dev/null-prefixed name too" "$(run_pre "$ROOT" 'echo x >src/App.cs 2>&1')" "src/App.cs"
+  expect_deny  "an interpreter after a separator is found"   "$(run_pre "$ROOT" "ls;python3 -c \"open('src/App.cs','w')\"")" "src/App.cs"
+fi
+
+# The pruned walk (spec 073): a directory git ignores as a whole is not walked, but a directory that
+# ignores ITSELF is — its .gitignore is a file the same command can write.
+if want prune; then
+  echo "FIXTURE prune — wholly-ignored directories are skipped, self-ignoring ones are not (spec 073)"
+  if ! command -v git >/dev/null 2>&1; then
+    echo "  ----  git is not installed — skipping (this fixture needs a real repo)"
+  elif ! ROOT=$(make_git_fixture prune); then
+    bad "the git fixture could not be built — harness fault, not a pass"
+  else
+    stamp() { touch "$ROOT/.claude/.bash-write-marker"; rm -f "$ROOT/.claude/.bash-write-blocked"; sleep 1.1; }
+    mkdir -p "$ROOT/dist/deep"
+    stamp; echo "x" > "$ROOT/dist/deep/Out.cs"
+    expect_silent "a source-named file inside an ignored dist/ stays silent" "$(run_post "$ROOT" 'npm run build')"
+
+    stamp
+    mkdir -p "$ROOT/sneaky"; printf '*\n' > "$ROOT/sneaky/.gitignore"; echo "class S {}" > "$ROOT/sneaky/S.cs"
+    expect_block "a directory that ignores itself in the same command is still reported" \
+                 "$(run_post "$ROOT" 'python3 - <<PY')"
+
+    # Nothing changed outside the pruned directories, but the exclude file moved: the walk must go
+    # into what the NEW rules ignore before concluding there is nothing to report.
+    stamp
+    mkdir -p "$ROOT/newd"; echo "class N {}" > "$ROOT/newd/N.cs"
+    printf 'newd/\n' >> "$ROOT/.git/info/exclude"
+    expect_block "a directory hidden by a .git/info/exclude line written in the same command is reported" \
+                 "$(run_post "$ROOT" 'python3 - <<PY')"
+  fi
+fi
+
 # --------------------------------------------------------------- SUMMARY STRING (SC-924)
 if want summary; then
   echo "FIXTURE summary — the developer-facing line names no foreign project"
