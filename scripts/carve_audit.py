@@ -4,11 +4,16 @@ reg = open(os.environ["REG"], encoding="utf-8", errors="replace").read()
 budget = int(os.environ.get("BUDGET") or 2)
 
 ROW = re.compile(r"^- \[([ xX/!])\] +\*{0,2}([^\s—*]+)", re.M)
-rows = {}
+rows, ticked = {}, 0
 for line in reg.split("\n"):
     m = ROW.match(line)
     if m:
         rows[m.group(2)] = line
+        ticked += m.group(1) in "xX"
+
+# Below this many ticked rows, "no attribution" can honestly mean "nothing carved yet". The same
+# floor carve-budget.md section 5 puts under the carve ratio, for the same reason.
+MIN_TICKED = 10
 
 # "carved by H7u", "Found by 091", "From H2" -- the id is the first token after the phrase.
 ATTR = re.compile(r"(?:carved by|found by|opened by|from)\s+\**(?:spec\s+)?([A-Za-z]?[0-9][0-9A-Za-z.]*)", re.I)
@@ -61,7 +66,18 @@ if unresolved:
     for rid, pid in unresolved[:10]:
         print(f"  {rid} cites {pid}")
     print("  Reported, not dropped: a mis-parsed attribution and no attribution look the same otherwise.")
-if not over and not deep:
-    extra = f" ({len(unresolved)} unresolved attribution(s) above.)" if unresolved else ""
+extra = f" ({len(unresolved)} unresolved attribution(s) above.)" if unresolved else ""
+# With no resolved attribution, over and deep are empty by construction: "clean" would be a verdict
+# on nothing. agentcrm read "clean -- 0 attributed" over a depth-3 chain (row 027). Exit 3 is not 1:
+# project-maintenance.sh reads 1 as "the budget was exceeded", and that is not what we know.
+if not parent and ticked >= MIN_TICKED:
+    cite = f"; {len(unresolved)} cite a row this register does not hold" if unresolved else ""
+    print(f"carve shape: unmeasurable — 0 attributed row(s) of {len(rows)} ({ticked} ticked){cite}. "
+          f"Budget and depth cannot be computed from this register: write 'carved by <id>' on the rows "
+          f"a spec carved (carve-budget.md section 4b).")
+    sys.exit(3)
+if not parent:
+    print(f"carve shape: too young to measure — 0 attributed row(s), {ticked} ticked (under {MIN_TICKED}).{extra}")
+elif not over and not deep:
     print(f"carve shape: clean — {len(parent)} attributed row(s), none over {budget} carves, none past depth 2.{extra}")
 sys.exit(1 if bad else 0)

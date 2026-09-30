@@ -15,7 +15,8 @@
 #   scripts/template-sync-verify.sh
 #
 #   exit 0  verified (or nothing outstanding)  ·  1  the command failed  ·  2  usage
-#        3  no declaration and nothing derivable  ·  4  a derived command ran and proved nothing
+#        3  no declaration and nothing derivable  ·  4  a derived command ran and proved nothing,
+#           or the test run aborted at exit 0 (spec 031)
 #
 # Declare the command in .claude/.template-sync-verify — first line that is neither
 # blank nor a # comment. It should be the project's real regression suite, and NOT a
@@ -73,7 +74,7 @@ if [ ! -f "$MARKER" ]; then
   exit 0
 fi
 
-field() { sed -n "s/^$1=//p" "$MARKER" 2>/dev/null | head -1; }
+field() { sed -n "s/^$1=//p" "$MARKER" 2>/dev/null | sed -n 1p; }
 COMMIT=$(field commit)
 COMMITS=$(field commits)
 TEMPLATE=$(field template)
@@ -81,7 +82,7 @@ SYNCED=$(field synced)
 PUSHED=$(field pushed)
 
 COMMAND=""
-[ -r "$DECL" ] && COMMAND=$(grep -v '^[[:space:]]*#' "$DECL" 2>/dev/null | grep -v '^[[:space:]]*$' | head -1)
+[ -r "$DECL" ] && COMMAND=$(grep -v '^[[:space:]]*#' "$DECL" 2>/dev/null | grep -v '^[[:space:]]*$' | sed -n 1p)
 
 # Spec 007ba. A declaration always wins and is never second-guessed — a human chose it, and
 # judging their choice is a different spec. Only when there is none do we derive.
@@ -183,6 +184,26 @@ if [ "$RC" -eq 0 ] && [ -n "$DERIVED" ] && [ -n "$EVIDENCE" ]; then
     printf '    %s\n\n' "${PROVENANCE:-derived from this repository layout}"
     printf 'Put the command that really exercises this project in\n'
     printf '.claude/.template-sync-verify (first non-comment line) and run this again.\n'
+    exit 4
+  fi
+fi
+
+# Spec 031 — the abort gate, for declared and derived commands alike: the evidence gate above
+# judges a command nobody chose, this judges the run itself. rocky's crashed test host printed
+# `Passed!` for the 55% that ran, between two abort lines; at exit 0 that would discharge the
+# obligation as verified. Like the evidence gate it leaves the marker exactly as it was — an
+# abort says the suite did not finish, not that the project is bad. At exit != 0 the failure
+# path below already holds.
+RUN_VERDICT_LIB="$(dirname "$0")/run-verdict.sh"
+[ -f "$RUN_VERDICT_LIB" ] || RUN_VERDICT_LIB="$PROJECT_ROOT/scripts/run-verdict.sh"
+if [ "$RC" -eq 0 ] && [ -f "$RUN_VERDICT_LIB" ]; then
+  . "$RUN_VERDICT_LIB"
+  if [ -r "$LOG" ] && run_aborted "$(cat "$LOG")"; then
+    rm -f "$LOG"
+    printf '\nThe command exited 0, but the test run ABORTED — the test host did not finish,\n'
+    printf 'so any Passed! line above counts only the tests that ran. The obligation for\n'
+    printf '%s still stands. Re-run it; if the host keeps crashing, `dotnet test --blame`\n' "${COMMIT:-unknown}"
+    printf 'names the test it died in.\n'
     exit 4
   fi
 fi

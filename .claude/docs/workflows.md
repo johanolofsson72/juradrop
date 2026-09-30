@@ -398,6 +398,12 @@ This is a **per-developer** setup step, not something the template can install. 
 > auto mode rules and this template's `permissions.deny` block both stop applying. If that is how you start Claude Code, the deny
 > lists are documentation, not enforcement. The hook-based gates (`spec-register-guard`, `pipeline-state-guard`,
 > `spec-interview-guard`) still fire, because hooks are not permission rules.
+> Proven live on 2026-09-29 (Claude Code 2.1.284): under `bypassPermissions` a deny carrying
+> `hookEventName: "PreToolUse"` blocked the `Edit`, and the same deny without that field let it
+> through. A hook that drops the field is inert in **every** mode, and it looks like a permission-mode
+> problem (row 029). `bash scripts/probe-live-deny.sh` repeats the A/B against the installed CLI, so
+> rerun it after an upgrade. Guard tests read verdicts through `scripts/hook-verdict.sh`, which
+> decodes them the way the CLI does.
 
 ### Other recent settings
 

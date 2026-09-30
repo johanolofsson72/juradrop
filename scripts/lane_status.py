@@ -193,11 +193,31 @@ def phase_debt_open(root: str) -> int:
     return count
 
 
+# A `needs` entry with no digit in it is prose, not a reference. Registers write "depends on
+# nothing" in words (agentcrm: `needs inget`), and reading that as an id nobody will ever tick
+# withheld six of nine runnable rows. No word list: "has a digit" separates `inget`, `nothing`
+# and `none` from `004`, `R1` and `S17` in every language. An entry that has a digit but names no
+# row still blocks, and is reported, so a typo (`needs 04`) can neither make a row look free nor
+# hold it without saying why (.claude/rules/mutation-timeouts.md, trap 4).
+def is_reference(entry: str) -> bool:
+    return any(c.isdigit() for c in entry)
+
+
 def runnable(rows: list[dict], ticked: set[str]) -> list[dict]:
     return [
         r for r in rows
         if r["state"] == " " and not r["owner"]
-        and all(d in ticked for d in r["needs"])
+        and all(d in ticked for d in r["needs"] if is_reference(d))
+    ]
+
+
+def unresolved_needs(rows: list[dict]) -> list[tuple[str, str]]:
+    """(row id, entry) for each id-shaped `needs` entry on an open row that names no row."""
+    known = {r["id"] for r in rows}
+    return [
+        (r["id"], d) for r in rows
+        if r["state"] != "x"
+        for d in r["needs"] if is_reference(d) and d not in known
     ]
 
 
@@ -250,8 +270,16 @@ def render(root: str, me: str, full: bool) -> str:
             out.append("  Unclaimed rows whose dependencies are all ticked:")
             for r in free[:8]:
                 out.append(f"    {r['id']} — {r['slug']}")
+            if len(free) > 8:
+                out.append(f"    … and {len(free) - 8} more: " + ", ".join(r["id"] for r in free[8:]))
         elif multi_lane:
-            out.append("  unclaimed and runnable: " + ", ".join(r["id"] for r in free[:6]))
+            more = f" (+{len(free) - 6} more)" if len(free) > 6 else ""
+            out.append("  unclaimed and runnable: " + ", ".join(r["id"] for r in free[:6]) + more)
+
+    unresolved = unresolved_needs(rows)
+    if unresolved:
+        out.append("  needs names no row, held until fixed: "
+                   + "; ".join(f"{i} → {d}" for i, d in unresolved))
 
     if full:
         blocked = [r for r in rows if r["state"] == "!"]

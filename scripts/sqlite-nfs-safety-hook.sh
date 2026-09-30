@@ -33,7 +33,7 @@ FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
 
 # Only inspect docker-compose*.yml files
-if [ -z "$FILE" ] || ! echo "$FILE" | grep -qE 'docker-compose.*\.ya?ml$'; then
+if [ -z "$FILE" ] || ! grep -qE 'docker-compose.*\.ya?ml$' <<< "$FILE"; then
   exit 0
 fi
 

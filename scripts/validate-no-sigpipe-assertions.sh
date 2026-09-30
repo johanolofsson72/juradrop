@@ -69,8 +69,8 @@
 #           never both called "clean" · 1 at least one assertion carries the idiom · 2 nothing to scan,
 #           or a boundary the gate refuses to guess (a fault, not silence)
 #
-# Covers: SC-1728 SC-1731 SC-1732 SC-1733 SC-1734 SC-1735 SC-1746 SC-1747 SC-1748 SC-1749 SC-1750
-#         SC-1751 SC-1752
+# Scenario ids: named by scripts/test-no-sigpipe-assertions.sh, which is the proof. Not listed here: a
+# CORE file's comment is read as a reference by any gate whose roots include scripts/ (row 012).
 
 set -uo pipefail
 
@@ -110,7 +110,7 @@ is_core() { grep -qxF "$1" <<< "$CORE_LIST"; }
 # was blind upstream for exactly as long as nobody could see which population it had chosen.
 template_slug() {
   [ -r "$AUTOSYNC" ] || return 0
-  sed -n 's|^TEMPLATE_REPO_URL="[^"]*[/:]\([^/"]*/[^/"]*\)\.git".*|\1|p' "$AUTOSYNC" | head -1
+  sed -n 's|^TEMPLATE_REPO_URL="[^"]*[/:]\([^/"]*/[^/"]*\)\.git".*|\1|p' "$AUTOSYNC" | sed -n 1p
 }
 
 # Only the toplevel counts. A sandbox created inside some other checkout would otherwise inherit THAT
@@ -259,11 +259,19 @@ BACKLOG=0   # findings in production scripts: reported, not fatal unless --stric
 #              backlog and do not change the exit code
 #   --strict   with --all, fail on them too
 #
-# Making the wide scan the DEFAULT was tried and reverted: it reports 54
-# production pipelines, nearly all legitimate diagnostics where a 141 costs
-# nothing, and it broke three arms of the gate's own meta-test — including the
-# one guaranteeing a tree with nothing to scan is refused rather than called
-# clean. A gate bent to fit a wider net is worse than a narrow net plus a flag.
+# Making the wide scan the DEFAULT was tried and reverted: it broke three arms
+# of the gate's own meta-test — including the one guaranteeing a tree with
+# nothing to scan is refused rather than called clean. A gate bent to fit a
+# wider net is worse than a narrow net plus a flag.
+#
+# A production pipeline whose exit status nobody reads is still not free. When
+# the parent process ignores SIGPIPE (.NET does, and a child inherits SIG_IGN),
+# the writer gets EPIPE instead of the signal and bash prints "printf: write
+# error: Broken pipe" to stderr. A caller that asserts silent stderr then fails,
+# and only under load. That was msroute F008. Row 024 cleared the template's
+# backlog (66 lines) and test-no-sigpipe-assertions.sh keeps --strict at zero here.
+# --strict is not "no leak": an assignment (`X=$(… | head -1)`) is read as a
+# diagnostic and never reported, and it leaks the same way (finding F027).
 SCAN_ALL=0
 STRICT=0
 case " $* " in *" --all "*) SCAN_ALL=1 ;; esac
@@ -271,10 +279,10 @@ case " $* " in *" --strict "*) STRICT=1; SCAN_ALL=1 ;; esac
 shopt -s nullglob
 if [ "$SCAN_ALL" -eq 1 ]; then
   TESTS=("$SCAN_ROOT"/scripts/*.sh)
-  POP_LABEL="scripts/*.sh"
+  POP_LABEL="scripts/*.sh"; UNIT="script(s)"
 else
   TESTS=("$SCAN_ROOT"/scripts/test-*.sh)
-  POP_LABEL="scripts/test-*.sh"
+  POP_LABEL="scripts/test-*.sh"; UNIT="self-test(s)"
 fi
 shopt -u nullglob
 is_selftest() { case "$(basename "$1")" in test-*) return 0 ;; *) return 1 ;; esac; }
@@ -328,8 +336,9 @@ done
 if [ "$STRICT" -eq 1 ]; then TOTAL=$((HITS + UNDECIDED + BACKLOG)); else TOTAL=$((HITS + UNDECIDED)); fi
 if [ "$BACKLOG" -gt 0 ]; then
   printf '\n[backlog] %s pipeline(s) in production scripts (not self-tests).\n' "$BACKLOG" >&2
-  printf '          Usually a diagnostic, where 141 costs nothing. Re-run with --strict to fail on\n' >&2
-  printf '          them, and fix them ONE AT A TIME: a bulk regex pass over 34 of these turned a\n' >&2
+  printf '          A diagnostic whose status is never read still writes "write error: Broken pipe"\n' >&2
+  printf '          to stderr when the parent ignores SIGPIPE (.NET does; msroute F008). Re-run with\n' >&2
+  printf '          --strict to fail on them, and fix them ONE AT A TIME: a bulk regex pass over 34 turned a\n' >&2
   printf '          real suite red on 2026-09-03 (msroute row M2).\n' >&2
 fi
 
@@ -345,12 +354,12 @@ mode_line() {
 if [ "$LIST" -eq 1 ]; then
   printf '\n'
   mode_line
-  printf 'scanned %s self-test(s): %s assertion(s), %s undecided\n' "$FILES" "$HITS" "$UNDECIDED"
+  printf 'scanned %s %s: %s assertion(s), %s undecided\n' "$FILES" "$UNIT" "$HITS" "$UNDECIDED"
   exit 0
 fi
 
 if [ "$TOTAL" -gt 0 ]; then
-  printf '\nFAIL: %s pipeline(s) into an early-exit consumer in %s self-test(s)\n' "$TOTAL" "$FILES" >&2
+  printf '\nFAIL: %s pipeline(s) into an early-exit consumer in %s %s\n' "$TOTAL" "$FILES" "$UNIT" >&2
   printf '      (%s read as assertions, %s undecided — an undecided line is a refusal, not a pass)\n' \
     "$HITS" "$UNDECIDED" >&2
   printf '      Under set -o pipefail these return 141 once the tail after the match reaches the pipe\n' >&2
@@ -374,5 +383,5 @@ if [ "$FILES" -eq 0 ]; then
 fi
 
 mode_line
-printf 'no-sigpipe-assertions: clean — %s self-test(s), 0 early-exit assertion pipelines\n' "$FILES"
+printf 'no-sigpipe-assertions: clean — %s %s, 0 early-exit assertion pipelines\n' "$FILES" "$UNIT"
 exit 0

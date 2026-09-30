@@ -95,7 +95,7 @@ if [ -z "${LOCAL_LLM_MODEL:-}" ]; then
     PREFS_NL=$(printf '%s' "$LOCAL_LLM_ACTIVE_PREFS" | tr -s ' \t' '\n')
     while IFS= read -r pref; do
       [ -n "$pref" ] || continue
-      if printf '%s\n' "$AVAILABLE_MODELS" | grep -Fxq "$pref"; then
+      if grep -Fxq "$pref" <<< "$AVAILABLE_MODELS"; then
         LOCAL_LLM_MODEL="$pref"
         break
       fi

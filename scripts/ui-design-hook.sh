@@ -26,13 +26,29 @@ FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 [ -z "$FILE" ] && exit 0
 
 # UI file extensions: React/Vue/Svelte, HTML, stylesheets, Razor/Blazor
-if ! echo "$FILE" | grep -qiE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml)$'; then
+if ! grep -qiE '\.(tsx|jsx|vue|svelte|html|htm|css|scss|sass|less|razor|cshtml)$' <<< "$FILE"; then
   exit 0
 fi
 
 # Skip node_modules, build output, and vendored files
-if echo "$FILE" | grep -qE '(node_modules|/dist/|/build/|/\.next/|/wwwroot/.*\.min\.|/bin/|/obj/)'; then
+if grep -qE '(node_modules|/dist/|/build/|/\.next/|/wwwroot/.*\.min\.|/bin/|/obj/)' <<< "$FILE"; then
   exit 0
+fi
+
+# Is the gate this reminder demands reachable at all (spec 006)? Without the plugin the Skill call
+# fails, and the reminder below would tell the model to do something it cannot do, with nobody told.
+# Exit 1 only: "cannot tell" (3) and an absent checker fall through to today's reminder.
+HOOK_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [ -f "$HOOK_DIR/skill-reachable.sh" ]; then
+  MISSING_LINE=$(bash "$HOOK_DIR/skill-reachable.sh" frontend-design 2>/dev/null)
+  if [ "$?" -eq 1 ] && [ -f "$HOOK_DIR/hook-notice.sh" ]; then
+    . "$HOOK_DIR/hook-notice.sh"
+    HINT=${MISSING_LINE#*— }
+    notice_both PreToolUse \
+      "Design gate unreachable: the frontend-design skill is not installed on this machine. Install: $HINT" \
+      "UI FILE DETECTED, BUT THE BLOCKING DESIGN GATE CANNOT BE MET: the frontend-design skill is not reachable on this machine (scripts/skill-reachable.sh: $MISSING_LINE). Invoking it via the Skill tool will fail. Do NOT claim it was applied. Tell the developer it is missing and how to install it ($HINT), and hold UI work until they install it or explicitly waive the gate for this change. Everything else still applies: match the existing design system (typography, spacing, colors, component primitives) and report accessibility and responsive checks explicitly."
+    exit 0
+  fi
 fi
 
 cat <<'JSON'

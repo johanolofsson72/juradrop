@@ -212,6 +212,229 @@ A=$(cat "$RT/.claude/settings.json")
 [ "$A" = "$(cat "$RT/.claude/settings.json")" ] && ok "repair is idempotent" || bad "repair is not idempotent"
 rm -rf "$RT"
 
+# ── Spec 029 ────────────────────────────────────────────────────────────────
+# §2 asks whether a FILE mentions hookEventName; a guard with three deny sites and
+# one bare one passes it. And every guard test read `.permissionDecision` alone,
+# which is the probe that fooled rocky's H13: the pre-046 guards, all inert, pass
+# the pre-029 tests 399/399. These checks look at each emit site, and at how the
+# tests read what the guards say.
+. "$ROOT/scripts/hook-verdict.sh"
+
+# Emit sites of a permissionDecision: the key, in any quoting a shell or python
+# hook writes it (bare jq key, "json", \"escaped\", 'single'), that do not carry
+# `hookEventName: "PreToolUse"` on the same line or the 3 non-comment lines above
+# it. The heredoc layout pipeline-state-guard uses puts the field two lines up.
+# Comments are dropped before the window is read, so `# hookEventName` above a bare
+# emit cannot vouch for it, and the value must be PreToolUse, not merely present.
+# Reads (`.permissionDecision`, `get("permissionDecision")`) are not emits.
+# DENY_COUNT=1 prints the number of emit sites instead.
+deny_scan() {
+  python3 - "$@" <<'PYSCAN'
+import os, re, sys
+Q = r"""[\\"']*"""
+KEY = re.compile(r"(?<![.\w])" + Q + r"permissionDecision" + Q + r"\s*:")
+EVENT = re.compile(r"hookEventName" + Q + r"\s*:\s*" + Q + r"PreToolUse\b")
+COMMENT = re.compile(r"^\s*#")
+bare, sites = [], 0
+for path in sys.argv[1:]:
+    try:
+        lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+    except OSError:
+        continue
+    window = []
+    for n, line in enumerate(lines, 1):
+        if COMMENT.match(line):
+            continue
+        window = (window + [line])[-4:]
+        if KEY.search(line):
+            sites += 1
+            if not any(EVENT.search(w) for w in window):
+                bare.append(f"{path}:{n}")
+            window = []  # the next emit is another object; this one cannot vouch for it
+if os.environ.get("DENY_COUNT"):
+    print(sites)
+elif bare:
+    print("\n".join(bare))
+PYSCAN
+}
+bare_deny_sites() { deny_scan "$@"; }
+
+echo "== 11. every deny emit site names its event =="
+# probe-live-deny.sh is excluded by name: its control arm is bare ON PURPOSE, to
+# show the CLI drops it. §15 pins that script's behaviour instead.
+EMITTERS=()
+for f in scripts/*.sh scripts/*.py .claude/hooks/*; do
+  [ -f "$f" ] || continue
+  case "$f" in scripts/test-*|scripts/hook-verdict.sh|scripts/probe-live-deny.sh) ;; *) EMITTERS+=("$f") ;; esac
+done
+SITES=$(bare_deny_sites "${EMITTERS[@]}" 2>/dev/null)
+inline_bare() {
+  python3 - "$ROOT/.claude/settings.json" "$ROOT/.claude/settings.local.json" <<'PY3'
+import json, re, sys
+EVENT = re.compile(r'hookEventName\\?"?\s*:\s*\\?"?PreToolUse')
+KEY = re.compile(r'permissionDecision\\?"?\s*:')
+seen = 0
+for path in sys.argv[1:]:
+    try:
+        d = json.load(open(path))
+    except (OSError, ValueError):
+        continue
+    for ev, groups in d.get("hooks", {}).items():
+        for g in groups:
+            for h in g.get("hooks", []):
+                c = h.get("command", "")
+                seen += len(KEY.findall(c))
+                if len(KEY.findall(c)) > len(EVENT.findall(c)):
+                    print(f"{path.rsplit('/', 1)[-1]} {ev} matcher={g.get('matcher', '')}")
+# The template ships one inline deny (the sensitive-file rule). Seeing none means
+# the pattern stopped matching, which must not read as clean.
+if seen == 0:
+    print("inline:none-seen")
+PY3
+}
+INLINE=$(inline_bare)
+# A check that found no sites at all proves nothing: the pattern would have
+# stopped matching, not the guards stopped emitting.
+N=$(DENY_COUNT=1 deny_scan "${EMITTERS[@]}")
+if [ "${N:-0}" -lt 7 ]; then bad "only ${N:-0} deny emit sites found — the site pattern no longer matches the guards"
+elif [ -z "$SITES$INLINE" ]; then ok "all $N deny emit sites and every inline hook name their event"
+else bad "deny emitted without hookEventName (the CLI drops it):"; printf '       %s\n' $SITES ${INLINE:+"$INLINE"}; fi
+
+echo "== 12. the site check bites (sabotage) =="
+SB=$(mktemp -d) || exit 1
+printf '%s\n' "jq -n '{hookSpecificOutput: {permissionDecision: \"deny\"}}'" > "$SB/bare.sh"
+printf '%s\n' 'cat <<EOF' '{"hookSpecificOutput": {' '  "hookEventName": "PreToolUse",' '  "permissionDecision": "deny",' '}}' 'EOF' > "$SB/heredoc.sh"
+printf '%s\n' "# permissionDecision: deny  (a comment)" "x=\$(jq -r '.hookSpecificOutput.permissionDecision')" > "$SB/reader.sh"
+printf '%s\n' '"hookEventName": "PreToolUse",' 'a' 'b' 'c' '"permissionDecision": "deny",' > "$SB/far.sh"
+[ -n "$(bare_deny_sites "$SB/bare.sh")" ]    && ok "a bare jq deny is flagged"          || bad "bare jq deny not flagged"
+[ -z "$(bare_deny_sites "$SB/heredoc.sh")" ] && ok "the heredoc layout passes"          || bad "heredoc layout flagged"
+[ -z "$(bare_deny_sites "$SB/reader.sh")" ]  && ok "readers and comments are not emits" || bad "a reader or comment was flagged"
+[ -n "$(bare_deny_sites "$SB/far.sh")" ]     && ok "a field 4 lines up is another object" || bad "the window is too wide"
+cat > "$SB/goodthenbare.sh" <<'EOF'
+jq -n '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny"}}'
+jq -n '{hookSpecificOutput: {permissionDecision: "deny"}}'
+EOF
+[ "$(bare_deny_sites "$SB/goodthenbare.sh")" = "$SB/goodthenbare.sh:2" ] \
+  && ok "a good emit cannot vouch for the bare one after it" || bad "a good emit vouched for the next"
+cat > "$SB/escaped.sh" <<'EOF'
+printf '{\"hookSpecificOutput\":{\"permissionDecision\":\"deny\"}}'
+EOF
+cat > "$SB/commented.sh" <<'EOF'
+# hookEventName: "PreToolUse"
+jq -n '{hookSpecificOutput: {permissionDecision: "deny"}}'
+EOF
+cat > "$SB/wrongevent.sh" <<'EOF'
+jq -n '{hookSpecificOutput: {hookEventName: "PostToolUse", permissionDecision: "deny"}}'
+EOF
+cat > "$SB/emit.py" <<'EOF'
+print(json.dumps({"hookSpecificOutput": {"permissionDecision": "deny"}}))
+EOF
+[ -n "$(bare_deny_sites "$SB/escaped.sh")" ]    && ok "an escaped-quote JSON deny is flagged"  || bad "escaped-quote deny not flagged"
+[ -n "$(bare_deny_sites "$SB/commented.sh")" ]  && ok "a comment cannot vouch for a bare deny" || bad "a comment vouched for a bare deny"
+[ -n "$(bare_deny_sites "$SB/wrongevent.sh")" ] && ok "the wrong event name is flagged"        || bad "PostToolUse accepted as the event"
+[ -n "$(bare_deny_sites "$SB/emit.py")" ]       && ok "a python-emitted bare deny is flagged"  || bad "python emit not flagged"
+rm -rf "$SB"
+
+echo "== 13. hook_verdict reads what the CLI reads =="
+[ "$(hook_verdict '{"hookSpecificOutput":{"permissionDecision":"deny"}}')" = dropped ] \
+  && ok "the pre-046 shape is dropped" || bad "the bare shape reads as a verdict"
+[ "$(hook_verdict '{"hookSpecificOutput":{"hookEventName":"PostToolUse","permissionDecision":"deny"}}')" = dropped ] \
+  && ok "the wrong event is dropped" || bad "a PostToolUse deny reads as a PreToolUse verdict"
+[ "$(hook_verdict '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}')" = deny ] \
+  && ok "the well-formed deny is a deny" || bad "the well-formed deny is not read"
+[ "$(hook_verdict '')" = none ] && [ "$(hook_verdict 'not json')" = invalid ] \
+  && ok "empty is none, garbage is invalid" || bad "empty/garbage misread"
+# A real guard, then the same guard with the field stripped: deny, then dropped.
+GV=$(mktemp -d) || exit 1
+mkdir -p "$GV/.git" "$GV/src"; echo '{}' > "$GV/package.json"
+sed -e 's/hookEventName: "PreToolUse", //' "$ROOT/scripts/spec-register-guard-hook.sh" > "$GV/bare-guard.sh"
+P="{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$GV/src/a.ts\"}}"
+# The CLI reads stdout JSON only on exit 0; a deny that exits 1 is not a deny.
+O1=$(printf '%s' "$P" | bash "$ROOT/scripts/spec-register-guard-hook.sh" 2>/dev/null); RC1=$?
+V1=$(hook_verdict "$O1")
+V2=$(hook_verdict "$(printf '%s' "$P" | bash "$GV/bare-guard.sh" 2>/dev/null)")
+[ "$V1" = deny ] && [ "$RC1" -eq 0 ] && [ "$V2" = dropped ] && ok "live guard: deny on exit 0; stripped copy: dropped" \
+  || bad "guard verdicts wrong (real=$V1 rc=$RC1 stripped=$V2)"
+# A second guard, so the arm is not one guard's accident. pipeline-state-guard
+# resolves the active row through spec_active.py next to it, so the copy gets one.
+mkdir -p "$GV/specs" "$GV/g"
+printf '# Spec register\n\n## Specs\n\n- [ ] 001 — foo — full track — x\n' > "$GV/specs/INDEX.md"
+cp "$ROOT/scripts/spec_active.py" "$GV/g/"
+sed -e 's/hookEventName: "PreToolUse", //' -e '/"hookEventName": "PreToolUse",/d' \
+  "$ROOT/scripts/pipeline-state-guard-hook.sh" > "$GV/g/pipeline-state-guard-hook.sh"
+V3=$(hook_verdict "$(printf '%s' "$P" | CLAUDE_PROJECT_DIR="$GV" bash "$ROOT/scripts/pipeline-state-guard-hook.sh" 2>/dev/null)")
+V4=$(hook_verdict "$(printf '%s' "$P" | CLAUDE_PROJECT_DIR="$GV" bash "$GV/g/pipeline-state-guard-hook.sh" 2>/dev/null)")
+[ "$V3" = deny ] && [ "$V4" = dropped ] && ok "second guard (pipeline-state): deny; stripped copy: dropped" \
+  || bad "pipeline-state-guard verdicts wrong (real=$V3 stripped=$V4)"
+rm -rf "$GV"
+
+echo "== 14. guard tests decode through the CLI's rule =="
+# A test that reads .permissionDecision alone reopens the hole this spec closed.
+# Per read, not per file: one hook_verdict call must not vouch for a lenient read
+# elsewhere in the same file. A jq path read is never allowed (use hook_verdict);
+# a python get("permissionDecision") needs the DROPPED guard (a real
+# h.get("hookEventName") call, not a mention) within 6 lines above.
+lenient_reads() {
+  python3 - scripts/test-*.sh <<'PY14'
+import re, sys
+JQ = re.compile(r"\.permissionDecision(?!Reason)\b")
+PY = re.compile(r"""get\(\s*["']permissionDecision["']""")
+for path in sys.argv[1:]:
+    if path.endswith("test-hook-channels.sh"):
+        continue
+    lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+    for n, line in enumerate(lines, 1):
+        if line.lstrip().startswith("#"):
+            continue
+        guarded = any('get("hookEventName")' in l for l in lines[max(0, n - 7):n - 1])
+        if JQ.search(line) or (PY.search(line) and not guarded):
+            print(f"{path}:{n}")
+PY14
+}
+LENIENT=$(lenient_reads)
+[ -z "$LENIENT" ] && ok "every verdict read in the guard tests goes through the CLI's rule" \
+  || { bad "reads permissionDecision without the discriminator:"; printf '       %s\n' $LENIENT; }
+
+echo "== 15. probe-live-deny reads the CLI's behaviour correctly (fake claude) =="
+# The live probe spends model calls, so its verdict logic is pinned here against a
+# stand-in CLI: one that behaves like the real one, one that ignores every deny,
+# one that refuses every edit, one that never calls the hook, one that fails, and
+# one that returns what `timeout` returns when it cuts an arm off.
+FK=$(mktemp -d) || exit 1
+cat > "$FK/claude" <<'FAKE'
+#!/bin/bash
+[ "${1:-}" = --version ] && { echo "0.0.0 (fake)"; exit 0; }
+S=""; while [ $# -gt 0 ]; do [ "$1" = --settings ] && S="$2"; shift; done
+hook() { bash -c "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$S")"; }
+edit() { sed -i.bak 's/= 1;/= 2;/' probe.ts; }
+case "$FAKE_CLI" in
+  obey)   hook | grep -q hookEventName || edit ;;
+  ignore) hook >/dev/null; edit ;;
+  refuse) hook >/dev/null ;;
+  silent) : ;;
+  fail)   hook >/dev/null; exit 1 ;;
+  timeout-rc) exit 124 ;;   # what `timeout` returns when it cuts an arm off
+esac
+FAKE
+chmod +x "$FK/claude"
+probe_exit() { PATH="$FK:$PATH" FAKE_CLI="$1" PROBE_MODES="${2:-bypassPermissions}" \
+                 bash "$ROOT/scripts/probe-live-deny.sh" >/dev/null 2>&1; echo $?; }
+[ "$(probe_exit obey)" = 0 ]   && ok "a CLI that applies the deny: exit 0"         || bad "obeying CLI not reported as holding"
+[ "$(probe_exit ignore)" = 1 ] && ok "a CLI that ignores the deny: exit 1"         || bad "ignoring CLI not reported as broken"
+[ "$(probe_exit refuse)" = 3 ] && ok "a CLI that refuses every edit: inconclusive" || bad "refusing CLI read as a pass"
+[ "$(probe_exit timeout-rc)" = 3 ] && ok "an arm cut off by timeout: inconclusive" || bad "a timed-out arm read as a pass"
+[ "$(probe_exit obey 'acceptEdits bypassPermissions')" = 0 ]   && ok "both modes probed, both hold: exit 0" || bad "two-mode run misread"
+[ "$(probe_exit ignore 'acceptEdits bypassPermissions')" = 1 ] && ok "both modes broken: exit 1"            || bad "two-mode broken run misread"
+[ "$(probe_exit silent)" = 3 ] && ok "a hook that never fired: inconclusive"       || bad "an arm with no hook call read as held"
+[ "$(probe_exit fail)" = 3 ]   && ok "a CLI that exits non-zero: inconclusive"     || bad "a failed CLI read as held"
+[ "$(probe_exit obey ' ')" = 3 ] && ok "no mode probed: inconclusive, never a pass" || bad "zero modes read as a pass"
+[ "$(probe_exit obey 'default')" = 2 ] && ok "an unsupported mode is refused"       || bad "unsupported mode accepted"
+[ "$(PATH="$FK:$PATH" FAKE_CLI=obey PROBE_TIMEOUT='1 x' bash "$ROOT/scripts/probe-live-deny.sh" >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "a non-numeric timeout is refused" || bad "PROBE_TIMEOUT not validated"
+[ "$(PATH="/usr/bin:/bin" bash "$ROOT/scripts/probe-live-deny.sh" >/dev/null 2>&1; echo $?)" = 2 ] \
+  && ok "no claude on PATH: exit 2" || bad "missing CLI not reported"
+rm -rf "$FK"
+
 echo
 printf 'passed %s, failed %s\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

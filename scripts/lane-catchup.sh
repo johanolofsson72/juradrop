@@ -143,7 +143,10 @@ else
   # skipped this entire check in silence on all six projects. The SessionStart
   # hook already learned this and tests `-x || -f`; this is the same lesson.
   if [ -f scripts/template-autosync.sh ]; then
-    OUT=$(timeout 240 bash scripts/template-autosync.sh --force --dry-run 2>&1)
+    # CLAUDE_PROJECT_DIR is passed, not left to the `cd "$ROOT"` above: template-autosync.sh resolves
+    # ${CLAUDE_PROJECT_DIR:-$PWD}, so an ambient value from another session would beat the cd and
+    # this preview would describe that repository instead of this one. Spec 010.
+    OUT=$(CLAUDE_PROJECT_DIR="$ROOT" timeout 240 bash scripts/template-autosync.sh --force --dry-run 2>&1)
     printf '%s\n' "$OUT" | grep -E '^\[check\] would' | sed 's/^/  /'
     SKIPS=$(printf '%s\n' "$OUT" | grep '^  SKIP' | sed 's/^  SKIP   //; s/ (differs.*//')
     if [ -n "$SKIPS" ]; then
@@ -151,6 +154,34 @@ else
       printf '    %s\n' $SKIPS
       todo "these need /project-update (a prose merge) or --accept-local"
     fi
+  fi
+fi
+
+# ── 3b. What lives on this machine and not in any repo (spec 073).
+#
+# Two things a pull can never deliver, because neither is in the project: the global
+# /project-wizard and /project-update skills under ~/.claude/skills, and the spec-kit CLI.
+# Both drifted per machine before 073 — the global skills were copied by hand once, and
+# spec-kit was installed from whatever `main` was that day — so two lanes could run different
+# phases of one pipeline on one register without either knowing. Both checks are read-only.
+head_ "3b. Machine-level tools (global skills, spec-kit CLI)"
+TPL=$( [ -f scripts/template-autosync.sh ] && bash scripts/template-autosync.sh --template-dir 2>/dev/null )
+if [ -z "$TPL" ]; then
+  todo "no template clone found — clone it (git clone https://github.com/johanolofsson72/Claude.git ~/repos/Claude) or set CLAUDE_TEMPLATE_DIR"
+else
+  if [ -f "$TPL/scripts/install-global-skills.sh" ] && ! bash "$TPL/scripts/install-global-skills.sh" --check >/dev/null 2>&1; then
+    todo "global /project-wizard and /project-update skills are stale — run: git -C \"$TPL\" pull --ff-only && bash \"$TPL/scripts/install-global-skills.sh\""
+  else
+    say "  global skills match the template at $TPL"
+  fi
+fi
+if [ -f scripts/speckit-sync.sh ]; then
+  SK=$(bash scripts/speckit-sync.sh --check 2>&1); SKRC=$?
+  if [ "$SKRC" -eq 0 ]; then
+    say "  spec-kit CLI and .specify/ at the pin ($(tr -d '[:space:]' < scripts/speckit-version 2>/dev/null))"
+  else
+    printf '%s\n' "$SK" | grep -E 'out of date|FAIL' | sed 's/^/  /'
+    todo "spec-kit is not at the template's pin — run: bash scripts/speckit-sync.sh"
   fi
 fi
 
@@ -201,12 +232,20 @@ fi
 if [ -f scripts/register-convergence.sh ]; then
   CONV_RAW=$(bash scripts/register-convergence.sh 2>&1); RC=$?
   say "  $(printf '%s\n' "$CONV_RAW" | head -1)"
-  [ "$RC" = 2 ] && todo "convergence stop — see .claude/rules/carve-budget.md before carving any row"
+  # A register the developer already froze (row 077) is not asked the three-ways-out question again.
+  FRZ_RAW=$(bash scripts/register-convergence.sh --freeze 2>/dev/null); FRZ_RC=$?
+  case "$FRZ_RC" in
+    0|2|3) say "  $(printf '%s\n' "$FRZ_RAW" | head -1)"
+           [ "$FRZ_RC" = 2 ] && todo "rows added during the freeze without an approved proposal — surface them (approve or cut)" ;;
+    4) todo "freeze line malformed: $(printf '%s\n' "$FRZ_RAW" | head -1)"
+       [ "$RC" = 2 ] && todo "convergence stop — see .claude/rules/carve-budget.md before carving any row" ;;
+    *) [ "$RC" = 2 ] && todo "convergence stop — see .claude/rules/carve-budget.md before carving any row" ;;
+  esac
   # The two limits the ratio does not measure. Reported here because a lane arriving at a
   # register that already breaches them should know before it carves anything of its own.
   if [ -f scripts/carve_audit.py ]; then
     CARVE_RAW=$(bash scripts/register-convergence.sh --carves 2>&1)
-    printf '%s\n' "$CARVE_RAW" | grep -E '^\[CARVE|^carve shape' | sed 's/^/  /' | head -4
+    printf '%s\n' "$CARVE_RAW" | grep -E '^\[CARVE|^carve shape' | sed 's/^/  /' | sed -n 1,4p
   fi
 fi
 

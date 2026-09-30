@@ -55,6 +55,12 @@ This is a string parser; it cannot see a write done by an interpreter, behind
 eval, through xargs, or via a runtime-assembled path. Those are caught by
 scripts/bash-write-detect-hook.sh, which watches the filesystem instead.
 
+A relative target is resolved against the ``cd`` in force where it appears, not
+against the hook's cwd (row 058, see cwd_resolver()). After a ``cd`` to a
+runtime-assembled directory the cwd is unknown, and relative targets from there
+on fall under the same bound as a runtime-assembled path. A token holding
+``://`` is a URL and never a target.
+
 OPAQUE REGIONS — the shape, never the program (row S5)
 ------------------------------------------------------
 The bound above was a working bypass, and it was used: a register tick written as
@@ -80,7 +86,9 @@ the region (nothing here evaluates anything), and ``xargs`` / ``find -exec``, wh
 carry a COMMAND rather than a program — a different shape, with no fixture behind
 it. Both remain the post-layer's business.
 
-Covers: SC-1437 SC-1439 SC-913 SC-914 SC-915 SC-916 SC-917 SC-919
+Scenario ids: named by scripts/test-bash-write-guard.sh, which is the proof. Not listed
+here: a CORE file's text is read as a reference by any gate whose roots include scripts/
+(row 012).
 """
 
 from __future__ import annotations
@@ -120,13 +128,20 @@ def _pick(match: re.Match, base: int) -> str | None:
     return None
 
 
-def strip_heredoc_bodies(cmd: str) -> str:
-    """Remove heredoc BODIES, keeping the opening line.
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def blank_heredoc_bodies(cmd: str) -> str:
+    """Blank heredoc BODIES, keeping the opening line.
 
     A body is arbitrary text; a line inside it that happens to read ``> foo.cs``
     is not a redirection this command performs. The opening line stays, so
     ``cat > src/App.cs <<'EOF'`` is still seen as a redirection to src/App.cs —
     which is the whole reason heredoc counts as one of the six covered forms.
+
+    BLANKED, NOT REMOVED (row 058): every target carries its offset in the
+    command so it can be resolved against the ``cd`` in force at that point, and
+    dropping lines would shift every offset after them.
     """
     lines = cmd.split("\n")
     out: list[str] = []
@@ -134,18 +149,21 @@ def strip_heredoc_bodies(cmd: str) -> str:
     while i < len(lines):
         line = lines[i]
         out.append(line)
-        m = re.search(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", line)
+        m = HEREDOC.search(line)
         i += 1
         if m:
             term = m.group(2)
             while i < len(lines) and lines[i].strip() != term:
+                out.append(" " * len(lines[i]))
                 i += 1
-            i += 1  # drop the terminator line too
+            if i < len(lines):  # the terminator line too
+                out.append(" " * len(lines[i]))
+                i += 1
     return "\n".join(out)
 
 
-def _split_unquoted(text: str) -> list[str]:
-    """Split on shell separators that are NOT inside quotes.
+def _split_unquoted(text: str) -> list[tuple[str, int]]:
+    """Split on shell separators that are NOT inside quotes, with each part's offset.
 
     ``extract`` splits on a plain ``[;&|\\n]+`` regex, which is fine there because
     it is looking for whole commands. It is wrong here: ``python3 -c "import sys;
@@ -153,10 +171,11 @@ def _split_unquoted(text: str) -> list[str]:
     after it — including any path — would never be scanned. Truncating an opaque
     region is a miss, and a miss is the direction this row exists to remove.
     """
-    parts: list[str] = []
+    parts: list[tuple[str, int]] = []
     buf: list[str] = []
+    start = 0
     quote = ""
-    for ch in text:
+    for pos, ch in enumerate(text):
         if quote:
             buf.append(ch)
             if ch == quote:
@@ -167,12 +186,87 @@ def _split_unquoted(text: str) -> list[str]:
             buf.append(ch)
             continue
         if ch in ";&|\n":
-            parts.append("".join(buf))
+            parts.append(("".join(buf), start))
             buf = []
+            start = pos + 1
             continue
         buf.append(ch)
-    parts.append("".join(buf))
+    parts.append(("".join(buf), start))
     return parts
+
+
+# --------------------------------------------------------------- cd (row 058)
+#
+# A relative target means "relative to where the shell IS when it gets there", and
+# a command line moves the shell. Resolving every relative target against the
+# hook's cwd judged `cd /other/repo && cat > scripts/x.sh` as a write to THIS
+# project's scripts/x.sh — reproduced twice in one afternoon, both times naming a
+# file the command could not touch. So each target carries its offset, and the
+# cwd at that offset is the last `cd` before it whose scope is still open: a `cd`
+# inside `( … )` or `$( … )` ends with the parenthesis that closes it.
+#
+# A `cd` whose target is assembled at runtime (`cd "$T"`, `cd -`) makes the cwd
+# UNKNOWN from there on, and a relative target at an unknown cwd is skipped — the
+# same declared bound as a `$DIR/x` target in absolutize(), for the same reason:
+# guessing what `$T` expands to would invent a finding. An absolute target is
+# still asked about, and the post-layer (bash-write-detect-hook.sh) watches the
+# filesystem, so a write that lands in the project after all is still caught.
+
+def _depths(text: str) -> list[int]:
+    """Parenthesis depth at every offset, quotes respected."""
+    depth = 0
+    quote = ""
+    out: list[int] = []
+    for ch in text:
+        if quote:
+            if ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        out.append(depth)
+    return out
+
+
+def _resolve_cd(arg: str | None, cur: str | None) -> str | None:
+    if arg is None:
+        return os.path.expanduser("~")
+    if arg == "-" or any(c in arg for c in "$`*?"):
+        return None
+    if arg.startswith("~"):
+        arg = os.path.expanduser(arg)
+    if os.path.isabs(arg):
+        return os.path.normpath(arg)
+    return None if cur is None else os.path.normpath(os.path.join(cur, arg))
+
+
+def cwd_resolver(text: str, base: str):
+    """Return ``at(offset) -> cwd or None`` for a command with heredoc bodies blanked."""
+    depths = _depths(text)
+    events: list[tuple[int, int, str | None]] = []
+
+    def at(pos: int) -> str | None:
+        cur: str | None = base
+        for off, depth, target in events:
+            if off >= pos:
+                break
+            if min(depths[off:pos], default=depth) >= depth:
+                cur = target
+        return cur
+
+    for seg, start in _split_unquoted(text):
+        body = seg.lstrip(" \t(")
+        words = body.split()
+        if not words or words[0] not in ("cd", "pushd"):
+            continue
+        args = [w for w in words[1:] if w == "-" or not w.startswith("-")]
+        arg = args[0].rstrip(")").strip("\"'") if args else None
+        off = start + len(seg) - len(body)
+        events.append((off, depths[off] if off < len(depths) else 0, _resolve_cd(arg, at(off))))
+    return at
 
 
 def _names_interpreter(line: str) -> bool:
@@ -182,7 +276,7 @@ def _names_interpreter(line: str) -> bool:
     return False
 
 
-def opaque_regions(cmd: str) -> list[str]:
+def opaque_regions(cmd: str) -> list[tuple[str, int]]:
     """Text an interpreter would read as its program, in order of appearance.
 
     Three shapes, and none of them involves reading the program:
@@ -193,14 +287,21 @@ def opaque_regions(cmd: str) -> list[str]:
       * an interpreter followed by an inline program flag — the region runs to the
         end of the unquoted segment.
       * bare ``eval`` — same.
+
+    Each region carries the offset of the command that runs it, which is where
+    its cwd is read (row 058).
     """
-    regions: list[str] = []
+    regions: list[tuple[str, int]] = []
 
     lines = cmd.split("\n")
+    starts = [0]
+    for ln in lines[:-1]:
+        starts.append(starts[-1] + len(ln) + 1)
     i = 0
     while i < len(lines):
         line = lines[i]
-        m = re.search(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", line)
+        line_at = starts[i]
+        m = HEREDOC.search(line)
         i += 1
         if not m:
             continue
@@ -211,24 +312,24 @@ def opaque_regions(cmd: str) -> list[str]:
             i += 1
         i += 1  # the terminator line
         if _names_interpreter(line):
-            regions.append("\n".join(body))
+            regions.append(("\n".join(body), line_at + m.start()))
 
-    for seg in _split_unquoted(strip_heredoc_bodies(cmd)):
+    for seg, start in _split_unquoted(blank_heredoc_bodies(cmd)):
         words = re.findall(r"[^\s]+", seg)
         for idx, word in enumerate(words):
             base = os.path.basename(word)
             if base == "eval":
-                regions.append(" ".join(words[idx + 1:]))
+                regions.append((" ".join(words[idx + 1:]), start))
                 break
             if base in INTERPRETERS:
                 rest = words[idx + 1:]
                 for j, w in enumerate(rest):
                     if w in INLINE_FLAGS:
-                        regions.append(" ".join(rest[j + 1:]))
+                        regions.append((" ".join(rest[j + 1:]), start))
                         break
                 break
 
-    return [r for r in regions if r.strip()]
+    return [(r, at) for r, at in regions if r.strip()]
 
 
 def _path_shaped(tok: str) -> bool:
@@ -247,7 +348,7 @@ def _path_shaped(tok: str) -> bool:
     return bool(_EXT.search(tok)) and not tok.startswith(".")
 
 
-def opaque_paths(cmd: str) -> list[str]:
+def opaque_paths(cmd: str) -> list[tuple[str, int]]:
     """Path-shaped tokens inside the opaque regions. Never the program text.
 
     Each region is scanned twice: as written, and with every quote character
@@ -257,8 +358,8 @@ def opaque_paths(cmd: str) -> list[str]:
     boundaries they already are for the bare branch of QUOTED, so the path falls
     out on its own. Duplicates cost nothing: `absolutize` dedupes.
     """
-    out: list[str] = []
-    for region in opaque_regions(cmd):
+    out: list[tuple[str, int]] = []
+    for region, at in opaque_regions(cmd):
         unquoted = re.sub(r"[\"']", " ", region)
         for text in (region, unquoted):
             for m in re.finditer(QUOTED, text):
@@ -267,23 +368,23 @@ def opaque_paths(cmd: str) -> list[str]:
                     continue
                 t = t.strip().strip(",")
                 if _path_shaped(t):
-                    out.append(t)
+                    out.append((t, at))
     return out
 
 
-def extract(cmd: str) -> list[str]:
-    """Return raw (possibly relative) write targets, in order of appearance."""
-    text = strip_heredoc_bodies(cmd)
-    targets: list[str] = []
+def extract(cmd: str) -> list[tuple[str, int]]:
+    """Return raw (possibly relative) write targets with their offsets, in order."""
+    text = blank_heredoc_bodies(cmd)
+    targets: list[tuple[str, int]] = []
 
     # (a) redirection. The negative lookbehind keeps file-descriptor work out:
     #     2>&1, 1>&2 and &> are not writes to a file called "1".
     for m in re.finditer(r"(?<![0-9&])>{1,2}\s*" + QUOTED, text):
         t = _pick(m, 1)
         if t and not t.startswith("&"):
-            targets.append(t)
+            targets.append((t, m.start()))
 
-    segments = re.split(r"[;&|\n]+", text)
+    segments = [(m.group(0), m.start()) for m in re.finditer(r"[^;&|\n]+", text)]
 
     # (b) sed -i / --in-place. GNU takes the file straight after the flag; BSD and
     #     macOS take a backup-suffix argument first (`sed -i '' 's/x/y/' f`).
@@ -291,7 +392,7 @@ def extract(cmd: str) -> list[str]:
     #     segment: the script word (`s/x/y/`) survives here but is dropped
     #     downstream, because it has no source-code extension and so every guard
     #     allows it.
-    for seg in segments:
+    for seg, start in segments:
         if not re.search(r"\bsed\b", seg):
             continue
         if not re.search(r"\s-i\b|\s--in-place\b|\s-[a-hj-zA-Z]*i[a-zA-Z]*\b", seg):
@@ -299,31 +400,31 @@ def extract(cmd: str) -> list[str]:
         for m in re.finditer(QUOTED, seg):
             t = _pick(m, 1)
             if t and not t.startswith("-") and t != "sed":
-                targets.append(t)
+                targets.append((t, start))
 
     # (c) tee [-a] FILE...
     for m in re.finditer(r"\btee\b((?:\s+-\w+)*)((?:\s+" + QUOTED + r")+)", text):
         for m2 in re.finditer(QUOTED, m.group(2)):
             t = _pick(m2, 1)
             if t and not t.startswith("-"):
-                targets.append(t)
+                targets.append((t, m.start()))
 
     # (d) cp / mv — the destination is the last operand of the segment.
-    for seg in segments:
+    for seg, start in segments:
         if not re.match(r"\s*(sudo\s+)?(cp|mv)\b", seg):
             continue
         ops = [_pick(m, 1) for m in re.finditer(QUOTED, seg)]
         ops = [o for o in ops if o and not o.startswith("-")]
         if len(ops) >= 3:  # ["cp", src, ..., dst]
-            targets.append(ops[-1])
+            targets.append((ops[-1], start))
 
     return targets
 
 
-def absolutize(targets: list[str], cwd: str) -> list[str]:
+def absolutize(targets: list[tuple[str, int]], cwd_at) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
-    for t in targets:
+    for t, at in targets:
         t = t.strip()
         if not t:
             continue
@@ -333,7 +434,17 @@ def absolutize(targets: list[str], cwd: str) -> list[str]:
             continue
         if t in NON_FILES or t.startswith("/dev/fd/"):
             continue
-        p = t if os.path.isabs(t) else os.path.normpath(os.path.join(cwd, t))
+        # A URL is not a path (row 058, agentcrm F237): `…/whisper.cpp` in a git
+        # URL ends in a source extension and was denied as a repo file.
+        if "://" in t:
+            continue
+        if os.path.isabs(t):
+            p = t
+        else:
+            base = cwd_at(at)
+            if base is None:  # after `cd "$T"` — see cwd_resolver()
+                continue
+            p = os.path.normpath(os.path.join(base, t))
         if p not in seen:
             seen.add(p)
             out.append(p)
@@ -373,13 +484,14 @@ def combined(cmd: str, cwd: str) -> int:
     point and no earlier. ``@@ opaque-failed`` carries that ordering across: the
     caller still asks the guards about the extracted targets first.
     """
-    targets = absolutize(extract(cmd), cwd)
+    cwd_at = cwd_resolver(blank_heredoc_bodies(cmd), cwd)
+    targets = absolutize(extract(cmd), cwd_at)
     print("@@ extract")
     _emit(targets, False)
     print("@@ extract-all")
     _emit(targets, True)
     try:
-        opaque = absolutize(opaque_paths(cmd), cwd)
+        opaque = absolutize(opaque_paths(cmd), cwd_at)
     except Exception:  # noqa: BLE001 — mirrors the old separate process failing
         print("@@ opaque-failed")
         return 0
@@ -406,7 +518,7 @@ def main(argv: list[str]) -> int:
     # Same output contract in both modes — count on line 1, representatives after —
     # so the hook parses one shape and not two.
     finder = opaque_paths if "--opaque" in argv else extract
-    paths = absolutize(finder(cmd), cwd)
+    paths = absolutize(finder(cmd), cwd_resolver(blank_heredoc_bodies(cmd), cwd))
     if not paths:
         return 0
     # Line 1 is the total target count (so a caller can report it). The rest are

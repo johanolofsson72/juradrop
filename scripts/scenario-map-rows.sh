@@ -38,7 +38,7 @@
 #
 #   3. FS = "|" splits a markdown-escaped pipe. GFM writes a literal pipe inside a cell as \|
 #      and renders it as text, not as a column break — so a row whose scenario text quotes one
-#      arrives at awk with six cells and is rejected as malformed. agentcrm's SC-436 does exactly
+#      arrives at awk with six cells and is rejected as malformed. One agentcrm row does exactly
 #      that (a formula-injection payload beginning `=cmd\|`), and one such row took the whole
 #      traceability gate down for a 482-row map: the guard reports the row and exits 2, so nothing
 #      downstream got a single scenario out of a file that was never malformed. Adversarial rows
@@ -140,7 +140,7 @@ EXTRACT='
   # middle of a ledger, not only between tables.
   #
   # Treating one as "left the table" silently dropped every row after it. Measured
-  # on consultpilot 2026-09-03: a five-line note between SC-176 and SC-937 cost 12
+  # on consultpilot 2026-09-03: a five-line note between two feature blocks cost 12
   # rows, and the gate then reported all 12 as ids the map "does not have" -- 18 of
   # its 18 dangling findings were this, not one real one. A fixture proved a
   # ONE-line comment does it too: three rows became one.
@@ -202,7 +202,7 @@ EXTRACT='
     # status was attributed to an id that does not exist, inflating the uncovered count.
     #
     # The retired id still has to be REAL — .claude/rules/scenarios.md makes an id a permanent
-    # handle, so a test still naming SC-1522 is stale rather than wrong about the map. It is
+    # handle, so a test still naming a retired SC-NNN is stale rather than wrong about the map. It is
     # therefore emitted as its own struck row, exempt from coverage but present for the dangling
     # direction — subject to the dedup pass below, which is where the subtlety lives.
     alias = ""

@@ -26,7 +26,7 @@ git -C "$REPO_ROOT" rev-parse --verify --quiet "origin/$BASE" >/dev/null 2>&1 \
 # Count changed lines.
 LINES_CHANGED=$(git -C "$REPO_ROOT" diff --shortstat "origin/$BASE...HEAD" 2>/dev/null \
   | sed -nE 's/.*[[:space:]]([0-9]+)[[:space:]]+insertion.*[[:space:]]([0-9]+)[[:space:]]+deletion.*/\1+\2/p' \
-  | head -1)
+  | sed -n 1p)
 [ -n "$LINES_CHANGED" ] || LINES_CHANGED="0+0"
 TOTAL=$(echo "$LINES_CHANGED" | awk -F+ '{print $1+$2}')
 

@@ -22,8 +22,10 @@ set -u
 INPUT=$(cat)
 
 # The extensions this guard blocks. One list, read by both the raw precheck below and step 2, so the
-# precheck can never quietly disagree with the test it stands in front of.
-SOURCE_EXTS='cs|ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm'
+# precheck can never quietly disagree with the test it stands in front of. Markup and stylesheets are
+# source too (spec 032): fundit's 016a shipped a whole static site as .html/.css with no spec at all.
+# The three path guards carry this list byte-identical; test-spec-dir-absent.sh fails if one drifts.
+SOURCE_EXTS='cs|ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm|html|htm|css|scss|sass|less'
 
 # Cheapest exit first (spec 073, R9). This hook runs on every Edit/Write in every project, and nearly
 # every one of those is to a file it ignores — but the extension test in step 2 needs FILE, and FILE

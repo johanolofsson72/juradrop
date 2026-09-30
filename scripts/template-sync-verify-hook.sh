@@ -44,7 +44,7 @@ MARKER="$PROJECT_ROOT/.git/template-sync-unverified"
 [ -f "$MARKER" ] || exit 0
 [ -r "$MARKER" ] || exit 0
 
-field() { sed -n "s/^$1=//p" "$MARKER" 2>/dev/null | head -1; }
+field() { sed -n "s/^$1=//p" "$MARKER" 2>/dev/null | sed -n 1p; }
 
 COMMIT=$(field commit)
 COMMITS=$(field commits)
@@ -80,7 +80,7 @@ FILE_LINES=$(printf '%s\n' "$FILES" | head -8 | sed 's/^/  /')
 
 COMMAND=""
 DECL="$PROJECT_ROOT/.claude/.template-sync-verify"
-[ -r "$DECL" ] && COMMAND=$(grep -v '^[[:space:]]*#' "$DECL" 2>/dev/null | grep -v '^[[:space:]]*$' | head -1)
+[ -r "$DECL" ] && COMMAND=$(grep -v '^[[:space:]]*#' "$DECL" 2>/dev/null | grep -v '^[[:space:]]*$' | sed -n 1p)
 
 # The word "unverified" is in both arms on purpose: it is what the sync's own [verify] block
 # says, what the marker is named after, and what someone greps a transcript for later.
@@ -143,7 +143,7 @@ different command, put it in .claude/.template-sync-verify (first non-comment li
   else
     CANDIDATES=""
     [ -f "$DETECT" ] && CANDIDATES=$(bash "$DETECT" "$PROJECT_ROOT" --candidates 2>/dev/null \
-      | head -5 | sed 's/^/  /')
+      | sed -n 1,5p | sed 's/^/  /')
     if [ -n "$CANDIDATES" ]; then
       BODY="$BODY
 No declaration, and more than one thing it could mean:

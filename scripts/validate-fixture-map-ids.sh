@@ -158,8 +158,9 @@ for f in "$ROOT"/*.sh "$ROOT"/*.py; do
     /^[[:space:]]*#/ {
       body = $0
       sub(/^[[:space:]]*#+[[:space:]]?/, "", body)
-      # Two markers. The id pattern keeps the accounting gates discriminator — a hyphen and 3-4
-      # digits — so a shellcheck code (SC2086, no hyphen) can never be read as a scenario id.
+      # Two markers. The id pattern keeps the accounting gates discriminator — a hyphen and three or
+      # more digits (no upper bound, row 048) — so a shellcheck code (SC2086, no hyphen) can never be
+      # read as a scenario id.
       # (No apostrophes anywhere in here: this program lives in a single-quoted shell string.)
       marked = 0
       if (body ~ /(\*\*|~~)[[:space:]]*SC-[0-9][0-9][0-9]/) marked = 1
@@ -172,7 +173,7 @@ for f in "$ROOT"/*.sh "$ROOT"/*.py; do
         tok = substr(rest, RSTART, RLENGTH)
         rest = substr(rest, RSTART + RLENGTH)
         num = tok; sub(/^SC-/, "", num); sub(/[a-z]$/, "", num)
-        if (length(num) < 3 || length(num) > 4) continue
+        if (length(num) < 3) continue
         printf "%s:%d\t%s\n", file, FNR, tok
       }
     }
@@ -243,7 +244,7 @@ for f in "$ROOT"/*.sh; do
   # has no fixture content to police, and the ids it names are assertion labels. `grep -q` on the
   # file rather than a pipeline: a `printf | grep -q` here would be the SIGPIPE idiom this project's
   # own gate refuses in these files.
-  grep -qE '^[[:space:]]*\|[[:space:]]*~*(SC-[0-9]{3,4}[a-z]?|@ID[0-9]+@)~*[[:space:]]*\|' "$f" || continue
+  grep -qE '^[[:space:]]*\|[[:space:]]*~*(SC-[0-9]{3,}[a-z]?|@ID[0-9]+@)~*[[:space:]]*\|' "$f" || continue
   POPULATION=$((POPULATION + 1))
 
   # R1 and R2 in one pass.
@@ -264,7 +265,7 @@ for f in "$ROOT"/*.sh; do
         tok = substr(line, RSTART, RLENGTH)
         line = substr(line, RSTART + RLENGTH)
         num = tok; sub(/^SC-/, "", num); sub(/[a-z]$/, "", num)
-        if (length(num) < 3 || length(num) > 4) continue
+        if (length(num) < 3) continue
         if ((num + 0) in owned) printf "%s:%d\t%s\n", file, lineno, tok
       }
     }
@@ -278,11 +279,11 @@ for f in "$ROOT"/*.sh; do
         if ($0 == term) { inhd = 0; next }
         body[hd] = body[hd] $0 "\n"
         bline[hd] = bline[hd] FNR "\n"
-        if ($0 ~ /^[[:space:]]*\|[[:space:]]*~*(SC-[0-9][0-9][0-9][0-9]?[a-z]?|@ID[0-9]+@)~*[[:space:]]*\|/) hasrow = 1
+        if ($0 ~ /^[[:space:]]*\|[[:space:]]*~*(SC-[0-9][0-9][0-9]+[a-z]?|@ID[0-9]+@)~*[[:space:]]*\|/) hasrow = 1
         next
       }
       # R1: a fixture row outside any heredoc (a printf-written map, a here-string, a plain file).
-      if ($0 ~ /^[[:space:]]*\|[[:space:]]*~*SC-[0-9][0-9][0-9][0-9]?[a-z]?~*[[:space:]]*\|/) report($0, FNR)
+      if ($0 ~ /^[[:space:]]*\|[[:space:]]*~*SC-[0-9][0-9][0-9]+[a-z]?~*[[:space:]]*\|/) report($0, FNR)
       if (match($0, /<<-?[[:space:]]*[\x27"]?[A-Za-z_][A-Za-z0-9_]*[\x27"]?/)) {
         term = substr($0, RSTART, RLENGTH)
         sub(/^<<-?[[:space:]]*/, "", term); gsub(/[\x27"]/, "", term)

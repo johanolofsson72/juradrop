@@ -81,8 +81,8 @@
 #
 # Exit: always 0. A deny is expressed as permissionDecision JSON on stdout, per the hook contract.
 #
-# Covers: SC-1437 SC-1439 SC-1442 SC-1678 SC-1679 SC-1680 SC-1681
-#         SC-913 SC-914 SC-915 SC-916 SC-917 SC-918 SC-919 SC-925 SC-926 (row S5)
+# Scenario ids: named by scripts/test-bash-write-guard.sh, which is the proof. Not listed here: a
+# CORE file's comment is read as a reference by any gate whose roots include scripts/ (row 012).
 
 set -u
 

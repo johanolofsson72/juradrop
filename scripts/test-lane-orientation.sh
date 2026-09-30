@@ -47,11 +47,13 @@ check "1a other lane shown"  "$OUT" "@sam: 011 — commission (next up)" present
 check "1b own row not shown" "$OUT" "010" absent
 
 # 2. An unowned row whose needs are not all ticked is not offered.
+#    011 is a real open row: a `needs` entry naming no row at all is case 7, not this one.
 fixture '- [x] 007 — contracts — full track — @alex
+- [ ] 011 — ledger — full track — @sam
 - [ ] 012 — reporting — full track — needs 011
 - [ ] 013 — kyc — full track — needs 007'
 OUT=$(run alex)
-check "2a runnable row offered"   "$OUT" "013" present
+check "2a runnable row offered"   "$OUT" "unclaimed and runnable: 013" present
 check "2b blocked row withheld"   "$OUT" "012" absent
 
 # 3. A question blocking an unticked row is reported; one blocking a ticked row is not.
@@ -102,6 +104,62 @@ check "5b single lane is silent" "$OUT" "002" absent
 # 5c. ...but the full report still answers on that same single-lane project.
 OUT=$(CLAUDE_PROJECT_DIR="$ROOT" SPEC_OWNER=alex bash "$STATUS" --root "$ROOT" 2>/dev/null)
 check "5c full report still answers" "$OUT" "002 — search" present
+
+# 7. KNOWN POSITIVE (row 042) — a `needs` entry with no digit is prose, not a dependency.
+#    agentcrm writes `needs inget`; reading it as an id withheld six of nine runnable rows, two
+#    of them carved security rows. An id-shaped entry still resolves: a real open row blocks,
+#    and one that names no row blocks AND is named, so a typo (`needs 04` for 004) can neither
+#    free a row nor hold it silently.
+fixture '- [x] 007 — contracts — full track — @alex
+- [ ] 011 — ledger — full track — @sam
+- [ ] 031 — csrf — full track — needs inget
+- [ ] 032 — rate-limit — full track — needs nothing — carved by H3
+- [ ] 033 — audit — full track — needs none, 007
+- [ ] 034 — export — full track — needs 011, inget
+- [ ] 035 — import — full track — needs 007
+- [ ] 004 — base — full track — @sam
+- [ ] 036 — typo — full track — needs 04
+- [ ] 038 — ghost — full track — needs R9, ingenting
+- [x] 037 — done — full track — needs 09'
+OUT=$(run alex)
+check "7a brief offers exactly these"  "$OUT" "unclaimed and runnable: 031, 032, 033, 035" present
+check "7b typo named in brief"         "$OUT" "needs names no row, held until fixed: 036 → 04; 038 → R9" present
+FULL=$(CLAUDE_PROJECT_DIR="$ROOT" SPEC_OWNER=alex bash "$STATUS" --root "$ROOT" 2>/dev/null)
+check "7c none + ticked offered"       "$FULL" "    033 — audit" present
+check "7d open need still blocks"      "$FULL" "    034 — export" absent
+check "7e typo still blocks"           "$FULL" "    036 — typo" absent
+check "7f unknown id still blocks"     "$FULL" "    038 — ghost" absent
+check "7g typo named in full"          "$FULL" "036 → 04" present
+check "7h prose not reported"          "$FULL" "→ inget" absent
+check "7i prose not reported"          "$FULL" "→ nothing" absent
+check "7j prose not reported"          "$FULL" "→ ingenting" absent
+check "7k ticked row not reported"     "$FULL" "037 →" absent
+check "7l resolved id not reported"    "$FULL" "→ 007" absent
+
+# 7m. Single-lane brief stays silent even with an unresolved id (case 5's contract).
+fixture '- [ ] 001 — a — full track — needs 09'
+OUT=$(run alex)
+check "7m single lane brief silent" "$OUT" "needs names no row" absent
+
+# 8. A capped list says it is capped. After 042 agentcrm's own 2026-09-08 register has nine
+#    runnable rows; the full report shows eight and the brief six, and a list cut short without
+#    saying so is the same withheld row this case exists to catch.
+fixture "$(for i in 01 02 03 04 05 06 07 08 09 10; do printf -- '- [ ] 1%s — r%s — full track\n' "$i" "$i"; done)
+- [ ] 200 — mine — full track — @alex"
+OUT=$(run sam)
+check "8a brief says how many more" "$OUT" "101, 102, 103, 104, 105, 106 (+4 more)" present
+FULL=$(CLAUDE_PROJECT_DIR="$ROOT" SPEC_OWNER=alex bash "$STATUS" --root "$ROOT" 2>/dev/null)
+check "8b full names the rest"      "$FULL" "… and 2 more: 109, 110" present
+fixture "$(for i in 01 02 03 04 05 06 07 08; do printf -- '- [ ] 1%s — r%s — full track\n' "$i" "$i"; done)
+- [ ] 200 — mine — full track — @alex"
+FULL=$(CLAUDE_PROJECT_DIR="$ROOT" SPEC_OWNER=alex bash "$STATUS" --root "$ROOT" 2>/dev/null)
+check "8c exactly eight: no tail"   "$FULL" "more:" absent
+OUT=$(run sam)
+check "8d brief over six by two"    "$OUT" "(+2 more)" present
+fixture "$(for i in 01 02 03 04 05 06; do printf -- '- [ ] 1%s — r%s — full track\n' "$i" "$i"; done)
+- [ ] 200 — mine — full track — @alex"
+OUT=$(run sam)
+check "8e exactly six: no brief tail" "$OUT" "more)" absent
 
 # 6. No register at all → silent, exit 0.
 ROOT=$(mktemp -d); mkdir -p "$ROOT/.git"

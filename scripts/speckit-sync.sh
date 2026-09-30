@@ -45,7 +45,7 @@ PIN=$(grep -v '^[[:space:]]*#' "$HERE/speckit-version" 2>/dev/null | tr -d '[:sp
 PIN_VER=${PIN#v}
 
 version_of_cli() {
-  specify --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([._a-z0-9]*)?' | head -1
+  specify --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([._a-z0-9]*)?' | sed -n 1p
 }
 
 OUTDATED=0

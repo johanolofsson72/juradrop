@@ -118,7 +118,7 @@ PY
   else
     # Good enough for a well-formed one-line entry, and silent on anything else. A project whose
     # package.json defeats this gets the candidates arm, which is the safe direction.
-    sed -n 's/.*"test"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" 2>/dev/null | head -1
+    sed -n 's/.*"test"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1" 2>/dev/null | sed -n 1p
   fi
 }
 
@@ -165,7 +165,7 @@ done
 
 # ----------------------------------------------------------------- --candidates
 if [ "$CANDIDATES" -eq 1 ]; then
-  printf '%s\n' "$TEST_PROJECTS" | grep . | head -5 | while IFS= read -r p; do
+  grep . <<< "$TEST_PROJECTS" | sed -n 1,5p | while IFS= read -r p; do
     printf 'test project: %s\n' "$(rel "$p")"
   done
   [ "$N_NODE" -gt 0 ] && printf 'package.json test script: %s (%s)\n' "$NODE_SCRIPT" "$(rel "$NODE_DIR")"

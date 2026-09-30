@@ -73,3 +73,25 @@ reports/mutation/
 .claude/.template-sync-check
 scripts/__pycache__/
 *.bundle
+
+# >>> claude-code harness (managed by scripts/harness-gitignore.sh) >>>
+# Written by the template sync and replaced on every sync. Add your own ignores
+# outside these markers. Why each path is here: scripts/harness-gitignore.sh.
+.claude/state/
+.claude/validation/
+.claude/.maintenance-state
+.claude/.template-sync-check
+.claude/.bash-write-marker
+.claude/.bash-write-blocked
+.claude/.local-llm-*
+.claude/local-llm-*.log
+.claude/local-llm-*.log.errors
+.claude/graphify-*.log
+.claude/graphify-*.log.errors
+.claude/settings.local.json
+.claude/projects/
+.claude/worktrees/
+.specify/feature.json
+__pycache__/
+CLAUDE.local.md
+# <<< claude-code harness <<<

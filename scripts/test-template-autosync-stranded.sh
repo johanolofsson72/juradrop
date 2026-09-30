@@ -17,6 +17,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 SCRIPT="$PWD/scripts/template-autosync.sh"
 [ -f "$SCRIPT" ] || { echo "FAIL: template-autosync.sh not found"; exit 1; }
+. "$PWD/scripts/drive-sync.sh"                 # the only way to the sync (spec 011)
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -69,9 +70,14 @@ build() {
 # three-file sandbox template, made and PUSHED 54 chore(sync) commits to origin/main, and deleted
 # 505 lines in the working tree including 61 of the 62 lines of continuous-execution.md.
 #
-# The cd stays, because the relative `scripts/template-autosync.sh` below needs it. The export is
-# what makes the sandbox the target rather than a hope about the environment.
-sync() { _p="$1"; _t="$2"; shift 2; ( cd "$_p" && CLAUDE_PROJECT_DIR="$_p" CLAUDE_TEMPLATE_DIR="$_t" bash scripts/template-autosync.sh "$@" 2>&1 ); }
+# drive_sync sets both halves from its two arguments, so neither can be forgotten: it names the
+# target and declares $TMP as the only place the run may write, which the sync itself enforces
+# however its project root came to be resolved (spec 010). The relative path that made the old `cd`
+# load-bearing is gone too — DRIVE_SYNC_SCRIPT names the fixture's own copy absolutely (spec 011,
+# landed from consultpilot H7bo).
+sync() { _p="$1"; _t="$2"; shift 2
+  CLAUDE_TEMPLATE_DIR="$_t" DRIVE_SYNC_SCRIPT="$_p/scripts/template-autosync.sh" \
+    drive_sync "$_p" "$TMP" "$@" 2>&1; }
 
 echo "== AC-01: --no-commit strands, and every later run says so =="
 build ac01

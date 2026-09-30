@@ -2,7 +2,7 @@
 # test-runtime-markers-ignored.sh — every machine-local marker the hooks write is gitignored,
 # every record they mean to commit is not, and a marker nobody classified is a failure.
 #
-# WHY THIS EXISTS (spec 007bq)
+# WHY THIS EXISTS (spec 007bq; D re-pointed by spec 040)
 # ---------------------------
 # Two hand-written lists decide which .claude/ runtime paths get ignored: this repository's own
 # .gitignore, and section "3a. .gitignore additions" in .claude/skills/sync-template/SKILL.md, which
@@ -13,6 +13,11 @@
 # 73. Both were found by a developer noticing a dirty `git status`, months apart.
 #
 # So the lists stop being the only thing standing between a new marker and permanent churn.
+#
+# Spec 040 removed the second list. Section 3a was prose applied by hand during /project-update, so a
+# project that only autosynced learned none of it (hetznerradar: 109 attempt counters committed). The
+# seeding list is now HARNESS_IGNORES in scripts/harness-gitignore.sh, which the sync writes into a
+# managed block in every project's .gitignore, and assertion D reads that script's --list.
 #
 # WHAT IS DECLARED AND WHAT IS DERIVED
 # ------------------------------------
@@ -53,7 +58,12 @@ MACHINE_LOCAL='.claude/.maintenance-state%maintenance due-state: when each recur
 .claude/.local-llm-issue-context%local-LLM scratch context for one invocation
 .claude/.local-llm-gh-run-context%local-LLM scratch context for one invocation
 .claude/state/%repeat-failure guard attempt counters, TTL-pruned
-.claude/validation/%Stop-hook validation timestamp'
+.claude/validation/%Stop-hook validation timestamp
+.claude/settings.local.json%per-machine settings; SPEC_OWNER and CLAUDE_TEMPLATE_AUTOSYNC live here, and two lanes cannot share one identity
+.claude/projects/%per-user Claude memory
+.claude/worktrees/%agent worktrees; a tracked one is a gitlink that shows modified whenever its HEAD moves
+.specify/feature.json%spec-kit active-spec marker, rewritten at every session start by sync-feature-json-hook.sh
+scripts/__pycache__/%python bytecode; the guards import scripts/spec_active.py on every run'
 
 # Tracked by design: MUST NOT be gitignored.
 #
@@ -67,7 +77,7 @@ TRACKED_BY_DESIGN='.claude/.template-sync%the sync manifest — a project commit
 .claude/.template-sync-verify%the verify command this project declares for its sync commits
 .claude/.runtime-markers%project-local bucket additions (below) — a record a project commits'
 
-SKILL_REL=".claude/skills/sync-template/SKILL.md"
+HELPER_REL="scripts/harness-gitignore.sh"
 
 # ------------------------------------------------- project-local additions (.claude/.runtime-markers)
 # The two buckets above are CORE: this file is synced, so a path written into it by a project is
@@ -99,7 +109,7 @@ SKILL_REL=".claude/skills/sync-template/SKILL.md"
 # Read per-root, not once at startup, because the self-test drives run_checks against fixture
 # repositories and a startup read would make every arm see this repository's file.
 #
-# Assertion D deliberately does NOT read these. D asks whether section 3a seeds a path to NEW
+# Assertion D deliberately does NOT read these. D asks whether the managed list seeds a path to NEW
 # projects, and the template cannot seed a marker written by a hook it does not ship. Requiring it
 # would make the sidecar unusable the moment it is used.
 
@@ -136,9 +146,21 @@ pass() { CHECKS=$((CHECKS + 1)); }
 col1() { printf '%s\n' "$1" | cut -d'%' -f1; }
 reason_for() { printf '%s\n' "$1" | awk -F'%' -v p="$2" '$1==p{print $2; exit}'; }
 
-# Does one section-3a pattern cover this path? Trailing slash is a directory prefix; everything
-# else is a shell glob, which is what git means by these patterns too.
+# Does one managed pattern cover this path? Trailing slash is a directory prefix; everything else is
+# a shell glob, which is what git means by these patterns too. A pattern with no slash but a trailing
+# one (`__pycache__/`) is unanchored in git and matches that directory at any depth, so it is tested
+# against every segment; a slash-free file pattern (`CLAUDE.local.md`) likewise matches a basename.
 covered_by() { # $1=path $2=pattern
+  local bare="${2%/}"
+  case "$bare" in
+    */*) ;;
+    *)
+      case "$2" in
+        */) case "/$1" in */"$bare"/*) return 0 ;; esac ;;
+        *)  case "${1##*/}" in $2) return 0 ;; esac ;;
+      esac
+      return 1 ;;
+  esac
   case "$2" in
     */) case "$1" in "$2"*) return 0 ;; esac; [ "$1" = "$2" ] && return 0 ;;
     *)  case "$1" in $2) return 0 ;; esac ;;
@@ -146,16 +168,16 @@ covered_by() { # $1=path $2=pattern
   return 1
 }
 
-# The patterns section 3a tells a project to add, read out of the backticked bullets.
-skill_patterns() { # $1=path to SKILL.md
+# The patterns the sync writes into every project's .gitignore, asked of the one script that holds
+# them rather than read out of prose (spec 040).
+helper_patterns() { # $1=path to harness-gitignore.sh
   [ -f "$1" ] || return 0
-  awk '/^### 3a\./{s=1; next} s && /^### /{exit} s' "$1" \
-    | grep -oE '`\.claude/[^`]+`' | tr -d '`' | sort -u
+  bash "$1" --list 2>/dev/null | sort -u
 }
 
 # ------------------------------------------------------------------- the five assertions
-run_checks() { # $1=repo root  $2=SKILL.md path (may be absent)
-  local root="$1" skill="$2" p reason pat found line
+run_checks() { # $1=repo root  $2=harness-gitignore.sh path (may be absent)
+  local root="$1" helper="$2" p reason pat found line
   local ML TBD bad
 
   # --- E: the project-local file, if any, parses.  Read BEFORE A/B/C, because a line this rejects
@@ -215,8 +237,11 @@ EOF
   # --exclude this file: its header states the grep's limit using `.claude/.name`, and its
   # self-test fixture writes `.claude/.some-new-marker` on purpose. A gate that flagged its own
   # worked examples would have to be silenced, and a silenced gate is not one.
+  # --exclude the managed list too (spec 040): it holds PATTERNS, not writes, and its
+  # `.claude/.local-llm-*` would otherwise be read as a marker called `.claude/.local-llm-`.
   found=$(grep -rhoE '\.claude/\.[A-Za-z0-9_-]+' \
-            --exclude="$(basename "$0")" "$root"/scripts/*.sh 2>/dev/null | sort -u)
+            --exclude="$(basename "$0")" --exclude="$(basename "$HELPER_REL")" \
+            "$root"/scripts/*.sh 2>/dev/null | sort -u)
   while IFS= read -r p; do
     [ -n "$p" ] || continue
     if grep -qxF "$p" <<< "$(col1 "$ML"; col1 "$TBD")"; then
@@ -237,9 +262,9 @@ EOF
 $found
 EOF
 
-  # --- D: section 3a seeds every machine-local path, so a NEW project inherits all of them.
-  if [ -f "$skill" ]; then
-    pat=$(skill_patterns "$skill")
+  # --- D: the managed block covers every machine-local path, so every project inherits all of them.
+  if [ -f "$helper" ]; then
+    pat=$(helper_patterns "$helper")
     while IFS= read -r p; do
       [ -n "$p" ] || continue
       found=no
@@ -254,14 +279,14 @@ EOF2
       else
         fail "[D] not seeded to new projects: $p"
         printf '        %s\n' "$(reason_for "$MACHINE_LOCAL" "$p")"
-        printf '        add a bullet under "### 3a. .gitignore additions" in %s —\n' "$SKILL_REL"
-        printf '        ignoring it here does nothing for the next project set up from the template.\n'
+        printf '        add it to HARNESS_IGNORES in %s — ignoring it in one repository\n' "$HELPER_REL"
+        printf '        does nothing for the others; the managed block is what reaches them.\n'
       fi
     done <<EOF3
 $(col1 "$MACHINE_LOCAL")
 EOF3
   else
-    printf 'skip  [D] %s not present in this repository\n' "$SKILL_REL"
+    printf 'skip  [D] %s not present in this repository\n' "$HELPER_REL"
   fi
 }
 
@@ -280,7 +305,7 @@ self_test() {
 
   arm() { # $1=name  $2=fixture dir  $3=expected substring
     local o
-    o=$(FAILURES=0; CHECKS=0; run_checks "$2" "$2/$SKILL_REL" 2>&1)
+    o=$(FAILURES=0; CHECKS=0; run_checks "$2" "$2/$HELPER_REL" 2>&1)
     if grep -q '^FAIL ' <<< "$o" && grep -qF "$3" <<< "$o"; then
       st_pass=$((st_pass + 1)); printf 'ok    %s\n' "$1"
     else
@@ -292,17 +317,15 @@ self_test() {
   # A fixture repository carrying the full correct set, which each arm then breaks one way.
   mk() { # $1=name -> echoes path
     local d="$ST_TMP/$1"
-    mkdir -p "$d/scripts" "$d/.claude" "$d/$(dirname "$SKILL_REL")"
+    mkdir -p "$d/scripts" "$d/.claude"
     git -C "$d" init -q 2>/dev/null || git init -q "$d"
-    printf '.claude/.bash-write-marker\n.claude/.bash-write-blocked\n.claude/.template-sync-check\n.claude/.local-llm-*\n.claude/state/\n.claude/validation/\n' > "$d/.gitignore"
-    { echo '### 3a. .gitignore additions'
-      echo '- `.claude/.bash-write-marker` (t)'
-      echo '- `.claude/.bash-write-blocked` (t)'
-      echo '- `.claude/.template-sync-check` (t)'
-      echo '- `.claude/.local-llm-*` (t)'
-      echo '- `.claude/state/` (t)'
-      echo '- `.claude/validation/` (t)'
-      echo '### 3b. next'; } > "$d/$SKILL_REL"
+    # A stub helper with the full machine-local set, and a .gitignore that ignores all of it.
+    printf '%s\n' '.claude/.bash-write-marker' '.claude/.bash-write-blocked' '.claude/.template-sync-check' \
+      '.claude/.maintenance-state' '.claude/.local-llm-*' '.claude/state/' '.claude/validation/' \
+      '.claude/settings.local.json' '.claude/projects/' '.claude/worktrees/' '.specify/feature.json' \
+      '__pycache__/' > "$d/.list"
+    cp "$d/.list" "$d/.gitignore"
+    printf '#!/usr/bin/env bash\n[ "$1" = --list ] && cat "$(dirname "$0")/../.list"\n' > "$d/$HELPER_REL"
     printf '#!/usr/bin/env bash\n: > "$ROOT/.claude/.bash-write-marker"\n' > "$d/scripts/h.sh"
     printf '%s\n' "$d"
   }
@@ -319,9 +342,10 @@ self_test() {
   d=$(mk c); printf '#!/usr/bin/env bash\n: > "$ROOT/.claude/.some-new-marker"\n' > "$d/scripts/new.sh"
   arm "C: an unclassified new marker is caught" "$d" "[C] a marker no bucket claims: .claude/.some-new-marker"
 
-  # D — the seeding list drops an entry, so new projects inherit an incomplete set.
-  d=$(mk d); grep -v 'bash-write-blocked' "$d/$SKILL_REL" > "$d/.s" && mv "$d/.s" "$d/$SKILL_REL"
-  arm "D: a dropped section-3a entry is caught" "$d" "[D] not seeded to new projects: .claude/.bash-write-blocked"
+  # D — the managed list drops an entry, so no project's block carries it.
+  d=$(mk d); grep -v 'bash-write-blocked' "$d/.list" > "$d/.s" && mv "$d/.s" "$d/.list"
+  arm "D: a dropped managed entry is caught" "$d" "[D] not seeded to new projects: .claude/.bash-write-blocked"
+
 
   # --- the project-local sidecar.  The four arms below are one claim each, and the LOAD-BEARING one
   # is `sidecar silences [C]` — without it the file could be parsed and thrown away and every other
@@ -330,7 +354,7 @@ self_test() {
   local nd
   narm() { # $1=name  $2=fixture dir  $3=substring that must NOT appear
     local o
-    o=$(FAILURES=0; CHECKS=0; run_checks "$2" "$2/$SKILL_REL" 2>&1)
+    o=$(FAILURES=0; CHECKS=0; run_checks "$2" "$2/$HELPER_REL" 2>&1)
     if grep -qF "$3" <<< "$o"; then
       st_fail=$((st_fail + 1)); printf 'NOT OK %s — this must not have been reported: %s\n' "$1" "$3"
       printf '%s\n' "$o" | sed 's/^/         | /'
@@ -373,13 +397,21 @@ self_test() {
   d=$(mk_sidecar e5 '.claude/.proj-marker%no section above me')
   arm "E5: a sidecar line outside any section is refused" "$d" "[E] .claude/.runtime-markers is malformed: line outside any section"
 
-  # E6 — assertion D must NOT demand a sidecar path in section 3a: the template cannot seed a
+  # E6 — assertion D must NOT demand a sidecar path in the managed list: the template cannot seed a
   # marker written by a hook it does not ship, so requiring it would make the sidecar unusable
   # on the first use.  This is the arm that pins the one place the merged list is deliberately
   # not used.
   nd=$(mk_sidecar e6 '[machine-local]
 .claude/.proj-marker%written by this project only')
-  narm "E6: section 3a is not required to seed a project-local marker" "$nd" "[D] not seeded to new projects: .claude/.proj-marker"
+  narm "E6: the managed list is not required to seed a project-local marker" "$nd" "[D] not seeded to new projects: .claude/.proj-marker"
+
+  # D2 — an unanchored pattern covers the directory at depth, and only as a directory.  Without the
+  # segment test, `__pycache__/` would not cover `scripts/__pycache__/` and D would fail on a list
+  # that is right.
+  nd=$(mk d2)
+  narm "D2: __pycache__/ covers scripts/__pycache__/" "$nd" "[D] not seeded to new projects: scripts/__pycache__/"
+  d=$(mk d3); grep -vx '__pycache__/' "$d/.list" > "$d/.s" && mv "$d/.s" "$d/.list"
+  arm "D3: dropping __pycache__/ is caught" "$d" "[D] not seeded to new projects: scripts/__pycache__/"
 
   printf '\nself-test: %d passed, %d failed\n' "$st_pass" "$st_fail"
   [ "$st_fail" -eq 0 ] || return 1
@@ -399,7 +431,7 @@ if [ -z "$ROOT" ]; then
   exit 0
 fi
 
-run_checks "$ROOT" "$ROOT/$SKILL_REL"
+run_checks "$ROOT" "$ROOT/$HELPER_REL"
 
 if [ "$FAILURES" -eq 0 ]; then
   N_LOCAL=$(local_markers "$ROOT" machine-local | grep -vc '^!' || true)

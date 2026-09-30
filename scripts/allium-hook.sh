@@ -30,7 +30,7 @@ SID=$(hn_session_id "$INPUT")
 # Match only canonical speckit layouts:
 #   .specify/**/*.md
 #   specs/<feature>/spec.md   (also plan.md, tasks.md)
-if ! echo "$FILE" | grep -qE '(\.specify/.+\.md$|specs/[^/]+/(spec|plan|tasks)\.md$)'; then
+if ! grep -qE '(\.specify/.+\.md$|specs/[^/]+/(spec|plan|tasks)\.md$)' <<< "$FILE"; then
   exit 0
 fi
 

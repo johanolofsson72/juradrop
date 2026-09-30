@@ -18,6 +18,16 @@
 #   bash scripts/project-maintenance.sh            # report-only sweep (fast)
 #   bash scripts/project-maintenance.sh --full     # also run the mutation pass (slow)
 #   bash scripts/project-maintenance.sh --quiet    # findings only, no clean-run line
+#   bash scripts/project-maintenance.sh --suite    # also run the whole test suite, stamp it on green
+#
+# The suite command is the first non-comment line of .claude/.suite-command when the project
+# declares one; otherwise a root `npm test` script, otherwise `dotnet test` (row 051). A detected
+# `dotnet test` or bare `dotnet stryker` beside more than one .NET solution is refused, not run
+# against whichever sits at the root (row 052).
+#
+# Every pass also runs each scripts/check-*.sh ratchet from the root (row 052); a non-zero exit is a
+# finding. A ratchet opts out with `# maintenance: skip <reason>` in its first 30 lines.
+# MAINTENANCE_RATCHET_TIMEOUT=N  seconds per ratchet (default 300; needs timeout or gtimeout).
 #
 # MAINTENANCE_WORKTREE_GRACE_HOURS=N  how long an agent worktree may sit untouched
 #   before it is reported as abandoned (default 24). Agent worktrees are not locked,
@@ -89,9 +99,34 @@ NOTES=""
 note() { NOTES="${NOTES}$1
 "; }
 
+# Every job that costs real time goes through the ledger (row 074), so the local-vs-cloud placement
+# in row 075 is decided from measured duration and peak memory rather than a guess. The wrapper is
+# transparent: same output, same exit code. Without python3 the job still runs, unmeasured, and the
+# pass says so once -- an unmeasured run must not read like a cheap one.
+PASS_START=$(date +%s)
+LEDGER_OK=0
+command -v python3 >/dev/null 2>&1 && [ -f scripts/maintenance_ledger.py ] && LEDGER_OK=1
+[ "$LEDGER_OK" -eq 1 ] || note "[note] maintenance ledger: python3 or scripts/maintenance_ledger.py missing — this pass ran unmeasured."
+measured() { # measured JOB CMD [ARGS...]
+  local job=$1; shift
+  if [ "$LEDGER_OK" -eq 1 ]; then python3 scripts/maintenance_ledger.py run "$job" -- "$@"; else "$@"; fi
+}
+
+# Every .NET solution a bare `dotnet test` / `dotnet stryker` could be meant for (row 052). Two or
+# more with nothing declared means the root one gets built blind: ighweld-2026's root IGHWeld.Web.sln
+# pointed at deleted projects, and both steps failed MSB3202 on 2026-09-18 while the real
+# src/welding/Welding.sln was 7478/0 green. Same depth as the detection that picks `dotnet`.
+dotnet_solutions() {
+  find . -maxdepth 3 \( -name node_modules -o -name .git \) -prune -o \
+    -type f \( -name '*.sln' -o -name '*.slnx' \) -print 2>/dev/null | sed 's|^\./||' | sort
+}
+solution_list() { # solution_list "<newline list>" — indented, for a finding
+  printf '%s\n' "$1" | sed 's/^/    /'
+}
+
 # ---------------------------------------------------------------- 1. secrets + CVEs
 if [ -f scripts/project-freshness.sh ]; then
-  FRESH_OUT=$(bash scripts/project-freshness.sh 2>&1)
+  FRESH_OUT=$(measured secrets bash scripts/project-freshness.sh 2>&1)
   FRESH_RC=$?
   if [ "$FRESH_RC" -ne 0 ]; then
     add "[SECRETS/DEPS] scripts/project-freshness.sh reported findings:
@@ -110,6 +145,33 @@ fi
 # would fire forever on a map that is behaving exactly as designed, and an un-actionable
 # warning is the thing this section exists to remove rather than reproduce. The glob simply
 # matches nothing on the 41 projects that never split, so their output is unchanged.
+#
+# Row 008: a scenario-map file over the canary is also RECORDED in the project's own
+# specs/FINDINGS.md, because a warning is not a record. Measured 2026-09-29, 17 map files across
+# 17 projects sat over 25 KB. The template row tracking them named 4, and the line printed here
+# scrolled away every time. Recording hands the decision to the 5-spec findings review, in the
+# project that owns the map. Only an OPEN finding for the same path suppresses a new one: a map
+# still oversize after a "live with it" decision is back in front of the next review, and that
+# review comes only every 5 specs.
+MAP_SPLIT=0
+for f in specs/scenarios/*.md; do [ -f "$f" ] && { MAP_SPLIT=1; break; }; done
+MAP_KEY_PREFIX="scenario-map canary: "
+record_map_canary() { # record_map_canary PATH KB ROLE HINT
+  local key="${MAP_KEY_PREFIX}$1 " out rc
+  if [ ! -f scripts/finding.sh ]; then
+    add "[SETUP] scripts/finding.sh missing — the scenario-map canary for $1 could not be recorded in specs/FINDINGS.md. Run /project-update to restore it."
+    return
+  fi
+  if [ -f specs/FINDINGS.md ] && grep -Fq -e "$key" <<< "$(grep -E '^- \[ \] F[0-9]+ ' specs/FINDINGS.md)"; then
+    return
+  fi
+  out=$(bash scripts/finding.sh --add "${key}is $2 KB ($3, canary 25 KB) — $4" --kind debt 2>&1); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    add "[CONTEXT-COST] the scenario-map canary for $1 could not be recorded (finding.sh exit $rc): $out"
+  else
+    note "[CONTEXT-COST] recorded in specs/FINDINGS.md: $(printf '%s' "$out" | head -1)"
+  fi
+}
 for f in specs/INDEX.md specs/SCENARIOS.md specs/scenarios/*.md; do
   [ -f "$f" ] || continue
   BYTES=$(wc -c < "$f" 2>/dev/null | tr -d ' ')
@@ -118,11 +180,38 @@ for f in specs/INDEX.md specs/SCENARIOS.md specs/scenarios/*.md; do
     # Which script to name depends on where the bytes are. Spec 007ce measured
     # specs/INDEX.md at 91.4% spec rows against 4.8% history, so naming the history
     # archiver on the register sent people at 1,918 bytes while 36,521 sat untouched.
+    # A scenario map is the same trap one level down: the history archiver trims a few hundred
+    # bytes of a 121 KB map and the warning comes back unchanged (row 008).
+    ROLE=""
     case "$f" in
-      */INDEX.md) HINT="scripts/archive-completed-rows.sh (rows), scripts/archive-spec-history.sh --keep 5 (history)" ;;
-      *)          HINT="scripts/archive-spec-history.sh --keep 5" ;;
+      */INDEX.md)
+        HINT="scripts/archive-completed-rows.sh (rows), scripts/archive-spec-history.sh --keep 5 (history)"
+        # Row 017: measure the parts; the hint is the moves that exist. With none, the register
+        # complies with every budget and no script shrinks it, so a red verdict could never be
+        # cleared: it is a note. A failing or missing helper keeps the old hint and the finding.
+        if RB=$(bash scripts/register-bytes.sh "$f" 2>/dev/null) && [ -n "$RB" ]; then
+          RB_PARTS=$(printf '%s\n' "$RB" | sed -nE 's/^(rows|prose|history)=([0-9]*) share=([0-9]*).*/\1 \3%/p' | paste -sd, - | sed 's/,/, /g')
+          RB_MOVES=$(printf '%s\n' "$RB" | sed -n 's/^move=\([a-z]*\) \(.*\)/\1: \2/p' | paste -sd'|' - | sed 's/|/ · /g')
+          if [ -z "$RB_MOVES" ]; then
+            note "[note] context cost: $f is $((BYTES / 1024)) KB ($RB_PARTS) — every part complies; nothing archives it further. Read it targeted."
+            continue
+          fi
+          HINT="$RB_PARTS. $RB_MOVES"
+        fi ;;
+      specs/scenarios/*)
+        ROLE="feature file"
+        HINT="split this feature into sub-feature files, or archive its history (scripts/archive-spec-history.sh --keep 5)" ;;
+      *)
+        if [ "$MAP_SPLIT" -eq 1 ]; then
+          ROLE="split index"
+          HINT="the index keeps one row per feature — archive its Scenario history (scripts/archive-spec-history.sh --keep 5) and move any feature prose into its file"
+        else
+          ROLE="single-file map"
+          HINT="split it per .claude/rules/scenarios.md 'When to split'; prove the move with scripts/scenario-map-rows.sh + scripts/test-scenario-map-split.sh"
+        fi ;;
     esac
     add "[CONTEXT-COST] $f is $((BYTES / 1024)) KB — read on every spec. Trim: $HINT"
+    [ -n "$ROLE" ] && record_map_canary "$f" "$((BYTES / 1024))" "$ROLE" "$HINT"
   fi
 done
 
@@ -139,7 +228,7 @@ done
 # have is a typo or a row deleted out from under a test, and it is zero on a healthy repo, so the
 # signal stays quiet until something actually breaks.
 if [ -f scripts/validate-scenario-traceability.sh ] && [ -f specs/SCENARIOS.md ]; then
-  TRACE_OUT=$(bash scripts/validate-scenario-traceability.sh --quiet 2>&1)
+  TRACE_OUT=$(measured traceability bash scripts/validate-scenario-traceability.sh --quiet 2>&1)
   TRACE_RC=$?
   case "$TRACE_RC" in
     # 6 is a VERDICT, not a failure to run: it is exit 1 with the duplicate-id half
@@ -250,14 +339,21 @@ fi
 if [ -f specs/INDEX.md ]; then
   BLOCKED=$(grep -cE '^- \[!\]' specs/INDEX.md 2>/dev/null | tr -dc '0-9'); BLOCKED=${BLOCKED:-0}
   INPROG=$(grep -cE '^- \[/\]' specs/INDEX.md 2>/dev/null | tr -dc '0-9'); INPROG=${INPROG:-0}
-  DONE=$(grep -cE '^- \[x\]' specs/INDEX.md 2>/dev/null | tr -dc '0-9'); DONE=${DONE:-0}
   [ "${BLOCKED:-0}" -gt 0 ] && add "[REGISTER] $BLOCKED row(s) marked blocked \`- [!]\` — a register-rewrite decision is pending."
   [ "${INPROG:-0}" -gt 1 ] && add "[REGISTER] $INPROG rows marked in-progress \`- [/]\` — only one spec runs at a time."
-  # Integration-hardening checkpoint cadence (.claude/rules/spec-hardening.md).
-  if [ "${DONE:-0}" -gt 0 ] && [ $((DONE % 5)) -eq 0 ]; then
-    if ! grep -qiE '^- \[[ /]\].*checkpoint' specs/INDEX.md 2>/dev/null; then
-      add "[HARDENING] $DONE specs done (multiple of 5) but no pending checkpoint row — insert an integration-hardening checkpoint before the next feature spec."
-    fi
+  # Integration-hardening checkpoint cadence (.claude/rules/spec-hardening.md), from the same engine
+  # the SessionStart banner reads (spec 068 — this was `DONE % 5` over every ticked row).
+  if [ -f scripts/checkpoint-cadence.sh ]; then
+    CADENCE=$(bash scripts/checkpoint-cadence.sh 2>/dev/null)
+    case "$CADENCE" in
+      *due=1)
+        if ! grep -qiE '^- \[[ /]\].*checkpoint' specs/INDEX.md 2>/dev/null; then
+          CP_COUNT=$(printf '%s' "$CADENCE" | sed -n 's/.*count=\([0-9]*\).*/\1/p')
+          CP_SINCE=$(printf '%s' "$CADENCE" | sed -n 's/^since=\([^ ]*\).*/\1/p')
+          add "[HARDENING] $CP_COUNT feature specs since ${CP_SINCE/#none/the start of the register} but no pending checkpoint row — insert an integration-hardening checkpoint before the next feature spec."
+        fi
+        ;;
+    esac
   fi
 fi
 
@@ -272,6 +368,13 @@ if [ -f specs/INDEX.md ] && [ -x scripts/register-convergence.sh ]; then
     2) add "[CONVERGENCE] $CONV_OUT" ;;
     1) note "[note] $CONV_OUT" ;;
     3|4) : ;;  # too little history, or no register -- not a finding
+  esac
+  # The freeze (row 077): a row added without an approved proposal is a finding; a freeze that can
+  # lift is a note; a freeze line nobody can parse is a finding, because it would otherwise read as off.
+  FRZ_OUT=$(bash scripts/register-convergence.sh --freeze 2>&1); FRZ_RC=$?
+  case "$FRZ_RC" in
+    2|4|5) add "[FREEZE] $FRZ_OUT" ;;
+    3) note "[note] $FRZ_OUT" ;;
   esac
 fi
 
@@ -307,7 +410,7 @@ fi
 # not a finding -- a maintenance pass that fails because a service is off gets
 # switched off.
 if [ "$FULL" -eq 1 ] && [ -f specs/INDEX.md ] && [ -x scripts/register-similarity.sh ]; then
-  SIM_OUT=$(bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
+  SIM_OUT=$(measured similarity bash scripts/register-similarity.sh --open-only 2>/dev/null); SIM_RC=$?
   case "$SIM_RC" in
     1) add "[DUPLICATE ROWS] $(printf '%s' "$SIM_OUT" | head -20)" ;;
     2) note "[note] duplicate-row check skipped — no local embedding model reachable. It is the
@@ -367,6 +470,26 @@ except Exception: print("")' 2>/dev/null)
       *) add "[SPECKIT] spec-kit $SK_VER is well behind the 1.x line — versions before 0.10 use unhyphenated phase names (/specify, not /speckit-specify), which every rule in .claude/rules/ assumes. Run /project-update." ;;
     esac
   fi
+fi
+
+# ------------------------------------------- 3h. BLOCKING skills the template does not ship
+# CLAUDE.md calls frontend-design and humanizer BLOCKING, and neither arrives with a sync: one is a
+# plugin, the other a git clone under ~/.claude/skills. Without them the gate is prose nobody can
+# follow, and nothing said so (spec 006). Unlike §3b this is about the MACHINE, so it runs in the
+# template too, whose own CLAUDE.md names both gates. Guarded on the checker existing, like 2c.
+if [ -f scripts/skill-reachable.sh ]; then
+  SR_OUT=$(bash scripts/skill-reachable.sh --required 2>&1)
+  SR_RC=$?
+  case "$SR_RC" in
+    0) ;;
+    1) while IFS= read -r line; do
+         case "$line" in missing:*) add "[SKILLS] BLOCKING skill not reachable on this machine — ${line#missing: }" ;; esac
+       done <<EOF
+$SR_OUT
+EOF
+       ;;
+    *) note "[SKILLS] could not tell whether the BLOCKING skills are installed (scripts/skill-reachable.sh exit $SR_RC): $(printf '%s' "$SR_OUT" | head -3 | tr '\n' ' ')" ;;
+  esac
 fi
 
 # ------------------------------------------------------------ 4. stale attempt state
@@ -515,6 +638,13 @@ if [ -x scripts/run-mutation-gate.sh ]; then
   # never written down, and the runner own smoke test could not see that because it only read the
   # script own output. This comment is that contract, and the unclassifiable branch below quotes
   # it so the next reader does not have to find their way here.
+  #
+  # The contract has a second half since row 043: the run must leave Stryker's JSON report
+  # (`mutation-report.json`, or StrykerJS `mutation.json`) somewhere under the project root. The
+  # headline is one number and `.claude/rules/spec-hardening.md` gates on the changed MODULE; the
+  # per-module scores exist only in that report. Keep `"json"` in the config's `reporters`, and never
+  # pass a CLI `--reporter` without also passing `--reporter json`: a CLI reporter REPLACES the
+  # config's list, it does not add to it.
   MUTATION_CMD="bash scripts/run-mutation-gate.sh"
 elif [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
   MUTATION_CMD="dotnet stryker"
@@ -564,6 +694,95 @@ if isinstance(b, (int, float)):
 PY
 }
 
+# THE HEADLINE IS NOT THE GATE (row 043). fundit spec 006 read 88.21% and PASS while PushEndpointPolicy,
+# the SSRF decision, killed 65.79%. The rule gates on the changed critical module, and a module's score is
+# only in the JSON report, so this reads every report THIS run wrote (newer than a marker touched just
+# before it; yesterday's report is not today's evidence) and lists each file under the limit.
+#
+# Reports from one run are merged PER MUTANT, not per file: fundit runs a unit pass and a property pass,
+# rocky one pass per module, and a mutant any pass killed is a mutant the suite kills. Best-of-files would
+# call a file clean when two passes each killed a different half of it, and worst-of would fail a file
+# the suite covers. The per-file score is Stryker's own, (Killed + Timeout) / valid, and says so.
+#
+# Output: "none" when no report was written by the run, "unreadable <path>" per report that is not JSON,
+# and one "<score>%\t<file>\t<detected>/<valid>" line per file under the limit, lowest first.
+mutation_modules_under() { # mutation_modules_under <marker> <limit>
+  command -v python3 >/dev/null 2>&1 || { echo "nopython"; return 0; }
+  find . -type d \( -name node_modules -o -name .git -o -name bin -o -name obj \) -prune -o \
+    -type f \( -name mutation-report.json -o -name mutation.json \) -newer "$1" -print 2>/dev/null |
+    LIMIT="$2" python3 -c '
+import json, os, sys
+paths = [p for p in sys.stdin.read().splitlines() if p]
+if not paths:
+    print("none"); raise SystemExit
+DETECTED, VALID = {"Killed", "Timeout"}, {"Killed", "Timeout", "Survived", "NoCoverage"}
+seen = {}  # (file, mutant key) -> detected by any report
+for p in sorted(paths):
+    try:
+        files = json.load(open(p)).get("files") or {}
+    except Exception:
+        print("unreadable " + p); continue
+    for f, body in files.items():
+        name = os.path.relpath(f) if os.path.isabs(f) else f
+        for m in body.get("mutants") or []:
+            if m.get("status") not in VALID:
+                continue
+            loc = m.get("location") or {}
+            key = (name, m.get("mutatorName"), m.get("replacement"), json.dumps(loc, sort_keys=True))
+            seen[key] = seen.get(key, False) or m.get("status") in DETECTED
+per = {}
+for (name, *_), det in seen.items():
+    d, v = per.get(name, (0, 0)); per[name] = (d + det, v + 1)
+limit = float(os.environ["LIMIT"])
+rows = sorted((100.0 * d / v, name, d, v) for name, (d, v) in per.items() if v and 100.0 * d / v < limit)
+for score, name, d, v in rows:
+    print("%.2f%%\t%s\t%d/%d" % (score, name, d, v))
+'
+}
+
+# WHAT GOT MUTATED IS DECIDED BEFORE THE SCORE, AND NOTHING READ IT (row 047). ighweld-2026: a mutate
+# pattern `'**/X.cs{845-1080}'` matched no file and the run still scored (F184); `{98..120}` is a
+# CHARACTER span that was read as lines (F197); a well-formed span did not shrink the run (F185). Stryker
+# reports none of it, so every pass -- not only --full -- checks the patterns in every committed config and
+# the literal -m arguments of the project runner. The rules live in scripts/stryker_guard.py, which the
+# PreToolUse guard asks too. Unchecked is said, never passed (mutation-timeouts.md trap 4).
+# One owner for the rules: with python3 the helper finds the configs and the runner itself. Bash only
+# decides, when it cannot ask, whether there was anything to leave unchecked.
+HAVE_STRYKER_GUARD=0
+command -v python3 >/dev/null 2>&1 && [ -f scripts/stryker_guard.py ] && HAVE_STRYKER_GUARD=1
+if [ "$HAVE_STRYKER_GUARD" -eq 1 ] && MUT_PAT_OUT=$(python3 scripts/stryker_guard.py configs . 2>/dev/null); then
+  # `skipped` (a runtime-assembled `-m "$P"`) is said as a note: unchecked, and not a defect either.
+  MUT_PAT_BAD=$(printf '%s\n' "$MUT_PAT_OUT" | grep -v '^skipped' | grep .)
+  MUT_PAT_SKIP=$(printf '%s\n' "$MUT_PAT_OUT" | grep '^skipped')
+  if [ -n "$MUT_PAT_BAD" ]; then
+    add "[MUTATION] $(printf '%s\n' "$MUT_PAT_BAD" | grep -c .) mutate pattern(s) select nothing, or not what they say — and the score still prints:
+$(printf '%s\n' "$MUT_PAT_BAD" | awk -F'\t' '$3 == "-" { printf "  %s %s\n", $2, $4; next } { printf "  %s: \047%s\047 %s\n", $2, $3, $4 }')"
+  fi
+  [ -n "$MUT_PAT_SKIP" ] && note "[note] mutate patterns: $(printf '%s' "$MUT_PAT_SKIP" | awk -F'\t' '{ printf "%s %s", $2, $4 }')"
+elif [ -f scripts/run-mutation-gate.sh ] ||
+     [ -n "$(find . -type d \( -name node_modules -o -name StrykerOutput -o -name bin -o -name obj -o -name .git -o -name .stryker-tmp \) -prune -o \
+               -type f -iname 'stryker-config*.json' -print -quit 2>/dev/null)" ]; then
+  add "[MUTATION] mutate patterns UNCHECKED — python3 or scripts/stryker_guard.py is missing or failed, so a pattern
+  that matches no file, or a span read as lines, would score as if it measured something (row 047)."
+fi
+
+# STRYKER RUNS ALONE (row 047, ighweld F069). A dotnet build or test in the same project overwrites the
+# mutated assembly, and the run scores about 0% with no warning. --full looks once, before it starts; a
+# build started in another terminal after that is outside what this can see.
+# A process table it could not read is a note, not a refusal and not a silence: the run goes ahead and
+# the report says the run-alone check was blind (Git Bash's ps cannot list dotnet.exe at all).
+MUT_LIVE=""
+if [ -n "$MUTATION_CMD" ] && [ "$FULL" -eq 1 ]; then
+  if [ "$HAVE_STRYKER_GUARD" -eq 1 ]; then
+    MUT_LIVE_OUT=$(python3 scripts/stryker_guard.py live . 2>/dev/null)
+    MUT_LIVE=$(printf '%s\n' "$MUT_LIVE_OUT" | grep -E '^[0-9]')
+    MUT_BLIND=$(printf '%s\n' "$MUT_LIVE_OUT" | awk -F'\t' '$1 == "unknown" { print $3 }' | paste -sd ';' -)
+    [ -n "$MUT_BLIND" ] && note "[note] Stryker run-alone check was partly blind: $MUT_BLIND."
+  else
+    note "[note] Stryker run-alone check UNCHECKED — python3 or scripts/stryker_guard.py is missing."
+  fi
+fi
+
 # Did this invocation actually MEASURE the gate? Not "did it try" — the due-state stamp below is a
 # claim that the obligation was discharged, and a crash or an unreadable run discharges nothing.
 # Set only on the two branches where a score came back (gate passed, or gate failed on the number —
@@ -571,7 +790,31 @@ PY
 MUT_MEASURED=0
 
 if [ -n "$MUTATION_CMD" ]; then
-  if [ "$FULL" -eq 1 ]; then
+  MUT_SLNS=""
+  [ "$MUTATION_CMD" = "dotnet stryker" ] && MUT_SLNS=$(dotnet_solutions)
+  if [ "$FULL" -eq 1 ] && [ "$(printf '%s' "$MUT_SLNS" | grep -c .)" -gt 1 ]; then
+    # Row 052. Not stamped: nothing was measured, and the job stays due until the project says which.
+    add "[MUTATION] NOT RUN — $(printf '%s\n' "$MUT_SLNS" | grep -c .) .NET solutions and no project-owned runner, so a bare \`dotnet stryker\` would
+  mutate whichever one sits at the root, blind:
+$(solution_list "$MUT_SLNS")
+  Declare the run as scripts/run-mutation-gate.sh (project-owned; it must print \`mutation score N%\`)."
+  elif [ "$FULL" -eq 1 ] && [ -n "$MUT_LIVE" ]; then
+    add "[MUTATION] NOT RUN — Stryker must run alone, and this project already has one running:
+$(printf '%s\n' "$MUT_LIVE" | awk -F'\t' '{ printf "  pid %s (%s): %s\n", $1, $2, $3 }')
+  A build beside Stryker overwrites the mutated assembly and the run scores about 0% with no warning
+  (ighweld F069). Not stamped: the job stays due. Re-run --full once it has finished."
+  elif [ "$FULL" -eq 1 ] && [ "$HAVE_STRYKER_GUARD" -eq 1 ] &&
+       MUT_SWEEP=$(python3 scripts/stryker_guard.py sweep . 2>/dev/null) &&
+       grep -q '^backup' <<< "$MUT_SWEEP"; then
+    # Row 053. The sweep below removes abandoned StrykerJS sandboxes before the run, but an in-place
+    # backup can be the only copy of the original sources; a new run would back up the mutated ones.
+    add "[MUTATION] NOT RUN — an interrupted in-place Stryker run left a backup in the tree:
+$(printf '%s\n' "$MUT_SWEEP" | awk -F'\t' '$1 == "backup" { printf "  %s\n", $3 }')
+  Not stamped: the job stays due."
+  elif [ "$FULL" -eq 1 ]; then
+    # Row 053: what the sweep just removed or kept (it ran in the condition above).
+    [ -n "${MUT_SWEEP:-}" ] && note "[note] Stryker sweep before the run:
+$(printf '%s\n' "$MUT_SWEEP" | awk -F'\t' '{ printf "  %s %s — %s\n", $1, $2, $3 }')"
     # Which config this bare invocation will actually read, and how many exist. Both tools default to a
     # config in the working directory; the count is what turns "one gate" into an honest sentence.
     case "$MUTATION_CMD" in
@@ -584,7 +827,8 @@ if [ -n "$MUTATION_CMD" ]; then
     [ "$MUT_CFG_TOTAL" -lt 1 ] && MUT_CFG_TOTAL=1
     MUT_SCOPE="1 of $MUT_CFG_TOTAL config(s) — a bare \`$MUTATION_CMD\` reads only $MUT_CFG"
 
-    MUT_OUT=$(eval "$MUTATION_CMD" 2>&1)
+    MUT_MARKER=$(mktemp "${TMPDIR:-/tmp}/mutation-marker.XXXXXX")
+    MUT_OUT=$(measured mutation bash -c "$MUTATION_CMD" 2>&1)
     MUT_RC=$?
     SCORE=$(printf '%s' "$MUT_OUT" | grep -oE 'mutation score[^0-9]*[0-9]+(\.[0-9]+)?' | tail -1 | grep -oE '[0-9]+(\.[0-9]+)?' | tail -1)
     INT_SCORE=${SCORE%%.*}
@@ -596,6 +840,28 @@ if [ -n "$MUTATION_CMD" ]; then
       MUT_LIMIT=80;           MUT_LIMIT_SRC="the ~80% default target (this config states no break)"
     fi
 
+    # The per-module half, read only when a score came back: a crashed run's reports are not a gate.
+    MUT_MODULES=""
+    if [ -n "$SCORE" ]; then
+      MUT_MOD_OUT=$(mutation_modules_under "$MUT_MARKER" "$MUT_LIMIT")
+      MUT_MOD_UNDER=$(printf '%s\n' "$MUT_MOD_OUT" | grep -E '^[0-9]' | awk -F'\t' '{ printf "    %s  %s (%s)\n", $1, $2, $3 }')
+      MUT_MOD_BAD=$(printf '%s\n' "$MUT_MOD_OUT" | sed -n 's/^unreadable /    unreadable report: /p')
+      case "$MUT_MOD_OUT" in
+        none)
+          MUT_MODULES="  Per module: UNMEASURED — this run wrote no JSON report, so only the headline was read and
+  .claude/rules/spec-hardening.md gates on the changed module. List \"json\" in the config's \"reporters\";
+  a CLI --reporter replaces that list rather than adding to it." ;;
+        nopython)
+          MUT_MODULES="  Per module: UNMEASURED — python3 is missing, so the JSON report could not be read." ;;
+        *)
+          [ -n "$MUT_MOD_UNDER" ] && MUT_MODULES="  Modules under $MUT_LIMIT% (Stryker's score per file, detected/valid, merged across this run's reports):
+$MUT_MOD_UNDER"
+          [ -n "$MUT_MOD_BAD" ] && MUT_MODULES="${MUT_MODULES:+$MUT_MODULES
+}$MUT_MOD_BAD" ;;
+      esac
+    fi
+    rm -f "$MUT_MARKER"
+
     if [ "$MUT_RC" -ne 0 ] && [ -n "$SCORE" ]; then
       # A number came back, so the tool ran. Non-zero here is the gate doing its job.
       MUT_MEASURED=1
@@ -603,7 +869,8 @@ if [ -n "$MUTATION_CMD" ]; then
   This is the gate failing, not the tool crashing: Stryker exits non-zero when the score is under break.
   Scope: $MUT_SCOPE.
   NOTE: ${SCORE}% is Stryker's score, (Killed + Timeout) / valid. A Timeout is not a kill, so the strict
-  score is this or lower — never higher (.claude/docs/testing.md)."
+  score is this or lower — never higher (.claude/docs/testing.md).${MUT_MODULES:+
+$MUT_MODULES}"
     elif [ "$MUT_RC" -ne 0 ]; then
       add "[MUTATION] \`$MUTATION_CMD\` failed to complete — no score was produced:
 $(printf '%s' "$MUT_OUT" | tail -15)"
@@ -612,7 +879,13 @@ $(printf '%s' "$MUT_OUT" | tail -15)"
       if [ "${INT_SCORE:-0}" -lt "$MUT_LIMIT" ]; then
         add "[MUTATION] Stryker's own score ${SCORE}% is below $MUT_LIMIT_SRC ($MUT_LIMIT).
   Scope: $MUT_SCOPE.
-  NOTE: ${SCORE}% counts a Timeout as a kill; the strict score (Killed / valid) is this or lower."
+  NOTE: ${SCORE}% counts a Timeout as a kill; the strict score (Killed / valid) is this or lower.${MUT_MODULES:+
+$MUT_MODULES}"
+      elif [ -n "$MUT_MODULES" ]; then
+        # The fundit 006 shape: the headline passes and says nothing about the module under it.
+        add "[MUTATION] The headline ${SCORE}% passes $MUT_LIMIT_SRC ($MUT_LIMIT), but the module gate does not.
+  Scope: $MUT_SCOPE.
+$MUT_MODULES"
       fi
     else
       # Exit 0 and no parseable score is not a pass -- it is a run this section cannot classify, and
@@ -628,6 +901,11 @@ $(printf '%s' "$MUT_OUT" | tail -15)"
     REPORT="${REPORT}[skipped] mutation pass — re-run with --full to execute \`$MUTATION_CMD\` (slow, and it covers only the working-directory config).
 "
   fi
+elif [ "$FULL" -eq 1 ]; then
+  # Row 051: a stack with no runner (PHP, bare node) heard nothing at all from --full, and the due
+  # banner kept asking for a pass that had no way to happen. Not stamped, as before; now it is said.
+  note "[note] --full: no mutation runner for this stack — nothing measured, not stamped. A project whose stack
+  has none declares one as scripts/run-mutation-gate.sh (project-owned; it must print \`mutation score N%\`)."
 fi
 
 # ---------------------------------------------------------------- 6. census audits
@@ -687,7 +965,7 @@ $(printf '%s' "$FAST_OUT" | sed -n '3,12p')
   elif [ "$FAST_RC" -eq 2 ]; then
     add "[GATE LEDGER] The fast census REFUSED — it could not read what it was asked to read, which
   is never a pass. A parser gone blind on a C# declaration form, or a ledger that moved.
-$(printf '%s' "$FAST_OUT" | head -8)
+$(printf '%s' "$FAST_OUT" | sed -n 1,8p)
   Re-run: python3 scripts/e2e-gate-census.py"
   fi
 fi
@@ -698,7 +976,7 @@ if [ -f "$CENSUS_SCRIPT" ]; then
   CENSUS_RC=$?
   if [ "$CENSUS_RC" -eq 0 ]; then
     :
-  elif [ "$CENSUS_RC" -eq 2 ] || printf '%s' "$CENSUS_OUT" | grep -qE ': error [A-Z]{2}[0-9]{4}|MSB[0-9]+|Build FAILED'; then
+  elif [ "$CENSUS_RC" -eq 2 ] || grep -qE ': error [A-Z]{2}[0-9]{4}|MSB[0-9]+|Build FAILED' <<< "$CENSUS_OUT"; then
     note "[note] census audit could not run — the E2E project did not build, so the four drift
   censuses were neither passed nor failed. Not counted as a finding (a build failure is not census
   drift), but recorded, because a maintenance pass that skipped its checks in silence is the false
@@ -706,7 +984,7 @@ if [ -f "$CENSUS_SCRIPT" ]; then
   else
     add "[CENSUS] A drift census is RED. These are the instruments that pin the browser suite's own
   discipline, and spec 544 exists because four of them sat red for nine days unseen.
-$(printf '%s' "$CENSUS_OUT" | grep -E '\S+\.cs:' | head -12)
+$(printf '%s' "$CENSUS_OUT" | grep -E '\S+\.cs:' | sed -n 1,12p)
   Fix at the SITE, never by raising a record until the red stops.
   Full output: bash scripts/e2e-wait-audit.sh"
   fi
@@ -722,10 +1000,20 @@ if [ -f scripts/register-convergence.sh ] && [ -f scripts/carve_audit.py ] && [ 
   CARVE_OUT=$(bash scripts/register-convergence.sh --carves 2>&1); CARVE_RC=$?
   if [ "$CARVE_RC" -eq 1 ]; then
     add "[CARVE SHAPE] the carve budget or the depth limit is exceeded (.claude/rules/carve-budget.md):
-$(printf '%s' "$CARVE_OUT" | head -12)
+$(printf '%s' "$CARVE_OUT" | sed -n 1,12p)
   Section 2 caps a spec at 2 carves; section 3 says there is no depth 3. Both were unmeasured until
   now, so these are pre-existing. Fold the excess into one consolidated row, or decide otherwise —
   but decide, rather than letting the tree keep growing."
+  elif [ "$CARVE_RC" -eq 3 ]; then
+    # No row names its parent, so the two limits were never measured -- which is not the same as
+    # respected (row 027: agentcrm read "clean" over a depth-3 chain).
+    add "[CARVE SHAPE] unmeasurable — no row in specs/INDEX.md says which spec carved it:
+$(printf '%s' "$CARVE_OUT" | sed -n 1,12p)
+  Budget (section 2) and depth (section 3) are unknown, not respected. Write 'carved by <id>' on the
+  rows a spec carved, starting with the newest."
+  elif [ "$CARVE_RC" -ne 0 ]; then
+    add "[CARVE SHAPE] scripts/register-convergence.sh --carves could not run (exit $CARVE_RC):
+$(printf '%s' "$CARVE_OUT" | sed -n 1,3p)"
   fi
 fi
 
@@ -734,14 +1022,119 @@ fi
 # Two developers, two platforms, and cross-platform is a base requirement rather than a preference.
 # A construct that works on one is a script the other never successfully runs -- and it fails
 # QUIETLY, because the usual symptom is an empty result, not an error.
-if [ -f scripts/validate-portability.sh ] && [ -f scripts/portability_audit.py ]; then
-  PORT_OUT=$(bash scripts/validate-portability.sh --all 2>&1); PORT_RC=$?
+#
+# Both scripts are CORE, so a missing one is a sync defect and a [SETUP] finding. Until row 033 the
+# guard had no else: fundit synced this call site without the two scripts and read "clean" (F002).
+PORT_MISSING=""
+for f in scripts/validate-portability.sh scripts/portability_audit.py; do
+  [ -f "$f" ] || PORT_MISSING="${PORT_MISSING:+$PORT_MISSING, }$f"
+done
+if [ -n "$PORT_MISSING" ]; then
+  add "[SETUP] portability check did not run — $PORT_MISSING missing. Run /project-update to restore it."
+else
+  PORT_OUT=$(measured portability bash scripts/validate-portability.sh --all 2>&1); PORT_RC=$?
   if [ "$PORT_RC" -eq 1 ]; then
     add "[PORTABILITY] construct(s) that run on one developer's platform and not the other's:
-$(printf '%s' "$PORT_OUT" | grep -E '^\s+scripts/' -A2 | head -12)
+$(printf '%s' "$PORT_OUT" | grep -E '^\s+scripts/' -A2 | sed -n 1,12p)
   Run: bash scripts/validate-portability.sh --all"
+  elif [ "$PORT_RC" -ne 0 ]; then
+    add "[PORTABILITY] scripts/validate-portability.sh could not run (exit $PORT_RC):
+$(printf '%s' "$PORT_OUT" | sed -n 1,3p)"
   fi
 fi
+
+# ------------------------------------------------------ 6d. narrow viewport in the shared suite
+#
+# fundit F024: the a11y/visual suite ran at Playwright's default 1280px, so a horizontal overflow at
+# 375px shipped in spec 001 and was found by hand in spec 004. A width set inside one test is the
+# per-spec pattern that let it through, so a TS suite is judged on its CONFIG, each config alone.
+# .NET has no config file to read; there any test file setting a narrow width counts (the weaker
+# check, and the finding says so). Narrow = below 480px or a phone device. Row 035.
+VP_W='(3[0-9]{2}|4[0-7][0-9])([^0-9]|$)'
+VP_OPTOUT='narrow-viewport:[[:space:]]*not-applicable'
+VP_CFG_RE='(^|/)playwright[^/]*\.config\.(ts|js|mjs|cjs)$'
+VP_FILES=$(git ls-files --cached --others --exclude-standard 2>/dev/null)
+VP_CONFIGS=$(printf '%s\n' "$VP_FILES" | grep -E "$VP_CFG_RE")
+VP_BAD=""
+if [ -n "$VP_CONFIGS" ]; then
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    grep -Eq "width:[[:space:]]*$VP_W|devices\[[[:space:]]*.(iPhone|Pixel|Galaxy)|$VP_OPTOUT" "$f" 2>/dev/null ||
+      VP_BAD="${VP_BAD}  $f
+"
+  done <<EOF
+$VP_CONFIGS
+EOF
+else
+  VP_CSPROJ=$(printf '%s\n' "$VP_FILES" | grep -E '\.csproj$' | while IFS= read -r f; do
+    [ -f "$f" ] && grep -q 'Microsoft\.Playwright' "$f" 2>/dev/null && printf '%s\n' "$f"; done)
+  # The hit list, not grep -q's status: under pipefail an early exit SIGPIPEs the loop upstream and
+  # the pipeline reads as "no match" on a large repo -- a false finding (spec 024's class).
+  VP_NET_HITS=""
+  [ -n "$VP_CSPROJ" ] && VP_NET_HITS=$(printf '%s\n' "$VP_FILES" | grep -iE '(test|e2e|playwright)[^/]*(/.*)?\.cs$' |
+      while IFS= read -r f; do [ -f "$f" ] && printf '%s\0' "$f"; done |
+      xargs -0 grep -El "((SetViewportSizeAsync|TestFixture|TestCase|InlineData|DataRow)\([[:space:]]*|Width[[:space:]]*=[[:space:]]*)$VP_W|$VP_OPTOUT" 2>/dev/null)
+  if [ -n "$VP_CSPROJ" ] && [ -z "$VP_NET_HITS" ]; then
+    VP_BAD="$(printf '%s\n' "$VP_CSPROJ" | sed 's/^/  /')
+  (.NET has no shared config to read: no test file sets a width below 480px)
+"
+  fi
+fi
+if [ -n "$VP_BAD" ]; then
+  add "[VIEWPORT] Playwright suite runs at desktop width only — a horizontal overflow at phone width ships unseen (fundit F024):
+${VP_BAD%
+}
+  Add a narrow project (375px) to the shared config per .claude/docs/testing.md (Viewports), or state why not with a 'narrow-viewport: not-applicable' comment."
+fi
+
+# ------------------------------------------------------ 6e. the project's own ratchets
+# Row 052 (ighweld F062): projects write scripts/check-*.sh ratchets and nothing runs them. ighweld
+# had thirteen and none was invoked by anything; a ratchet that runs when somebody remembers stops
+# running. So every pass runs every one it finds: from the root, no arguments, stdin closed, exit 0
+# passes. Green says nothing. A ratchet that cannot run here opts out with
+# `# maintenance: skip <reason>` in its first 30 lines; the reason is required and printed, so a
+# skip is never silent. Output goes to a file, not a pipe: a timed-out ratchet's orphaned children
+# would hold a pipe open and the pass would wait for them anyway.
+RATCHET_LIMIT=${MAINTENANCE_RATCHET_TIMEOUT:-300}
+case "$RATCHET_LIMIT" in (''|*[!0-9]*) RATCHET_LIMIT=300 ;; esac
+RATCHET_TIMEOUT=""
+command -v timeout >/dev/null 2>&1 && RATCHET_TIMEOUT=timeout
+[ -z "$RATCHET_TIMEOUT" ] && command -v gtimeout >/dev/null 2>&1 && RATCHET_TIMEOUT=gtimeout
+RATCHET_SKIPS=""
+RATCHET_UNBOUNDED=0
+for ratchet in scripts/check-*.sh; do
+  [ -f "$ratchet" ] || continue
+  skip_line=$(head -30 "$ratchet" | grep -m1 -E '^#[[:space:]]*maintenance:[[:space:]]*skip([[:space:]]|$)')
+  if [ -n "$skip_line" ]; then
+    reason=$(printf '%s' "$skip_line" | sed -E 's/^#[[:space:]]*maintenance:[[:space:]]*skip[[:space:]]*//; s/^(—|–|-)[[:space:]]*//; s/[[:space:]]+$//')
+    if [ -n "$reason" ]; then
+      RATCHET_SKIPS="${RATCHET_SKIPS}  $ratchet — $reason
+"
+      continue
+    fi
+    note "[note] $ratchet: skip marker has no reason — ignored, so it ran. Write \`# maintenance: skip <why>\`."
+  fi
+  ratchet_out=$(mktemp "${TMPDIR:-/tmp}/ratchet.XXXXXX")
+  if [ -n "$RATCHET_TIMEOUT" ]; then
+    "$RATCHET_TIMEOUT" "$RATCHET_LIMIT" bash "$ratchet" </dev/null >"$ratchet_out" 2>&1; ratchet_rc=$?
+  else
+    RATCHET_UNBOUNDED=1
+    bash "$ratchet" </dev/null >"$ratchet_out" 2>&1; ratchet_rc=$?
+  fi
+  if [ -n "$RATCHET_TIMEOUT" ] && [ "$ratchet_rc" -eq 124 ]; then
+    add "[RATCHET] $ratchet timed out after ${RATCHET_LIMIT}s — it did not finish, so it neither passed nor failed.
+  Raise MAINTENANCE_RATCHET_TIMEOUT, or mark it \`# maintenance: skip <why>\` if it cannot run here.
+$(tail -8 "$ratchet_out" | sed 's/^/  /')"
+  elif [ "$ratchet_rc" -ne 0 ]; then
+    add "[RATCHET] $ratchet failed (exit $ratchet_rc):
+$(tail -12 "$ratchet_out" | sed 's/^/  /')"
+  fi
+  rm -f "$ratchet_out"
+done
+[ -n "$RATCHET_SKIPS" ] && note "[note] ratchets skipped by their own marker:
+${RATCHET_SKIPS%
+}"
+[ "$RATCHET_UNBOUNDED" -eq 1 ] && note "[note] ratchets ran unbounded — neither timeout nor gtimeout is installed, so a hung one hangs this pass."
 
 # ------------------------------------------------------------- 7. the test suite (--suite)
 #
@@ -760,6 +1153,20 @@ fi
 # (.claude/rules/mutation-timeouts.md, trap 4).
 if [ "$SUITE" -eq 1 ]; then
   SUITE_CMD=""
+  SUITE_FROM=""
+  SUITE_PARTIAL=""
+  # A DECLARATION OUTRANKS EVERY DETECTED STACK (row 051). Detection knew two stacks, so emaljen's
+  # bare `node tests/*.mjs` suite could never be discharged here, and iskvalp's root .sln hid the
+  # jest suite in client/package.json and got stamped green over half of it. The project says what
+  # its whole suite is in .claude/.suite-command, first line that is neither blank nor a # comment.
+  # Judged like a detected command (exit code + run-verdict.sh); a human chose it, so no evidence
+  # gate, the same rule template-sync-verify.sh keeps.
+  declared_command() { # declared_command FILE — first line neither blank nor a # comment; empty when unreadable
+    [ -r "$1" ] && grep -v '^[[:space:]]*#' "$1" 2>/dev/null | grep -v '^[[:space:]]*$' | sed -n 1p
+  }
+  SUITE_DECL=.claude/.suite-command
+  SUITE_CMD=$(declared_command "$SUITE_DECL")
+  [ -n "$SUITE_CMD" ] && SUITE_FROM="declared in $SUITE_DECL"
   # THE PROJECT'S OWN `test` SCRIPT WINS, and this order used to be reversed.
   # On a project that is both .NET and web, `dotnet test` matched first and
   # `npm test` was never reached — so the step ran unit and integration tests,
@@ -772,7 +1179,9 @@ if [ "$SUITE" -eq 1 ]; then
   # suite is. Preferring it is also why it must not be ASSUMED to cover .NET on
   # a project where it only covers the frontend — hence the note rather than
   # silence.
-  if [ -f package.json ] && grep -q '"test"[[:space:]]*:' package.json 2>/dev/null; then
+  if [ -n "$SUITE_CMD" ]; then
+    :
+  elif [ -f package.json ] && grep -q '"test"[[:space:]]*:' package.json 2>/dev/null; then
     SUITE_CMD="npm test"
     if [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ] \
        && ! grep -q 'dotnet test' package.json 2>/dev/null; then
@@ -780,15 +1189,56 @@ if [ "$SUITE" -eq 1 ]; then
     fi
   elif [ -n "$(find . -maxdepth 3 \( -name '*.sln' -o -name '*.csproj' \) -not -path '*/node_modules/*' -print -quit 2>/dev/null)" ]; then
     SUITE_CMD="dotnet test"
+    # `dotnet test` never runs a nested package.json's tests, so a green run here is half a suite
+    # when one exists (iskvalp: 1194 .NET tests stamped, 4138 jest tests never run). It still runs,
+    # because the result is information; only the stamp is refused.
+    SUITE_PARTIAL=$(find . -maxdepth 3 -name node_modules -prune -o -name package.json -type f ! -path ./package.json -print 2>/dev/null |
+      while IFS= read -r f; do grep -q '"test"[[:space:]]*:' "$f" 2>/dev/null && printf '%s ' "${f#./}"; done)
+    SUITE_PARTIAL=${SUITE_PARTIAL% }
   fi
+  [ -n "$SUITE_CMD" ] && [ -z "$SUITE_FROM" ] && SUITE_FROM="detected, not declared"
+  SUITE_SLNS=""
+  [ "$SUITE_CMD" = "dotnet test" ] && [ "$SUITE_FROM" = "detected, not declared" ] && SUITE_SLNS=$(dotnet_solutions)
 
-  if [ -z "$SUITE_CMD" ]; then
-    note "[note] --suite: no .NET solution and no npm test script — nothing to run. Not a pass."
+  if [ "$(printf '%s' "$SUITE_SLNS" | grep -c .)" -gt 1 ]; then
+    # Row 052: a detected `dotnet test` beside a second solution builds the root one blind. Not run,
+    # not stamped — a red suite over a stale solution reads exactly like a real regression.
+    add "[SUITE] NOT RUN — $(printf '%s\n' "$SUITE_SLNS" | grep -c .) .NET solutions and nothing declared, so \`dotnet test\` at the root would build
+  whichever one sits there, blind:
+$(solution_list "$SUITE_SLNS")
+  Put the command that runs the whole suite on one line in $SUITE_DECL. Not stamped: the job stays due."
+  elif [ -z "$SUITE_CMD" ]; then
+    # Nothing detected is not the end: say where the project declares it. A .template-sync-verify
+    # command is quoted as a candidate and NEVER run here. That file often declares a unit slice on
+    # purpose (its own help recommends one), and stamping a slice as the whole suite is the iskvalp
+    # failure this section just stopped.
+    SUITE_SYNC=$(declared_command .claude/.template-sync-verify)
+    note "[note] --suite: nothing declared in $SUITE_DECL, and no .NET solution or npm test script to detect — nothing to run. Not a pass.
+  Put the command that runs the whole suite (unit + integration + E2E + visual regression) on one line in $SUITE_DECL.$([ -n "$SUITE_SYNC" ] && printf '\n  Candidate: .claude/.template-sync-verify declares `%s` — declare it here only if it is the whole suite, not a slice.' "$SUITE_SYNC")"
   else
-    SUITE_OUT=$(eval "$SUITE_CMD" 2>&1); SUITE_RC=$?
+    SUITE_OUT=$(measured suite bash -c "$SUITE_CMD" 2>&1); SUITE_RC=$?
     SUITE_TAIL=$(printf '%s' "$SUITE_OUT" | tail -12)
-    if [ "$SUITE_RC" -eq 0 ]; then
-      note "[note] suite green — \`$SUITE_CMD\`"
+    # Spec 031: never `$?` alone. rocky's crashed test host printed `Passed!` for the 55% that ran,
+    # and an abort that exits 0 would be stamped green here. The helper is CORE; without it the
+    # verdict falls back to the exit code, and the pass says so.
+    if [ -f scripts/run-verdict.sh ]; then
+      . scripts/run-verdict.sh
+      SUITE_VERDICT=$(run_verdict "$SUITE_RC" "$SUITE_OUT")
+    else
+      SUITE_VERDICT=$([ "$SUITE_RC" -eq 0 ] && echo passed || echo failed)
+      note "[note] --suite: scripts/run-verdict.sh missing — judged by exit code alone, so an aborted run can read green."
+    fi
+    if [ "$SUITE_VERDICT" = aborted ]; then
+      # NOT stamped, whatever the exit code. The summary counts only the tests that ran.
+      add "[SUITE] \`$SUITE_CMD\` — the test run ABORTED (exit $SUITE_RC): the test host did not finish, so any
+  Passed!/Total line below counts only the tests that ran. Not stamped: the job stays due.
+$SUITE_TAIL"
+    elif [ "$SUITE_VERDICT" = passed ] && [ -n "$SUITE_PARTIAL" ]; then
+      add "[SUITE] \`$SUITE_CMD\` is green, but it is not the whole suite: it never runs the test script in
+  $SUITE_PARTIAL. Not stamped: the job stays due. Put the command that runs every
+  part on one line in $SUITE_DECL, and --suite runs that instead."
+    elif [ "$SUITE_VERDICT" = passed ]; then
+      note "[note] suite green — \`$SUITE_CMD\` ($SUITE_FROM)"
       [ -f scripts/maintenance-due.sh ] && bash scripts/maintenance-due.sh --stamp suite 2>/dev/null
     else
       # NOT stamped. A red suite has not satisfied the obligation, and stamping it would mark the
@@ -820,6 +1270,7 @@ if [ -f scripts/maintenance-due.sh ]; then
 fi
 
 # ------------------------------------------------------------------------ verdict
+[ "$LEDGER_OK" -eq 1 ] && python3 scripts/maintenance_ledger.py record pass "$(( $(date +%s) - PASS_START ))" "$([ "$FINDINGS" -eq 0 ] && echo 0 || echo 1)" 2>/dev/null
 if [ "$FINDINGS" -eq 0 ]; then
   [ "$QUIET" -eq 1 ] && exit 0
   echo "project-maintenance: clean — no secrets, no CVEs, no register drift, no context bloat.$([ "$FULL" -eq 0 ] && [ -n "$MUTATION_CMD" ] && printf ' (mutation pass skipped — use --full)')"

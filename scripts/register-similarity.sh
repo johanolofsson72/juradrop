@@ -85,7 +85,7 @@ if ! curl -s -o /dev/null -m 3 "$HOST/api/tags"; then
   echo "register-similarity: no Ollama at $HOST — start it, or set OLLAMA_HOST." >&2
   exit 2
 fi
-if ! curl -s -m 3 "$HOST/api/tags" | grep -q "\"$MODEL"; then
+if ! grep -q "\"$MODEL" <<< "$(curl -s -m 3 "$HOST/api/tags")"; then
   echo "register-similarity: model '$MODEL' not pulled. Run: ollama pull $MODEL" >&2
   exit 2
 fi

@@ -134,7 +134,7 @@ _hn_state_dir() {
 
 # hn_session_id <raw stdin json>
 hn_session_id() {
-  printf '%s' "${1:-}" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+  sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<< "${1:-}" | sed -n 1p
 }
 
 # hn_first_time <session_id> <key>  → 0 the first time, 1 afterwards

@@ -29,8 +29,8 @@ dotnet test --configuration Release
 - Up to date with remote?
 
 ### 4. Configuration check
-- No secrets in appsettings.json (only in environment variables)
-- Connection strings use production values via env vars
+- No secrets in `appsettings*.json` or the image (`ENV`/`ARG`); committed config holds placeholders only
+- Production secrets (connection strings included) are Swarm secrets mounted as files, not the service `environment:` (`.claude/docs/security.md` § Secrets)
 - HTTPS enforced
 - CORS configured correctly
 

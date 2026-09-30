@@ -13,6 +13,8 @@ set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+# Spec 029: a deny counts only if the CLI would read it (hookEventName present).
+. "$ROOT/scripts/hook-verdict.sh"
 
 PASS=0
 FAIL=0
@@ -107,7 +109,7 @@ guard_test() {
     return
   fi
   if [ "$expect" = "deny" ]; then
-    if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
+    if [ "$(hook_verdict "$out")" = deny ]; then
       _record "$name" 0
     else
       _record "$name (expected deny, got: ${out:0:100})" 1
@@ -116,7 +118,7 @@ guard_test() {
   fi
   # deny:<phase> — verify the specific phase appears in Missing phases
   local phase="${expect#deny:}"
-  if printf '%s' "$out" | jq -e ".hookSpecificOutput.permissionDecision == \"deny\" and (.hookSpecificOutput.permissionDecisionReason | contains(\"$phase\"))" >/dev/null 2>&1; then
+  if [ "$(hook_verdict "$out")" = deny ] && printf '%s' "$out" | jq -e ".hookSpecificOutput.permissionDecisionReason | contains(\"$phase\")" >/dev/null 2>&1; then
     _record "$name" 0
   else
     _record "$name (expected deny mentioning '$phase', got: ${out:0:150})" 1
@@ -306,7 +308,7 @@ iv_test() {
   if [ "$expect" = "allow" ]; then
     if [ -z "$out" ]; then _record "$name" 0; else _record "$name (expected allow, got: ${out:0:80})" 1; fi
   else
-    if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
+    if [ "$(hook_verdict "$out")" = deny ]; then
       _record "$name" 0
     else
       _record "$name (expected deny, got: ${out:0:80})" 1
@@ -343,7 +345,7 @@ _iv_scope() {
   if [ "$expect" = "allow" ]; then
     if [ -z "$out" ]; then _record "$name" 0; else _record "$name (expected allow, got: ${out:0:80})" 1; fi
   else
-    if printf '%s' "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then _record "$name" 0; else _record "$name (expected deny)" 1; fi
+    if [ "$(hook_verdict "$out")" = deny ]; then _record "$name" 0; else _record "$name (expected deny)" 1; fi
   fi
 }
 write_interview 0 0   # empty interview so a source edit WOULD deny — proves allowlist bypasses it
@@ -406,6 +408,15 @@ _rf "non-verification cmd never counted"    quiet "git status"  "$FAILOUT"
 printf '{"tool_input":{"command":"dotnet test"},"tool_response":{"stdout":"Passed!  - Failed: 0, Passed: 12"}}' \
   | CLAUDE_PROJECT_DIR="$RFT" bash scripts/repeat-failure-guard-hook.sh >/dev/null 2>&1
 _rf "success resets the counter"            quiet "dotnet test" "$FAILOUT"
+# Spec 031. rocky's crashed host printed `Passed!` between two abort lines with 45% of the suite
+# unrun. `Passed! *-` is a success signature, so the aborted run RESET a live counter. Two
+# failures, then the abort: it must fire as the third, not start the count over.
+ABORTOUT='The active test run was aborted. Reason: Test host process crashed
+Passed!  - Failed: 0, Passed: 1673, Skipped: 7, Total: 1680
+Test Run Aborted.'
+_rf "031 abort: 1st failure → quiet"        quiet "dotnet test --abort" "$FAILOUT"
+_rf "031 abort: 2nd failure → quiet"        quiet "dotnet test --abort" "$FAILOUT"
+_rf "031 aborted run over Passed! counts as the 3rd failure" fire "dotnet test --abort" "$ABORTOUT"
 # ── H6s: three states, not two ────────────────────────────────────────────
 #
 # The five assertions above can only see whether the hook PRINTED. Both defects
@@ -696,6 +707,80 @@ rc=$?
 [ "$rc" = 0 ] && grep -q 'tasks' "$RLN/specs/002-search/run-log.md" 2>/dev/null \
   && _record "hook mode (no argv) still logs a phase transition" 0 \
   || _record "hook mode (no argv) still logs a phase transition (rc=$rc)" 1
+
+# ── a held or ticked row can still be written to (spec 049) ──────────────────
+#
+# The implicit path asks "which row should I work?", and the answer skips `[!]`
+# and `[x]` rows, correctly. The note asks "which row is this about?", which on
+# a hold or a tick is exactly the row being skipped (ighweld F139, F195: both
+# notes written to run-log.md by hand). `--spec <id>` answers the second
+# question without touching the first.
+#
+# Every write arm asserts on the LINE ON DISK, not the exit code: on HEAD
+# `--spec 049` is "spec directory does not exist: 049", exit 4, so only the
+# write separates fixed from unfixed.
+mkdir -p "$RLN/specs/004-held" "$RLN/specs/005-ticked" "$RLN/specs/006-next" \
+         "$RLN/specs/H1-integration-hardening"
+printf '# R\n\n## Specs\n\n- [x] 002 — search — full track — s\n- [!] 004 — held — spec-only — h\n- [x] 005 — ticked — spec-only — t\n- [ ] 006 — next — spec-only — n\n- [ ] 007 — nodir — spec-only — no directory yet\n- [x] H1 — integration-hardening — checkpoint — c\n' > "$RLN/specs/INDEX.md"
+
+_rl_on_disk() {  # $1 name, $2 dir, $3 text, $4.. argv
+  local name="$1" dir="$2" text="$3"; shift 3
+  local err rc=0
+  err=$(CLAUDE_PROJECT_DIR="$RLN" bash "$RLN/bin/spec-run-log-hook.sh" "$@" 2>&1 >/dev/null) || rc=$?
+  if [ "$rc" = 0 ] && [ -z "$err" ] && grep -qF "$text" "$dir/run-log.md" 2>/dev/null; then
+    _record "$name" 0
+  else
+    _record "$name (rc=$rc err=${err:0:80})" 1
+  fi
+}
+_rl_on_disk "--spec <id> writes to a HELD row"        "$RLN/specs/004-held"   "049 held reason" \
+            --note "049 held reason" --spec 004
+_rl_on_disk "--spec <id> writes to a TICKED row"      "$RLN/specs/005-ticked" "049 closing state" \
+            --note "049 closing state" --spec 005
+_rl_on_disk "--spec <id> takes a letter-led id (H1)"  "$RLN/specs/H1-integration-hardening" "049 checkpoint" \
+            --spec H1 --note "049 checkpoint"
+# The implicit path still answers the WORK question: 006, never the held 004.
+_rl_on_disk "implicit --note still lands on the next [ ] row, not a held one" \
+            "$RLN/specs/006-next" "049 implicit" --note "049 implicit"
+grep -qF '049 implicit' "$RLN/specs/004-held/run-log.md" 2>/dev/null \
+  && _record "implicit --note never picks the held row" 1 \
+  || _record "implicit --note never picks the held row" 0
+
+# A directory wins over an id: `--spec 004` resolved from a cwd holding a
+# directory literally named 004 must use that directory, exactly as before.
+mkdir -p "$RLN/cwd/004"
+( cd "$RLN/cwd" && CLAUDE_PROJECT_DIR="$RLN" bash "$RLN/bin/spec-run-log-hook.sh" \
+    --note "049 dir wins" --spec 004 >/dev/null 2>&1 )
+grep -qF '049 dir wins' "$RLN/cwd/004/run-log.md" 2>/dev/null \
+  && ! grep -qF '049 dir wins' "$RLN/specs/004-held/run-log.md" 2>/dev/null \
+  && _record "--spec <existing dir> beats an id of the same name" 0 \
+  || _record "--spec <existing dir> beats an id of the same name" 1
+
+_rl_note "--spec <id> with no directory exits 4 and names the id" 4 "no spec directory for id 007" \
+         --note "x" --spec 007
+_rl_note "--spec <malformed id> exits 2 (caller's fault)"         2 "nor a register id" \
+         --note "x" --spec "7-x"
+# A slash makes it a path: a typo'd path is still "does not exist", exit 4,
+# never re-read as a malformed id now that the resolver is reachable.
+_rl_note "--spec <typo'd path> stays exit 4 with the resolver present" 4 "spec directory does not exist" \
+         --note "x" --spec "$RLN/specs/004-typo"
+
+# The implicit failure paths point at the way out. 007 has no directory, so
+# the implicit call cannot record; the hint must name the flag and the hold.
+printf '# R\n\n## Specs\n\n- [!] 004 — held — spec-only — h\n- [ ] 007 — nodir — spec-only — n\n' > "$RLN/specs/INDEX.md"
+_rl_note "implicit no-directory failure names --spec <id>"  4 "--spec <id>"  --note "x"
+_rl_note "implicit no-directory failure lists held rows"    4 "held: 004"    --note "x"
+printf '# R\n\n## Specs\n\n- [!] 004 — held — spec-only — h\n- [x] 005 — ticked — spec-only — t\n' > "$RLN/specs/INDEX.md"
+_rl_note "no-active-row answer names --spec <id>"           3 "--spec <id>"  --note "x"
+
+# The resolver's own contract for the lookup (FR-01), asked directly.
+_id_rc() { python3 "$RLN/bin/spec_active.py" --root "$RLN" --id "$1" >/dev/null 2>&1; echo $?; }
+[ "$(_id_rc 004)" = 0 ] && [ "$(_id_rc 007)" = 4 ] && [ "$(_id_rc '7-x')" = 2 ] \
+  && _record "spec_active.py --id: 0 found · 4 no dir · 2 malformed" 0 \
+  || _record "spec_active.py --id: 0 found · 4 no dir · 2 malformed ($(_id_rc 004)/$(_id_rc 007)/$(_id_rc '7-x'))" 1
+grep -q '"status": "!"' <<< "$(python3 "$RLN/bin/spec_active.py" --root "$RLN" --id 004 2>/dev/null)" \
+  && _record "spec_active.py --id reports the row's marker" 0 \
+  || _record "spec_active.py --id reports the row's marker" 1
 
 rm -rf "$RLN"
 

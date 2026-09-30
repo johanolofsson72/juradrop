@@ -28,6 +28,12 @@
 #               anything — 007bl's nine new scripts were not under-reported, they were absent from
 #               the question.
 #
+# Deliberately NOT a family: docs and skills (spec 021). They are manifest-protected, so a local edit
+# is kept rather than overwritten, and the sync's [manual] block already names each one with its two
+# remedies. Measured 2026-09-29 across 45 projects: 4 such files, none purely owed upstream (a
+# project's own deployment notes, mostly). Gating the tick on them would be wrong at least 3 times
+# in 4, which is the precision 007au rejected. So "nothing owed" here means nothing CORE.
+#
 # Both answers come from template-autosync.sh, asked rather than copied. A second list of CORE names
 # here would drift from the first the moment either changed, and a stale list is authoritative-
 # looking silence over exactly the new file nobody has habits about yet.
@@ -148,9 +154,15 @@ elif command -v gtimeout >/dev/null 2>&1; then TO="gtimeout 15"; fi
 # 0 = findings on stdout · 1 = none · 2 = cannot answer. Anything that is not 0 is treated as "no
 # finding": 1 says so, and 2 (or a timeout, or a crash) has to be indistinguishable from it here —
 # see the fail-open note at the top.
-OWED=$(cd "$ROOT" && $TO bash "$SYNC" --owed 2>/dev/null)
+# CLAUDE_PROJECT_DIR is passed, not left to the `cd`. $ROOT was walked up from the file being
+# edited, which is the repository this guard must answer about — but template-autosync.sh resolves
+# ${CLAUDE_PROJECT_DIR:-$PWD}, so an ambient value beats the `cd` and the answer silently becomes
+# about the session's repository instead of the file's. They are usually the same and then this
+# changes nothing; when they differ, the old form asked the wrong repository whether work was owed.
+# Same shape template-autosync-hook.sh already uses. Spec 010 (consultpilot H7bm).
+OWED=$(cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" $TO bash "$SYNC" --owed 2>/dev/null)
 [ $? -eq 0 ] || OWED=""
-UNLISTED=$(cd "$ROOT" && $TO bash "$SYNC" --unlisted 2>/dev/null)
+UNLISTED=$(cd "$ROOT" && CLAUDE_PROJECT_DIR="$ROOT" $TO bash "$SYNC" --unlisted 2>/dev/null)
 [ $? -eq 0 ] || UNLISTED=""
 
 [ -n "$OWED" ] || [ -n "$UNLISTED" ] || exit 0

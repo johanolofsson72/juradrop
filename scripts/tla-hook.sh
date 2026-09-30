@@ -28,13 +28,13 @@ FILE=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null
 
 MATCH=""
 # Web browser/E2E test: keyword + web test extension
-if echo "$FILE" | grep -qiE '(test|spec).*(playwright|e2e|browser|destructive|ui)' && echo "$FILE" | grep -qiE '\.(cs|ts|tsx|js|jsx)$'; then
+if grep -qiE '(test|spec).*(playwright|e2e|browser|destructive|ui)' <<< "$FILE" && grep -qiE '\.(cs|ts|tsx|js|jsx)$' <<< "$FILE"; then
   MATCH=1
 # Maestro flow (React Native / Expo): under .maestro/ or a *maestro* YAML file
-elif echo "$FILE" | grep -qiE '(^|/)\.maestro/|maestro' && echo "$FILE" | grep -qiE '\.ya?ml$'; then
+elif grep -qiE '(^|/)\.maestro/|maestro' <<< "$FILE" && grep -qiE '\.ya?ml$' <<< "$FILE"; then
   MATCH=1
 # Flutter native E2E / widget destructive: integration_test/, patrol, or a *_test.dart / destructive .dart
-elif echo "$FILE" | grep -qiE '(integration_test|patrol|destructive|e2e|_test|test_)' && echo "$FILE" | grep -qiE '\.dart$'; then
+elif grep -qiE '(integration_test|patrol|destructive|e2e|_test|test_)' <<< "$FILE" && grep -qiE '\.dart$' <<< "$FILE"; then
   MATCH=1
 fi
 

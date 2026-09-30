@@ -19,6 +19,8 @@
 #
 # Usage:
 #   bash scripts/register-convergence.sh [--dir DIR] [--window N] [--json] [--quiet]
+#   bash scripts/register-convergence.sh --carves   # carve budget + depth from attributions (carve_audit.py)
+#   bash scripts/register-convergence.sh --freeze   # is the register frozen? (register_freeze.py, row 077)
 #
 #   --window N   trailing window in ticked rows (default 10; the rule's threshold
 #                only applies at 10+, because a ratio over three ticks is noise)
@@ -26,6 +28,8 @@
 #   --quiet      print only when the verdict is flat or diverging
 #
 # Exit: 0 converging · 1 flat · 2 diverging · 3 not enough history · 4 usage/no register
+# --carves exit: 0 clean or too young · 1 over budget/depth · 3 unmeasurable (no attributions) · 4 no register/engine
+# --freeze exit: 0 frozen+clean · 1 off · 2 unapproved rows · 3 can lift · 4 malformed/error · 5 cannot evaluate
 
 set -uo pipefail
 
@@ -41,14 +45,16 @@ DIR="."; WINDOW=10; JSON=0; QUIET=0
 FLAT_AT="1.0"; DIVERGE_AT="1.3"
 
 CARVES=0
+FREEZE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dir) DIR="${2:-}"; shift 2 ;;
     --window) WINDOW="${2:-}"; shift 2 ;;
     --json) JSON=1; shift ;;
     --carves) CARVES=1; shift ;;
+    --freeze) FREEZE=1; shift ;;
     --quiet) QUIET=1; shift ;;
-    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR>1 && !/^#/ {exit} NR>1' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "register-convergence.sh: unknown argument '$1'" >&2; exit 4 ;;
   esac
 done
@@ -70,6 +76,21 @@ done
 # So depth is DERIVED from the attribution rather than trusted from a marker. The engine is
 # scripts/carve_audit.py -- a separate file, not an inline heredoc, because this script is itself
 # read through heredocs by three test harnesses.
+# --freeze: the developer's answer to a convergence stop, read from the register's header line.
+# Its own exit codes (0 clean · 1 off · 2 unapproved rows · 3 can lift · 4 unreadable), documented in
+# scripts/register_freeze.py.
+if [ "$FREEZE" -eq 1 ]; then
+  REG_FILE="$DIR/specs/INDEX.md"
+  # 5 = cannot evaluate (no register, engine or python3). Distinct from 4 so a partial sync never
+  # renders as a freeze that does not exist -- nor hides one that does.
+  [ -f "$REG_FILE" ] || { echo "register-convergence: no register at $REG_FILE" >&2; exit 5; }
+  ENGINE="$(dirname "$0")/register_freeze.py"
+  [ -f "$ENGINE" ] || { echo "register-convergence: scripts/register_freeze.py is missing" >&2; exit 5; }
+  command -v python3 >/dev/null 2>&1 || { echo "register-convergence: --freeze needs python3" >&2; exit 5; }
+  REG="$REG_FILE" FINDINGS="$DIR/specs/FINDINGS.md" python3 "$ENGINE"
+  exit $?
+fi
+
 if [ "$CARVES" -eq 1 ]; then
   REG_FILE="$DIR/specs/INDEX.md"
   [ -f "$REG_FILE" ] || { echo "register-convergence: no register at $REG_FILE" >&2; exit 4; }

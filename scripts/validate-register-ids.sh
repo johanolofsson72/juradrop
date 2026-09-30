@@ -42,7 +42,8 @@
 #       2 the register could not be read — a DIFFERENT fact from "the register is bad", and the two must
 #         not share an exit code (the H6y/H6s lesson, and the defect this row's own guards had)
 #
-# Covers: SC-1428 SC-1429 SC-1430 SC-1443
+# Scenario ids: named by scripts/test-register-ids.sh, which is the proof. Not listed here: a CORE
+# file's comment is read as a reference by any gate whose roots include scripts/ (row 012).
 
 set -u
 

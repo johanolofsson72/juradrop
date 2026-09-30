@@ -87,6 +87,10 @@ EXIT CODES (CLI) — callers MUST distinguish these (FR-007m-04)
   3  no active row - every row ticked. An ANSWER, not a failure: callers ALLOW.
      Denying here would block all work on a finished project.
   4  cannot answer - register unreadable/malformed. Callers DENY.
+
+--id <token> (spec 049) asks a different question: where does THIS row live,
+whatever its status? {"id","dir","found","status"}.
+  0  found a directory · 4 no directory for a well-formed id · 2 malformed id
 """
 
 from __future__ import annotations
@@ -335,9 +339,7 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
     spec_dir = None
     slug = ""
     if kind != "unparseable":
-        candidates = sorted(glob.glob(os.path.join(root, "specs", "%s-*" % ident)))
-        candidates += sorted(glob.glob(os.path.join(root, ".specify", "specs", "%s-*" % ident)))
-        spec_dir = next((c for c in candidates if os.path.isdir(c)), None)
+        spec_dir = dir_for_id(root, ident)
         if spec_dir:
             slug = os.path.basename(spec_dir)[len(ident) + 1:]
 
@@ -361,6 +363,52 @@ def resolve(root: str, sync_feature_json: bool = False, owner: str | None = None
         result["feature_json_synced"] = _sync_feature_json(root, rel_dir)
 
     return result
+
+
+def dir_for_id(root: str, ident: str) -> str | None:
+    """The directory a well-formed id owns: ``specs/<id>-*``, then ``.specify/specs/<id>-*``.
+
+    One glob for both questions this module answers. ``resolve()`` asks it for
+    the row to WORK; ``lookup()`` asks it for the row a caller NAMED (spec 049).
+    The dash is what keeps "007" from matching "007m-x", a different real spec.
+    """
+    candidates = sorted(glob.glob(os.path.join(root, "specs", "%s-*" % ident)))
+    candidates += sorted(glob.glob(os.path.join(root, ".specify", "specs", "%s-*" % ident)))
+    return next((c for c in candidates if os.path.isdir(c)), None)
+
+
+def lookup(root: str, token: str) -> dict:
+    """Resolve a NAMED id to its directory, whatever its row's status (spec 049).
+
+    ``resolve()`` answers "which row should I work?" and must skip held
+    (``[!]``) and ticked (``[x]``) rows. A run-log note asks a different
+    question, "which row is this about?", and the answer is usually the row
+    that was just held or ticked, so the note used to be refused (ighweld
+    F139, F195). Status plays no part here; lane ownership does not either,
+    because naming an id is already explicit.
+
+    ``status`` is the row's marker, or None when no row carries the id (an
+    archived row still owns its directory). Raises ValueError for a malformed
+    token: a guess at what a malformed id meant is how the wrong spec gets
+    written to.
+    """
+    ident, shape = classify_id(token.strip())
+    if shape == "malformed" or not ident:
+        raise ValueError("not a register id: %r" % token)
+    status = None
+    register_path = os.path.join(root, "specs", "INDEX.md")
+    if os.path.isfile(register_path):
+        for row_status, row_ident, _kind, _track, _owner in _rows(register_path):
+            if row_ident == ident:
+                status = row_status
+                break
+    spec_dir = dir_for_id(root, ident)
+    return {
+        "id": ident,
+        "dir": os.path.relpath(spec_dir, root) if spec_dir else None,
+        "found": spec_dir is not None,
+        "status": status,
+    }
 
 
 def _sync_feature_json(root: str, rel_dir: str | None) -> bool:
@@ -436,6 +484,7 @@ def main(argv: list[str]) -> int:
     root = None
     sync = False
     owner = None
+    lookup_id = None
     i = 0
     while i < len(argv):
         arg = argv[i]
@@ -453,6 +502,12 @@ def main(argv: list[str]) -> int:
                 print("ERROR: --owner needs a value", file=sys.stderr)
                 return 2
             owner = argv[i]
+        elif arg == "--id":
+            i += 1
+            if i >= len(argv):
+                print("ERROR: --id needs a value", file=sys.stderr)
+                return 2
+            lookup_id = argv[i]
         elif arg in ("--help", "-h"):
             print(__doc__)
             return 0
@@ -466,6 +521,19 @@ def main(argv: list[str]) -> int:
     if not root:
         print(json.dumps({"error": "no register found"}))
         return 4
+
+    if lookup_id is not None:
+        # Spec 049: 0 found · 4 no directory · 2 malformed (the caller's to fix).
+        try:
+            result = lookup(root, lookup_id)
+        except ValueError as exc:
+            print(json.dumps({"error": str(exc)}))
+            return 2
+        except RegisterUnreadable as exc:
+            print(json.dumps({"error": "register unreadable: %s" % exc}))
+            return 4
+        print(json.dumps(result))
+        return 0 if result["found"] else 4
 
     try:
         result = resolve(root, sync_feature_json=sync, owner=owner)

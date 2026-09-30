@@ -12,6 +12,7 @@
 # interpreter on the path that fires for every source edit.
 #
 # Usage:  resolve-active-spec.sh [--root DIR] [--sync-feature-json]
+#         resolve-active-spec.sh [--root DIR] --id <id>   (spec 049: any status)
 # Output: one JSON object on stdout.
 # Exit:   0 resolved · 3 no active row (an ANSWER — callers ALLOW)
 #         4 cannot answer (callers DENY) · 2 usage error

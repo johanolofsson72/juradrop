@@ -413,11 +413,11 @@ This category MUST be informed by Phase 0 context absorption. If `.claude/docs/d
     - [ ] **Social** — LinkedIn API, Slack API, Discord?
     - [ ] Other: _____
 
-    For each selected service, note: is this needed for MVP or v1.0+? This determines which GitHub Secrets need to be configured at deploy time.
+    For each selected service, note: is this needed for MVP or v1.0+? This determines which secrets need a 1Password item and a Swarm secret at deploy time.
 
 39. **Secrets Management**: How will API keys and secrets be managed?
-    - GitHub Secrets for CI/CD ★ (standard for Noisy Cricket)
-    - Environment variables in `appsettings.Production.json`
+    - 1Password vault → Swarm secrets mounted as files ★ (standard for Noisy Cricket; `op run` locally, see `.claude/docs/security.md` § Secrets)
+    - GitHub Secrets for CI/CD credentials only (SSH deploy key, notification keys)
     - Azure Key Vault / AWS Secrets Manager
     - `.env` files (local dev only)
     - Other
@@ -695,7 +695,7 @@ If tests cannot be run (missing infrastructure), clearly inform about this.
 [RUN COMMAND]                             # Run the application
 [E2E COMMAND]                             # Playwright E2E tests
 [SINGLE TEST COMMAND]                     # Single test
-bash scripts/project-freshness.sh         # Freshness pass: trufflehog secret scan + npm audit (report-first; --fix to remediate)
+bash scripts/project-freshness.sh         # Freshness pass: trufflehog + key-shape scan + dependency audits (report-first; --fix to remediate)
 ```
 
 Adapt these based on the chosen tech stack:

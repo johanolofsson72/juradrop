@@ -57,6 +57,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 SCRIPT="$PWD/scripts/template-autosync.sh"
 [ -f "$SCRIPT" ] || { echo "FAIL: template-autosync.sh not found"; exit 1; }
+. "$PWD/scripts/drive-sync.sh"                 # the only way to the sync (spec 011)
 
 PASS=0; FAIL=0; SKIP=0
 ok()   { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -132,7 +133,7 @@ EOF
 
 echo "== unlisted_core_shaped — five ownership cases in one run"
 R=$(build_five_way)
-OUT=$(CLAUDE_PROJECT_DIR="$R" bash "$SCRIPT" --unlisted 2>/dev/null); RC=$?
+OUT=$(DRIVE_SYNC_SCRIPT="$SCRIPT" drive_sync "$R" "$TMP" --unlisted 2>/dev/null); RC=$?
 
 has   "AC-01 real code dependency in a CORE .sh is flagged"        "$OUT" "scripts/real-dep-helper.sh"
 hasnt "AC-02 whole-line comment in a CORE .sh is not a dependency" "$OUT" "scripts/prose-only-helper.sh"
@@ -162,7 +163,7 @@ echo "== the empty answer is exit 1, not exit 0"
 R2="$TMP/quiet"; rm -rf "$R2"; mkdir -p "$R2/.git" "$R2/.claude/rules" "$R2/scripts"
 printf 'sha=deadbeef\nsynced=2026-01-01T00:00:00Z\nsource=/dev/null\n# manifest\n' > "$R2/.claude/.template-sync"
 : > "$R2/scripts/nobody-names-me.sh"
-OUT2=$(CLAUDE_PROJECT_DIR="$R2" bash "$SCRIPT" --unlisted 2>/dev/null); RC2=$?
+OUT2=$(DRIVE_SYNC_SCRIPT="$SCRIPT" drive_sync "$R2" "$TMP" --unlisted 2>/dev/null); RC2=$?
 same "AC-05 no findings exits 1" "$RC2" "1"
 same "AC-05 no findings print nothing" "$OUT2" ""
 
@@ -203,7 +204,10 @@ names = [n for n in m.group(1).split()
          if 'scenario-map' not in n]
 open(dst, 'w', encoding='utf-8').write(s[:m.start(1)] + '\n'.join(names) + s[m.end(1):])
 PYEOF
-  COUT=$(CLAUDE_PROJECT_DIR="$C" bash "$ERA" --unlisted 2>/dev/null)
+  # The era copies predate CLAUDE_TEMPLATE_SYNC_SANDBOX and ignore it; declaring it anyway costs
+  # nothing, and every call in this file goes through drive_sync, era copy or not. That is why the
+  # requirement is on the TEST (name your target) and not only on the script. Spec 011.
+  COUT=$(DRIVE_SYNC_SCRIPT="$ERA" drive_sync "$C" "$TMP" --unlisted 2>/dev/null)
   CN=$(printf '%s\n' "$COUT" | grep -c 'scripts/')
   same "AC-08 corpus still yields four findings" "$CN" "4"
   has  "AC-08 scenario-map-layout.sh"      "$COUT" "scripts/scenario-map-layout.sh"
@@ -234,7 +238,7 @@ PYEOF
 if [ $? -ne 0 ]; then
   bad "AC-09 sabotage anchor not found — the rule was reworded and this arm can no longer aim"
 else
-  SOUT=$(CLAUDE_PROJECT_DIR="$R" bash "$SAB" --unlisted 2>/dev/null)
+  SOUT=$(DRIVE_SYNC_SCRIPT="$SAB" drive_sync "$R" "$TMP" --unlisted 2>/dev/null)
   has "AC-09 without the rule, .sh prose is reported again"     "$SOUT" "scripts/prose-only-helper.sh"
   has "AC-09 without the rule, .py prose is reported again"     "$SOUT" "scripts/py-prose-helper.sh"
   has "AC-09 the real dependency is unaffected by the sabotage" "$SOUT" "scripts/real-dep-helper.sh"
@@ -261,7 +265,7 @@ PYEOF
 if [ $? -ne 0 ]; then
   bad "AC-12 sabotage anchor not found — the lookup was reworded and this arm can no longer aim"
 else
-  SOUT2=$(CLAUDE_PROJECT_DIR="$R" bash "$SAB2" --unlisted 2>/dev/null)
+  SOUT2=$(DRIVE_SYNC_SCRIPT="$SAB2" drive_sync "$R" "$TMP" --unlisted 2>/dev/null)
   has "AC-12 without the lookup, the declared script is reported"  "$SOUT2" "scripts/declared-optional-helper.sh"
   SAB2_ROW=$(printf '%s\n' "$SOUT2" | grep -F 'scripts/declared-elsewhere-helper.sh')
   has "AC-12 and the declaring file reappears as a referrer"       "$SAB2_ROW" "bash-write-detect-hook.sh"
@@ -301,7 +305,7 @@ PYEOF
 if [ $? -ne 0 ]; then
   bad "AC-13 CORE_SCRIPTS anchor not found — the list was reshaped and this arm cannot aim"
 else
-  TOUT=$(CLAUDE_PROJECT_DIR="$TR" bash "$TWO" --unlisted 2>/dev/null); TRC=$?
+  TOUT=$(DRIVE_SYNC_SCRIPT="$TWO" drive_sync "$TR" "$TMP" --unlisted 2>/dev/null); TRC=$?
   same "AC-13 a missing name is a finding, so exit 0"        "$TRC"  "0"
   has  "AC-13 the missing name is reported"                  "$TOUT" "scripts/vanished-core.sh"
   has  "AC-13 and the report says why it matters"            "$TOUT" "no such file"

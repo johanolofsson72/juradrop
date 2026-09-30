@@ -67,8 +67,11 @@ written or edited:
 
 - **Any diagnostic with `severity: error` blocks.** The errors come back as `line:col message`, so
   the file gets fixed in the turn that wrote it.
-- **Warnings and info never block.** The CLI exits 1 on a warning, and the deferred location-hint
-  lint warns on nearly every spec, so the hook reads severities, never the exit code.
+- **Warnings and info never block.** The CLI exits 1 on a warning, so the hook reads severities,
+  never the exit code. Warnings are advice.
+- **CLI floor 3.3.0.** Before it, the deferred location-hint lint warned on every `deferred`, even
+  the documented `deferred X -- see: path.allium`. On an older CLI the hook tells the model once per
+  session and names the upgrade. A version it cannot read gets no note.
 - **A report it cannot read blocks** (crash, non-JSON, a 30 s timeout). An unreadable report is not
   a clean file.
 - **No CLI installed → pass, with one notice per session** saying nothing was validated.
@@ -81,6 +84,6 @@ Until 2026-09-26 this section said validation was automatic, and nothing ran it.
 592 baselines with errors, 107 of them declaring the current `-- allium: 3`. The cause was not
 grammar drift: the skill's own reference example did not parse, and elicits copied it.
 
-Install the CLI via:
-- Homebrew: `brew tap juxt/allium && brew install allium`
+Install the CLI (3.3.0 or later) via:
+- Homebrew: `brew tap juxt/allium && brew install allium` (upgrade: `brew upgrade juxt/allium/allium`)
 - Cargo: `cargo install allium-cli`

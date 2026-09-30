@@ -121,5 +121,6 @@ A spec is NOT complete unless:
 5. The destructive suite **per interactive function** is sized to its input domain (equivalence partitions + boundaries + applicable categories), not a flat quota — sized individually per function, NOT a single number for the whole spec
 6. All relevant attack categories covered per function
 7. Tests describe what they verify, not just what they do
+8. The spec's screens run in the shared suite at every viewport (375px and 1280px) and assert no horizontal overflow. The width comes from the shared config, never from a `SetViewportSize` in this spec's tests (`testing.md`, Viewports)
 
 **The functional coverage check is the most important item.** A spec with a destructive suite but only 3 out of 12 functions tested is NOT complete — and a single destructive block covering the whole spec is itself non-compliant: each interactive function gets its own suite, sized to its own input domain. And remember the count is only the floor: the actual gate is the mutation kill rate (~80% on critical modules) — a spec that hits its counts but whose tests don't kill mutants is NOT done.

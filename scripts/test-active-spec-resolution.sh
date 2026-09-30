@@ -116,6 +116,7 @@ import json,sys
 try:
     d = json.load(sys.stdin)
     h = d.get("hookSpecificOutput", {})
+    if h and h.get("hookEventName") != "PreToolUse": print("DROPPED"); raise SystemExit  # spec 029: the CLI discards it
     reason = h.get("permissionDecisionReason", "").splitlines()
     print(h.get("permissionDecision", "?").upper() + " " + (reason[0] if reason else ""))
 except Exception:
@@ -419,6 +420,141 @@ if want dotted && [ "$EXPECT_PREFIX" -eq 0 ]; then
   check "interview-guard" "$I" allow
 fi
 
+# ------------------------------------------------- MALFORMEDID / NORESOLVER / UNREADABLE
+# Spec 076 (found as consultpilot Q2 / H7ai; consultpilot SC-1433, SC-1434).
+# Three different causes used to reach ONE deny text (exit 98): the resolver
+# failing to import, the register being unreadable, and a readable register whose
+# active row carries an id outside the grammar. The third sent every reader to
+# verify a resolver and a register that were both healthy. It now has its own
+# exit (97) and its own text; the first two keep 98's text unchanged. All three
+# still DENY — the fail-closed property is the point of the gate.
+#
+# Skipped at --expect-prefix: the pre-007m guards predate spec_active.py, so
+# there is no 97/98 split there to observe.
+#
+# The full reason, flattened to one line, for assertions beyond the first line.
+full_reason() {
+  _guard="$1"; _root="$2"
+  printf '{"tool_input":{"file_path":"%s/src/App.cs"}}' "$_root" \
+    | CLAUDE_PROJECT_DIR="$_root" bash "$_guard" 2>/dev/null \
+    | python3 -c '
+import json,sys
+try:
+    h = json.load(sys.stdin).get("hookSpecificOutput", {})
+    if h and h.get("hookEventName") != "PreToolUse": print("DROPPED"); raise SystemExit  # spec 029: the CLI discards it
+    print(h.get("permissionDecision", "?").upper() + " " + " ".join(h.get("permissionDecisionReason", "").split()))
+except Exception:
+    print("ALLOW")' 2>/dev/null
+}
+has() {
+  _label="$1"; _hay="$2"; _needle="$3"
+  CHECKS=$((CHECKS + 1))
+  case "$_hay" in
+    *"$_needle"*) printf '  ✓ %s\n' "$_label" ;;
+    *) printf '  ✗ %s — missing "%s" in: %s\n' "$_label" "$_needle" "$_hay"; FAILURES=$((FAILURES + 1)) ;;
+  esac
+}
+lacks() {
+  _label="$1"; _hay="$2"; _needle="$3"
+  CHECKS=$((CHECKS + 1))
+  case "$_hay" in
+    *"$_needle"*) printf '  ✗ %s — unexpectedly contains "%s"\n' "$_label" "$_needle"; FAILURES=$((FAILURES + 1)) ;;
+    *) printf '  ✓ %s\n' "$_label" ;;
+  esac
+}
+OLD98_HEAD="DENY BLOCKED — cannot determine which spec is active."
+OLD98_BODY="but the canonical resolver (scripts/spec_active.py) could not be loaded or the register could not be parsed."
+R_MALFORMED_S=""
+
+if want malformedid && [ "$EXPECT_PREFIX" -eq 0 ]; then
+  # consultpilot SC-1433 — a malformed active id denies with a reason naming the
+  # token, the row status, the register path and the grammar's location.
+  echo "FIXTURE malformedid — a malformed active id denies, naming the token and the grammar"
+  ROOT=$(make_fixture malformedid '# Spec register
+
+## Specs
+
+- [x] 007 — preview — full track — done
+- [/] 7-x — malformed-id — spec-only — in progress')
+  for pair in "state-guard:$GUARD_STATE" "interview-guard:$GUARD_INTERVIEW"; do
+    _name="${pair%%:*}"; _g="${pair#*:}"
+    R=$(full_reason "$_g" "$ROOT")
+    [ "$_name" = "state-guard" ] && R_MALFORMED_S="$R"
+    has   "$_name — denies"                          "$R" "DENY "
+    has   "$_name — names the token"                 "$R" '"7-x"'
+    has   "$_name — names the row status"            "$R" 'status "[/]"'
+    has   "$_name — names the register path"         "$R" "$ROOT/specs/INDEX.md"
+    has   "$_name — says the register was read"      "$R" "was read without error"
+    has   "$_name — says the active row was found"   "$R" "the active row"
+    has   "$_name — points at NUMERIC_ID_RE"         "$R" "NUMERIC_ID_RE"
+    has   "$_name — points at ALPHA_ID_RE"           "$R" "ALPHA_ID_RE"
+    lacks "$_name — does not reuse the 98 text"      "$R" "could not be loaded"
+  done
+  # The regex constants the text names must be the ones spec_active.py defines,
+  # or the pointer is itself a stale citation.
+  for const in NUMERIC_ID_RE ALPHA_ID_RE; do
+    CHECKS=$((CHECKS + 1))
+    if grep -q "^$const = re.compile" "$GUARD_DIR/spec_active.py"; then
+      printf '  ✓ spec_active.py still defines %s\n' "$const"
+    else
+      printf '  ✗ the deny cites %s but spec_active.py does not define it\n' "$const"; FAILURES=$((FAILURES + 1))
+    fi
+  done
+fi
+
+if want noresolver && [ "$EXPECT_PREFIX" -eq 0 ]; then
+  # consultpilot SC-1434 — the resolver cannot be imported: the pre-existing 98
+  # text, unchanged, and distinct from the malformed-id text. The guards are
+  # copied to a directory WITHOUT spec_active.py (they locate it beside
+  # themselves), and the register is otherwise healthy.
+  echo "FIXTURE noresolver — spec_active.py missing: the unchanged resolver-failure text"
+  BARE="$WORK/bare-guards"; mkdir -p "$BARE"
+  cp "$GUARD_STATE" "$GUARD_INTERVIEW" "$BARE/"
+  ROOT=$(make_fixture noresolver '# Spec register
+
+## Specs
+
+- [/] 007 — healthy — spec-only — in progress')
+  for name in pipeline-state-guard-hook.sh spec-interview-guard-hook.sh; do
+    R=$(full_reason "$BARE/$name" "$ROOT")
+    has "$name — denies with the 98 heading"     "$R" "$OLD98_HEAD"
+    has "$name — keeps the 98 body"              "$R" "$OLD98_BODY"
+    lacks "$name — not the malformed-id text"    "$R" "does not recognise"
+  done
+  R_NORESOLVER_S=$(full_reason "$BARE/pipeline-state-guard-hook.sh" "$ROOT")
+  if [ -n "$R_MALFORMED_S" ]; then
+    CHECKS=$((CHECKS + 1))
+    if [ "$R_MALFORMED_S" != "$R_NORESOLVER_S" ]; then
+      printf '  ✓ the malformed-id text and the resolver-missing text differ\n'
+    else
+      printf '  ✗ the malformed-id text and the resolver-missing text are identical\n'; FAILURES=$((FAILURES + 1))
+    fi
+  fi
+fi
+
+if want unreadable && [ "$EXPECT_PREFIX" -eq 0 ]; then
+  # The register exists but cannot be read: RegisterUnreadable -> 98, unchanged.
+  echo "FIXTURE unreadable — register mode 000: the unchanged resolver-failure text"
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "  - skipped: running as root, mode 000 does not stop root reading the file"
+  else
+    ROOT=$(make_fixture unreadable '# Spec register
+
+## Specs
+
+- [/] 007 — healthy — spec-only — in progress')
+    chmod 000 "$ROOT/specs/INDEX.md"
+    for pair in "state-guard:$GUARD_STATE" "interview-guard:$GUARD_INTERVIEW"; do
+      _name="${pair%%:*}"; _g="${pair#*:}"
+      R=$(full_reason "$_g" "$ROOT")
+      has   "$_name — denies with the 98 heading"  "$R" "$OLD98_HEAD"
+      has   "$_name — keeps the 98 body"           "$R" "$OLD98_BODY"
+      lacks "$_name — not the malformed-id text"   "$R" "does not recognise"
+    done
+    chmod 644 "$ROOT/specs/INDEX.md"   # so the EXIT trap's rm -rf can clean up
+  fi
+fi
+
 # ---------------------------------------------------------------------------
 # spec-register-guard must resolve the PROJECT ROOT the same way the other two
 # do. It used to pin the root to whichever directory held a language marker, so
@@ -447,6 +583,7 @@ nested_guard() {
 import json,sys
 try:
     d=json.load(sys.stdin); h=d.get("hookSpecificOutput",{})
+    if h and h.get("hookEventName") != "PreToolUse": print("DROPPED"); raise SystemExit  # spec 029: the CLI discards it
     r=h.get("permissionDecisionReason","").splitlines()
     print(h.get("permissionDecision","?").upper()+" "+(r[0] if r else ""))
 except Exception: print("ALLOW")'

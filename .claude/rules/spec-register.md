@@ -51,9 +51,10 @@ Status markers:
 - **Declare which end is newest** in the heading: `## Register history (newest first)` or `(newest last)`. Undeclared and ambiguous → the archiver moves nothing and exits 5.
 - **Never load the history section as pipeline input.**
 - **A row is 300 bytes** — `scripts/archive-completed-rows.sh` reports rows over `--max-bytes` (default 300).
+- **Prose lives outside the register** — explainers, dependency tables and rule commentary go in `specs/INDEX.notes.md` with a one-line pointer. The 25 KB canary splits the file with `scripts/register-bytes.sh` (rows / history / prose) and names only the moves that exist; a register where every part complies gets one info line, not a warning.
 - **A row is a pointer; the diagnosis lives in one of two archives** — ticked rows verbatim in `specs/INDEX.completed.md`, not-started diagnoses in `specs/INDEX.pending.md` (moved to completed on tick). Neither is pipeline input. A row must still be a self-sufficient pointer: what is wrong, where, which archive holds the rest — never "fix the thing".
 - **Preserve first, shorten second** — shorten a row only once its long form is archived; `archive-completed-rows.sh` labels rows `shortenable` or `archive first`. Run it when you tick a row.
-- **Never pick a row id by eye** — `bash scripts/next-register-id.sh` (`--count N`, `--alpha S`, `--checkpoint`); `scripts/validate-register-ids.sh` catches collisions.
+- **Never pick a row id by eye** — `bash scripts/next-register-id.sh` (`--count N`, `--alpha S`, `--checkpoint`, `--suffix NNN` for a carved row); `scripts/validate-register-ids.sh` catches collisions.
 - **Ticking a row is an Edit, not a rewrite** — surgical `Edit` of `- [ ]` → `- [x]`.
 - **A tick is refused while the project owes the template CORE work** (`scripts/core-owed-tick-guard-hook.sh`). Fix by landing the change in the template and syncing back — not by the override.
 
@@ -65,7 +66,7 @@ Status markers:
 bash scripts/spec-run-log-hook.sh --note "mutation gate FAILED — 41% on AuthService, tests are theatre"
 ```
 
-One line per entry. Not pipeline input; SessionStart shows the last 5 lines while the row is `- [/]`.
+One line per entry. Not pipeline input; SessionStart shows the last 5 lines while the row is `- [/]`. Without `--spec` the note goes to the row you would work next, which skips held and ticked rows. When you hold or tick a row, name it: `--spec 049` works at any status.
 
 ## The status summary (the one stop per spec)
 
@@ -78,6 +79,7 @@ One line per entry. Not pipeline input; SessionStart shows the last 5 lines whil
 - Pipeline: spec → interview (<I> answers, <interview mode>) → <clarify status> → <allium status> → impl → <N> functional + <M> destructive browser tests → <tla status>
 - Hardening: <hardening status>
 - Open findings: <count> (or "none")
+- Row proposals: <count from this spec, each with its review verdict> (or "none")
 - Maintenance due: <what ticking this row just made stale, or "nothing">
 
 **Next: NNN — <slug>** (or "register complete")
@@ -89,7 +91,7 @@ One line per entry. Not pipeline input; SessionStart shows the last 5 lines whil
 
 Fields: `<I> answers, <interview mode>` — count in `interview.md` (≥15), mode `auto` / `auto +N overflow` / `manual`. `<clarify status>` — `clarify auto-picked N answers` / `clarify clean (no questions raised)` / `clarify deferred N questions to user`. `<allium status>` — `allium ok` / `allium skipped (spec-only track)` / `allium with N open questions surfaced`. `<tla status>` — `tla clean` / `tla skipped (spec-only or trivial state)` / `tla with N gaps surfaced`. `<hardening status>` — `n/a (not a hardened spec)` / `threat-model + stress + mutation-gate + adversarial-review all passed` / `hardened with N findings surfaced`; a checkpoint row reads `integration checkpoint: regression + security sweep + scenario reconciliation + mutation spot-check — <result>`. `Maintenance due` — from `bash scripts/maintenance-due.sh --brief`, never composed by hand. Non-zero open findings must already have been surfaced individually (`validation-followup.md`).
 
-After the summary, stop. No follow-up question — the stop **is** the question.
+After the summary, stop. No follow-up question — the stop **is** the question. One exception: when this spec recorded row proposals, put them in the same stop with one `AskUserQuestion`. Ask one question per proposal with **Approve** and **Decline** as the options, and state the proposal's need and its `finding.sh --review --proposals` verdict (duplicate, missing citation). Apply the answers with `finding.sh --approve / --decline`.
 
 ## Register rewrite exception (the legitimate mid-spec stop)
 

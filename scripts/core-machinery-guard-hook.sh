@@ -32,6 +32,7 @@
 #   - the root IS the template repository (that is where the change belongs)
 #   - the root has no scripts/template-autosync.sh (no sync, so no owner to defer to)
 #   - the classifier says not CORE, or cannot answer at all
+#   - the write leaves the file byte-identical to the template clone's copy (spec 039)
 #
 # Fails OPEN, deliberately, and the other way round from pipeline-state-guard. That
 # guard protects a process this project committed to, so a resolution failure there
@@ -141,6 +142,54 @@ for cand in "${CLAUDE_TEMPLATE_DIR:-}" "$HOME/repos/Claude" "$HOME/repos/claude"
     TEMPLATE_DIR="$cand"; break
   fi
 done
+
+# ------------------------------------------------- the write that changes nothing (spec 039)
+# The path alone said CORE, and that used to be the whole verdict. So the first sync on a fresh
+# project, placing every CORE file with the template's own bytes, was refused by the guard that
+# exists to keep those files equal to the template (hetznerradar, 2026-09-07, scripts/tlc-cleanup.sh).
+# The only way through was ALLOW_CORE_MACHINERY_EDIT=1, and an override spent on routine bootstrap
+# stops meaning anything by the time a real local repair needs it.
+#
+# A write that leaves the file byte-identical to <template>/<rel> diverges from nothing. So compute
+# the bytes the tool call would leave on disk and compare them. Write carries them; Edit and
+# MultiEdit are applied to the current file here, first occurrence or replace_all, with split/join
+# so no offset is ever computed and non-ASCII content cannot shift one.
+#
+# Every doubt denies. No template clone, no template copy of the file, a payload with no bytes
+# (the Bash route hands this guard a path only), an Edit on a file that does not exist, an
+# old_string that is not there, a jq that fails, a CRLF translation on some platform's jq: each one
+# falls through to the deny below, which is what this guard did before. The allow has to be proven.
+if [ -n "$TEMPLATE_DIR" ] && [ -f "$TEMPLATE_DIR/$REL" ]; then
+  if [ -f "$FILE" ] && [ -r "$FILE" ]; then CUR="$FILE"; EXISTS=true
+  else CUR=/dev/null; EXISTS=false; fi
+  RESULT_TMP=$(mktemp 2>/dev/null || mktemp -t coreguard 2>/dev/null) || RESULT_TMP=""
+  if [ -n "$RESULT_TMP" ]; then
+    if printf '%s' "$INPUT" | jq -j --rawfile cur "$CUR" --argjson exists "$EXISTS" '
+        def apply($e):
+          ($e.old_string // "") as $o | ($e.new_string // "") as $n |
+          if ($o | type) != "string" or $o == "" or ($n | type) != "string" then error("unusable edit")
+          elif ($e.replace_all // false) == true then split($o) | join($n)
+          else split($o) as $p
+            | if ($p | length) < 2 then error("old_string not found")
+              else $p[0] + $n + ($p[1:] | join($o)) end
+          end;
+        .tool_input as $t
+        | if ($t | has("content")) then
+            (if ($t.content | type) == "string" then $t.content else error("content is not a string") end)
+          elif ($t | has("edits")) then
+            (if $exists then reduce $t.edits[] as $e ($cur; apply($e)) else error("no current file") end)
+          elif ($t | has("old_string")) then
+            (if $exists then $cur | apply($t) else error("no current file") end)
+          else error("no bytes in this payload") end
+      ' > "$RESULT_TMP" 2>/dev/null \
+       && cmp -s "$RESULT_TMP" "$TEMPLATE_DIR/$REL"; then
+      rm -f "$RESULT_TMP"
+      exit 0
+    fi
+    rm -f "$RESULT_TMP"
+  fi
+fi
+
 if [ -n "$TEMPLATE_DIR" ]; then
   WHERE="  $TEMPLATE_DIR/$REL
 
@@ -166,6 +215,8 @@ Ask the classifier yourself about any path:
 
   bash scripts/template-autosync.sh --is-core <project-relative-path>
   # 0 = CORE (the template owns it) · 1 = yours · 2 = cannot answer
+
+A write whose bytes are byte-identical to the template's copy passes this guard on its own, so a sync placing the template's file is never what gets refused here. This write would leave the file different from the template — or there was no template clone to compare it with, and then nothing proves it harmless.
 
 If you are knowingly making a temporary local repair — restoring work a sync deleted, say — set ALLOW_CORE_MACHINERY_EDIT=1 for the session. It still has to land in the template afterwards, or the next sync takes it back.
 

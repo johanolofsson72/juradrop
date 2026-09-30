@@ -41,8 +41,10 @@ set -u
 INPUT=$(cat)
 
 # The extensions this guard blocks. One list, read by both the raw precheck below and step 2, so the
-# precheck can never quietly disagree with the test it stands in front of.
-SOURCE_EXTS='cs|ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm'
+# precheck can never quietly disagree with the test it stands in front of. Markup and stylesheets are
+# source too (spec 032): fundit's 016a shipped a whole static site as .html/.css with no spec at all.
+# The three path guards carry this list byte-identical; test-spec-dir-absent.sh fails if one drifts.
+SOURCE_EXTS='cs|ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|rb|php|swift|kt|kts|cpp|cxx|cc|c|h|hpp|hxx|razor|cshtml|vbhtml|vue|svelte|astro|dart|scala|clj|cljs|ex|exs|erl|hrl|fs|fsx|fsi|hs|elm|lua|jl|nim|zig|sh|bash|zsh|pl|pm|html|htm|css|scss|sass|less'
 
 # Cheapest exit first (spec 073, R9). This hook runs on every Edit/Write in every project, and nearly
 # every one of those is to a file it ignores — but the extension test in step 2 needs FILE, and FILE
@@ -113,6 +115,20 @@ done
 [ -z "$LANG_MARKER" ] && exit 0   # template/scratch repo — no code project
 [ -z "$REGISTER" ] && exit 0      # no spec register up to the git root
 
+# 3b) MID-MERGE (row 059, agentcrm F094). Ticking a row moves "the active spec" on, and the merge that
+# closes the previous row finishes AFTER the tick — so an edit the merge still needs was judged against
+# a spec that had not started, and denied. While MERGE_HEAD exists, a file that either side of the
+# merge changed since the merge base is part of finishing that merge, not new work, and passes.
+# Scoped to that set on purpose: "any edit while a merge is open" would make `git merge --no-commit`
+# a way past this guard. A file neither side touched is judged as usual. If git cannot answer, the
+# check falls through to the normal verdict — never to allow.
+if git -C "$GIT_ROOT" rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+  REL="${FILE#"$GIT_ROOT"/}"
+  MERGE_FILES=$(git -C "$GIT_ROOT" diff --name-only HEAD...MERGE_HEAD 2>/dev/null
+                git -C "$GIT_ROOT" diff --name-only MERGE_HEAD...HEAD 2>/dev/null)
+  grep -qxF -- "$REL" <<< "$MERGE_FILES" && exit 0
+fi
+
 # 4) Parse register + check artifacts in Python (regex + filesystem)
 HOOK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -167,8 +183,20 @@ if kind == "none":
 if kind == "checkpoint":
     sys.exit(0)
 
+# An unrecognized ID FORM is not the same fact as "the register could not be
+# read", and merging them cost a project 56 register rows (consultpilot H7b). 98's
+# text says the resolver could not be loaded or the register could not be parsed
+# — both healthy, every time — so the reader was sent to verify a file that was
+# fine while the actual defect (the id grammar) stood for 18 days. Consultpilot
+# fixed it locally and two template syncs reverted it, because the fix never
+# lived here (spec 076, found as consultpilot Q2 / H7ai).
+#
+# Still DENY. Without a usable id there is no way to tell whether this row owes
+# artifacts, and answering "allow" would be choosing the checkpoint reading with
+# no evidence — fail-open, the defect 007m was opened for.
 if kind == "unparseable":
-    sys.exit(98)
+    print(json.dumps({"token": info["id"], "status": info["status"]}))
+    sys.exit(97)
 
 num = info["id"]
 track = info["track"]
@@ -240,6 +268,36 @@ sys.exit(99)
 PY
 )
 RC=$?
+
+# 97 — the register was READ, the active row was FOUND, and only its id token is
+# outside the grammar. Deny (same verdict as 98) but never the same text: 98's
+# text sends the reader to check that scripts/spec_active.py exists, and here it
+# does. See the comment at the sys.exit(97) above.
+if [ "$RC" -eq 97 ]; then
+  TOKEN=$(printf '%s' "$RESULT" | jq -r '.token // "(empty)"')
+  ROWSTATUS=$(printf '%s' "$RESULT" | jq -r '.status // "?"')
+  REASON="BLOCKED — the active register row has an id this parser does not recognise: \"${TOKEN}\"
+
+The register at ${REGISTER} was read without error and the active row (status \"[${ROWSTATUS}]\") was found. Its track, owner and slug all parsed. The ONE thing that failed is sorting the id token into a known form, and without that there is no way to tell whether this row owes pipeline artifacts (a spec) or owes none (a checkpoint).
+
+This denies rather than guesses. Guessing 'no artifacts owed' is fail-open, which is the defect the resolver was written to remove.
+
+The id grammar lives in scripts/spec_active.py (NUMERIC_ID_RE / ALPHA_ID_RE):
+  numeric-led : 007, 007m, 007ab, 501.1
+  letter-led  : H1, H6a, H6s2, F2b        (letters, then a digit, then anything alphanumeric)
+Anything else — a hyphen, letters with no digit, a dot anywhere but between digits — is malformed.
+
+To fix, do ONE of:
+  1. Correct the row's id in specs/INDEX.md to one of the two forms above.
+  2. If \"${TOKEN}\" IS the house convention and the grammar is what is behind,
+     widen the grammar in scripts/spec_active.py and add a case to
+     scripts/test-register-ids.sh so it cannot narrow again.
+  Check either with:  bash scripts/validate-register-ids.sh
+
+Markdown, config, .claude/**, scripts/** and specs/** edits remain allowed, so you can fix the register or the grammar right now."
+  jq -n --arg r "$REASON" '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
+  exit 0
+fi
 
 # Fail CLOSED when resolution itself fails (spec 007m FR-007m-04).
 #

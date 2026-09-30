@@ -153,6 +153,103 @@ EMPTY=$(make_empty_split_fixture)
 expect_warns "empty specs/scenarios/: silent" "$EMPTY" orientation ""
 expect_warns "empty specs/scenarios/: silent" "$EMPTY" maintenance ""
 
+# ============================================================ the remedy fits the file (row 008)
+echo "remedy — a map is not shrunk by the INDEX.md archivers"
+
+# orientation_says <root> <needle> — 0 when the SessionStart banner contains the needle.
+orientation_says() {
+    _banner=$( cd "$1" && bash "$SCRIPT_DIR/spec-register-orientation-hook.sh" </dev/null 2>&1 )
+    grep -Fq -e "$2" <<< "$_banner"
+}
+if orientation_says "$BIG" "the archivers do not shrink it"; then
+    ok "oversized map: the banner names the map remedy"
+else
+    bad "oversized map: the banner names the map remedy" "no 'the archivers do not shrink it' line"
+fi
+if orientation_says "$BIGIDX" "the archivers do not shrink it"; then
+    bad "oversized register only: no map remedy" "the map line appeared for INDEX.md alone"
+else
+    ok "oversized register only: no map remedy"
+fi
+
+# The fixtures are not git repos, so finding.sh must resolve to the fixture and never climb into
+# the template's own ledger. Hashed rather than trusted.
+TEMPLATE_LEDGER="$SCRIPT_DIR/../specs/FINDINGS.md"
+LEDGER_BEFORE=$(cat "$TEMPLATE_LEDGER" 2>/dev/null | cksum)
+cp "$SCRIPT_DIR/finding.sh" "$BIG/scripts/finding.sh" 2>/dev/null || { mkdir -p "$BIG/scripts"; cp "$SCRIPT_DIR/finding.sh" "$BIG/scripts/finding.sh"; }
+( cd "$BIG" && bash "$SCRIPT_DIR/project-maintenance.sh" >/dev/null 2>&1 )
+if grep -Fq "scenario-map canary: specs/SCENARIOS.md " "$BIG/specs/FINDINGS.md" 2>/dev/null; then
+    ok "oversized map: recorded in the fixture's own ledger"
+else
+    bad "oversized map: recorded in the fixture's own ledger" "no scenario-map canary line in $BIG/specs/FINDINGS.md"
+fi
+if [ "$(cat "$TEMPLATE_LEDGER" 2>/dev/null | cksum)" = "$LEDGER_BEFORE" ]; then
+    ok "the template's own specs/FINDINGS.md is untouched"
+else
+    bad "the template's own specs/FINDINGS.md is untouched" "it changed during the run"
+fi
+
+# ============================================================ the register is measured by part (row 017)
+echo "register — the advice follows the bytes"
+
+# orientation_raw <root> — the SessionStart banner text, whole.
+orientation_raw() { ( cd "$1" && bash "$SCRIPT_DIR/spec-register-orientation-hook.sh" </dev/null 2>&1 ); }
+maintenance_raw() { ( cd "$1" && bash "$SCRIPT_DIR/project-maintenance.sh" 2>&1 ); }
+says()    { if grep -Fq -e "$2" <<< "$3"; then ok "$1"; else bad "$1" "no '$2'"; fi; }
+silent_on() { if grep -Fq -e "$2" <<< "$3"; then bad "$1" "unexpected '$2'"; else ok "$1"; fi; }
+
+# The fixtures' INDEX.md must reach the helper the way a synced project does: in scripts/.
+with_helper() { mkdir -p "$1/scripts"; cp "$SCRIPT_DIR/register-bytes.sh" "$1/scripts/"; }
+
+# agentcrm's shape: the bytes are prose inside ## Specs. The old canary named the row archiver.
+PROSE=$(make_single_file_fixture); with_helper "$PROSE"
+while [ "$(wc -c < "$PROSE/specs/INDEX.md" | tr -d ' ')" -le "$THRESH" ]; do
+    printf '| lane | owner | depends on | a dependency table written inside the Specs section |\n' >> "$PROSE/specs/INDEX.md"
+done
+expect_warns "prose-heavy register is named" "$PROSE" orientation "INDEX.md"
+BANNER=$(orientation_raw "$PROSE")
+says      "prose-heavy: the banner names the prose move"           "· prose: move the notes" "$BANNER"
+silent_on "prose-heavy: the banner does not name the row archiver" "archive-completed-rows" "$BANNER"
+MOUT=$(maintenance_raw "$PROSE")
+says      "prose-heavy: maintenance names the prose move"          "prose: move the notes" "$MOUT"
+silent_on "prose-heavy: maintenance does not name the row archiver" "archive-completed-rows" "$MOUT"
+
+# msroute's shape: every row inside budget, nothing left to archive. No move exists, so the
+# register is not actionable: no attention-mode canary, one info line, no red finding.
+# The rows go ABOVE the fixture's history heading: appended below it they are history entries,
+# and a register with 200 history entries has a move (the history archiver).
+ROWS=$(make_single_file_fixture); with_helper "$ROWS"
+ROWLINE='- [x] 001 — done-row — spec-only — a compliant ticked row, archived verbatim elsewhere'
+NROWS=$(( THRESH / ${#ROWLINE} + 1 ))
+awk -v row="$ROWLINE" -v n="$NROWS" '/^## Register history/ && !done { for (i = 0; i < n; i++) print row; print ""; done = 1 } { print }' \
+    "$ROWS/specs/INDEX.md" > "$ROWS/specs/INDEX.tmp" && mv "$ROWS/specs/INDEX.tmp" "$ROWS/specs/INDEX.md"
+if [ "$(wc -c < "$ROWS/specs/INDEX.md" | tr -d ' ')" -le "$THRESH" ]; then
+    bad "compliant register fixture" "INDEX.md did not pass the threshold — the cases below would prove nothing"
+fi
+expect_warns "compliant register: no canary" "$ROWS" orientation ""
+BANNER=$(orientation_raw "$ROWS")
+silent_on "compliant register: no CONTEXT-COST CANARY" "CONTEXT-COST CANARY" "$BANNER"
+says      "compliant register: the info line says why"   "every part complies; nothing archives it further" "$BANNER"
+MOUT=$(maintenance_raw "$ROWS")
+says      "compliant register: maintenance notes it"      "every part complies" "$MOUT"
+expect_warns "compliant register: not a maintenance finding" "$ROWS" maintenance ""
+
+# Helper absent (a partial sync): the canary keeps its old wording instead of going quiet.
+NOHELP=$(make_single_file_fixture)
+cp "$ROWS/specs/INDEX.md" "$NOHELP/specs/INDEX.md"
+# The hook resolves the helper from its own directory, so run a copy of the hook from a directory
+# that has no helper next to it.
+HOOKCOPY=$(mktemp -d "${FIXTURE_TMPDIR}/hook.XXXXXX")
+cp "$SCRIPT_DIR/spec-register-orientation-hook.sh" "$HOOKCOPY/"
+for dep in hook-notice.sh resolve-active-spec.sh spec_active.py; do
+    [ -f "$SCRIPT_DIR/$dep" ] && cp "$SCRIPT_DIR/$dep" "$HOOKCOPY/"
+done
+BANNER=$( cd "$NOHELP" && bash "$HOOKCOPY/spec-register-orientation-hook.sh" </dev/null 2>&1 )
+says "helper missing: the canary still fires"        "CONTEXT-COST CANARY" "$BANNER"
+says "helper missing: the old archiver advice stays" "archive-completed-rows" "$BANNER"
+MOUT=$(maintenance_raw "$NOHELP")
+says "helper missing: maintenance keeps the finding" "[CONTEXT-COST] specs/INDEX.md" "$MOUT"
+
 fixture_cleanup
 
 echo

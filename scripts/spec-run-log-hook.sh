@@ -27,7 +27,9 @@
 #   (hook)  stdin = PostToolUse payload → logs phase transitions when a pipeline
 #           artifact is written (spec.md, interview.md, spec.allium, plan.md,
 #           tasks.md). Deduped, so re-editing plan.md ten times logs once.
-#   (cli)   spec-run-log-hook.sh --note "<text>" [--spec <dir>]
+#   (cli)   spec-run-log-hook.sh --note "<text>" [--spec <id|dir>]
+#           --spec takes a register id (049, H1) at any status — held and
+#           ticked rows included (spec 049) — or a directory, which wins.
 #           Flags may be given in either order. Any argv at all selects CLI
 #           mode, so a malformed call is reported, never silently treated as
 #           a hook invocation (spec 495 / I-11).
@@ -181,28 +183,61 @@ if [ "$#" -gt 0 ]; then
         [ "$#" -ge 2 ] || _note_stop "--spec requires a value — note NOT recorded" 2
         DIR="$2"; shift 2 ;;
       *)
-        _note_stop "unknown argument: $1 (usage: --note \"<text>\" [--spec <dir>]) — note NOT recorded" 2 ;;
+        _note_stop "unknown argument: $1 (usage: --note \"<text>\" [--spec <id|dir>]) — note NOT recorded" 2 ;;
     esac
   done
   [ "$HAVE_NOTE" = 1 ] \
-    || _note_stop "no --note in: $* (usage: --note \"<text>\" [--spec <dir>]) — note NOT recorded" 2
+    || _note_stop "no --note in: $* (usage: --note \"<text>\" [--spec <id|dir>]) — note NOT recorded" 2
   # An empty note used to `exit 0` as "nothing was asked of us". It is far more
   # often `--note "$MSG"` with MSG unset, and treating that as a no-op is the same
   # silent-drop this script exists to refuse. Say it instead.
   [ -n "$NOTE" ] \
     || _note_stop "--note was given an empty value — note NOT recorded" 2
-  if [ -n "$DIR" ]; then
+  ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+  while [ "$ROOT" != "/" ] && [ -n "$ROOT" ]; do
+    [ -d "$ROOT/.git" ] && break
+    ROOT=$(dirname "$ROOT")
+  done
+  REG="$ROOT/specs/INDEX.md"
+
+  # Spec 049 — the way out, said on every implicit path that records nothing.
+  # The implicit path answers "which row should I work?" and skips held and
+  # ticked rows, which is right for that question and wrong for a note about
+  # the row just held or ticked. Nobody should have to read this file to learn
+  # that the row can be NAMED instead.
+  _way_out() {
+    _held=$(grep -E '^- \[!\] ' "$REG" 2>/dev/null \
+      | sed -E 's/^- \[!\][[:space:]]+\**([^[:space:]*]+).*/\1/' | tr '\n' ' ' | sed 's/ *$//; s/ /, /g')
+    printf 'a held or ticked row is named with --spec <id>%s' "${_held:+ (held: $_held)}"
+  }
+
+  if [ -n "$DIR" ] && [ ! -d "$DIR" ]; then
     # append_line answers a missing directory with a silent `return 0`, which is
-    # right for hook mode and wrong for a hand-typed path with a typo in it.
-    [ -d "$DIR" ] || _note_stop "spec directory does not exist: $DIR — note NOT recorded" 4
-  else
+    # right for hook mode and wrong for a hand-typed path with a typo in it. A
+    # value with a slash in it is a path, and stays one.
+    case "$DIR" in
+      */*) _note_stop "spec directory does not exist: $DIR — note NOT recorded" 4 ;;
+    esac
+    # Spec 049 — no slash and not a directory, so it may be a register id:
+    # `--spec 049`, `--spec H1`. An existing directory still wins (it always
+    # did), so no call that worked before is read any differently. The row's
+    # status plays no part: a held or ticked row is exactly the one a note is
+    # about.
+    [ -f "$RESOLVER" ] || _note_stop \
+      "spec directory does not exist: $DIR, and $RESOLVER is not there to read it as an id — note NOT recorded" 4
+    RC=0
+    OUT=$(bash "$RESOLVER" --root "$ROOT" --id "$DIR" 2>&1) || RC=$?
+    case "$RC" in
+      0) : ;;
+      2) _note_stop "--spec $DIR is neither a directory nor a register id — note NOT recorded" 2 ;;
+      *) _note_stop "no spec directory for id $DIR under $ROOT/specs (resolver exit $RC) — note NOT recorded" 4 ;;
+    esac
+    DIR_REL=$(printf '%s' "$OUT" | sed -n 's/.*"dir": *"\([^"]*\)".*/\1/p')
+    [ -n "$DIR_REL" ] && [ -d "$ROOT/$DIR_REL" ] || _note_stop \
+      "no spec directory for id $DIR under $ROOT/specs — note NOT recorded" 4
+    DIR="$ROOT/$DIR_REL"
+  elif [ -z "$DIR" ]; then
     # Resolve the active spec from the register: the "- [/]" row, else the first "- [ ]".
-    ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
-    while [ "$ROOT" != "/" ] && [ -n "$ROOT" ]; do
-      [ -d "$ROOT/.git" ] && break
-      ROOT=$(dirname "$ROOT")
-    done
-    REG="$ROOT/specs/INDEX.md"
     [ -f "$REG" ] || _note_stop "no specs/INDEX.md under $ROOT — note NOT recorded" 3
     [ -f "$RESOLVER" ] || _note_stop \
       "cannot resolve the active spec: $RESOLVER not found — note NOT recorded" 4
@@ -219,12 +254,12 @@ if [ "$#" -gt 0 ]; then
     OUT=$(bash "$RESOLVER" --root "$ROOT" 2>&1) || RC=$?
     case "$RC" in
       0) : ;;
-      3) _note_stop "no active spec row in $REG (every row ticked) — note NOT recorded" 3 ;;
+      3) _note_stop "no active spec row in $REG (every row ticked or held); $(_way_out) — note NOT recorded" 3 ;;
       *) _note_stop "cannot resolve the active spec (resolver exit $RC): ${OUT:-no output} — note NOT recorded" 4 ;;
     esac
     DIR_REL=$(printf '%s' "$OUT" | sed -n 's/.*"dir": *"\([^"]*\)".*/\1/p')
     [ -z "$DIR_REL" ] && _note_stop \
-      "cannot resolve the active spec: resolver named no directory — note NOT recorded" 4
+      "cannot resolve the active spec: resolver named no directory; $(_way_out) — note NOT recorded" 4
     [ -d "$ROOT/$DIR_REL" ] || _note_stop \
       "spec directory does not exist: $ROOT/$DIR_REL — note NOT recorded" 4
     DIR="$ROOT/$DIR_REL"

@@ -95,7 +95,7 @@ detect_stack() {
   fi
 
   # Augment with hard file markers (cheap, deterministic)
-  if ls ./*.csproj ./*.sln >/dev/null 2>&1 || find . -maxdepth 3 -name '*.csproj' 2>/dev/null | head -1 | grep -q .; then
+  if ls ./*.csproj ./*.sln >/dev/null 2>&1 || [ -n "$(find . -maxdepth 3 -name '*.csproj' 2>/dev/null)" ]; then
     case " $flags " in *" dotnet "*) :;; *) flags="$flags dotnet web" ;; esac
   fi
   if [ -f pubspec.yaml ] && grep -qE '^\s*(flutter:|sdk:\s*flutter)' pubspec.yaml 2>/dev/null; then

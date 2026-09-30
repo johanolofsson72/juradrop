@@ -87,7 +87,7 @@ if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
     SESSION_UI=""
     while IFS= read -r f; do
       [ -z "$f" ] && continue
-      if printf '%s\n' "$EDITED" | grep -qxF "$f"; then
+      if grep -qxF "$f" <<< "$EDITED"; then
         SESSION_UI="${SESSION_UI}${f}"$'\n'
       fi
     done <<< "$ALL_UI"

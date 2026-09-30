@@ -17,6 +17,8 @@ set -u
 
 SELF_DIR=$(cd "$(dirname "$0")" && pwd)
 HOOK="$SELF_DIR/core-machinery-guard-hook.sh"
+# Spec 029: read the verdict the way the CLI does — a deny without hookEventName is "dropped".
+. "$SELF_DIR/hook-verdict.sh"
 SYNC="$SELF_DIR/template-autosync.sh"
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  ok    %s\n' "$*"; }
@@ -56,7 +58,7 @@ run_hook() {          # $1 = file path, rest = VAR=VAL environment overrides
 JSON
 }
 
-decision() { printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null; }
+decision() { hook_verdict "$1"; }
 reason()   { printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null; }
 
 PROJ=$(make_project proj)
@@ -200,6 +202,114 @@ bash "$SYNC" --is-core >/dev/null 2>&1
 bash "$SYNC" --is-core --quiet >/dev/null 2>&1
 [ $? -eq 2 ] && ok "--is-core exits 2 rather than swallowing the next flag as a path" \
              || bad "--is-core swallowed a flag as its path argument"
+
+printf '\n[install] a write that leaves the file equal to the template copy (spec 039)\n'
+
+# A first sync places every CORE file with the template's own bytes, and the guard used to refuse
+# that on the path alone. These arms feed it the bytes and a template to compare them with. HOME
+# points away from the real clone, so the fixture template is the only one it can find.
+FTPL="$WORK/fixture-template"
+mkdir -p "$FTPL/scripts" "$FTPL/.claude/rules"
+: > "$FTPL/scripts/sync-prompt.md"
+printf '#!/usr/bin/env python3\nprint("template")\nprint("tail")\n' > "$FTPL/scripts/spec_active.py"
+printf 'rule — åäö ✓\n' > "$FTPL/.claude/rules/feature-pipeline.md"
+TPL_BYTES=$(cat "$FTPL/scripts/spec_active.py"; printf x); TPL_BYTES=${TPL_BYTES%x}
+
+INST=$(make_project inst)
+
+# Run the hook with a full tool_input object. $1 = tool name, $2 = tool_input JSON, rest = env.
+run_tool() {
+  _t="$1"; _i="$2"; shift 2
+  jq -cn --arg t "$_t" --argjson i "$_i" '{tool_name: $t, tool_input: $i}' \
+    | env CLAUDE_TEMPLATE_DIR="$FTPL" HOME="$WORK/no-home" "$@" bash "$HOOK" 2>/dev/null
+}
+write_input() { jq -cn --arg f "$1" --arg c "$2" '{file_path: $f, content: $c}'; }
+
+# ---- SC-039-01: Write, identical bytes ----------------------------------------
+OUT=$(run_tool Write "$(write_input "$INST/scripts/spec_active.py" "$TPL_BYTES")")
+[ -z "$OUT" ] && ok "SC-039-01 a Write equal to the template copy passes silently" \
+             || { bad "SC-039-01 a byte-identical Write was judged"; info "$OUT"; }
+
+# ---- SC-039-02: one trailing newline short ------------------------------------
+OUT=$(run_tool Write "$(write_input "$INST/scripts/spec_active.py" "${TPL_BYTES%?}")")
+[ "$(decision "$OUT")" = "deny" ] && ok "SC-039-02 a Write missing the final newline is denied" \
+                                  || { bad "SC-039-02 one byte short was allowed"; info "$OUT"; }
+
+# ---- SC-039-03: different content ---------------------------------------------
+OUT=$(run_tool Write "$(write_input "$INST/scripts/spec_active.py" "local change")")
+if [ "$(decision "$OUT")" = "deny" ]; then
+  ok "SC-039-03 a Write with different bytes is denied"
+  case "$(reason "$OUT")" in *"byte-identical"*) ok "  and the reason says an identical copy would pass" ;;
+    *) bad "  the reason does not mention the byte-identical pass (FR-08)" ;; esac
+else
+  bad "SC-039-03 a changing Write was allowed"; info "$OUT"
+fi
+
+# ---- SC-039-04 / 05 / 06: Edit ------------------------------------------------
+printf '#!/usr/bin/env python3\nprint("drifted")\nprint("tail")\n' > "$INST/scripts/spec_active.py"
+EI=$(jq -cn --arg f "$INST/scripts/spec_active.py" '{file_path: $f, old_string: "drifted", new_string: "template"}')
+OUT=$(run_tool Edit "$EI")
+[ -z "$OUT" ] && ok "SC-039-04 an Edit that restores the template copy passes silently" \
+             || { bad "SC-039-04 a restoring Edit was judged"; info "$OUT"; }
+
+EI=$(jq -cn --arg f "$INST/scripts/spec_active.py" '{file_path: $f, old_string: "drifted", new_string: "mine"}')
+OUT=$(run_tool Edit "$EI")
+[ "$(decision "$OUT")" = "deny" ] && ok "SC-039-05 an Edit that leaves a difference is denied" \
+                                  || { bad "SC-039-05 a diverging Edit was allowed"; info "$OUT"; }
+
+printf 'a\nb\na\n' > "$FTPL/scripts/spec_active.py"
+printf 'z\nb\nz\n' > "$INST/scripts/spec_active.py"
+EI=$(jq -cn --arg f "$INST/scripts/spec_active.py" '{file_path: $f, old_string: "z", new_string: "a", replace_all: true}')
+OUT=$(run_tool Edit "$EI")
+[ -z "$OUT" ] && ok "SC-039-06 replace_all is applied to every occurrence" \
+             || { bad "SC-039-06 replace_all result was judged"; info "$OUT"; }
+EI=$(jq -cn --arg f "$INST/scripts/spec_active.py" '{file_path: $f, old_string: "z", new_string: "a"}')
+OUT=$(run_tool Edit "$EI")
+[ "$(decision "$OUT")" = "deny" ] && ok "  and without replace_all only the first is, so it is denied" \
+                                  || { bad "  a single replacement was treated as replace_all"; info "$OUT"; }
+
+# ---- SC-039-07: MultiEdit ------------------------------------------------------
+printf 'z\nb\ny\n' > "$INST/scripts/spec_active.py"
+EI=$(jq -cn --arg f "$INST/scripts/spec_active.py" \
+  '{file_path: $f, edits: [{old_string: "z", new_string: "a"}, {old_string: "y", new_string: "a"}]}')
+OUT=$(run_tool MultiEdit "$EI")
+[ -z "$OUT" ] && ok "SC-039-07 a MultiEdit whose result equals the template passes silently" \
+             || { bad "SC-039-07 a restoring MultiEdit was judged"; info "$OUT"; }
+
+# ---- SC-039-08: no template anywhere -------------------------------------------
+OUT=$(jq -cn --arg f "$INST/scripts/spec_active.py" '{tool_name: "Write", tool_input: {file_path: $f, content: "a\nb\na\n"}}' \
+  | env -u CLAUDE_TEMPLATE_DIR HOME="$WORK/no-home" bash "$HOOK" 2>/dev/null)
+[ "$(decision "$OUT")" = "deny" ] && ok "SC-039-08 identical bytes with no template reachable are denied (fail closed)" \
+                                  || { bad "SC-039-08 allowed with nothing to compare against"; info "$OUT"; }
+
+# ---- SC-039-09: template has no such file --------------------------------------
+mv "$FTPL/scripts/spec_active.py" "$FTPL/scripts/spec_active.py.away"
+OUT=$(run_tool Write "$(write_input "$INST/scripts/spec_active.py" "a
+b
+a
+")")
+[ "$(decision "$OUT")" = "deny" ] && ok "SC-039-09 a template with no copy of the file denies" \
+                                  || { bad "SC-039-09 allowed against a missing template file"; info "$OUT"; }
+mv "$FTPL/scripts/spec_active.py.away" "$FTPL/scripts/spec_active.py"
+
+# ---- SC-039-10: the Bash route carries a path and no bytes ----------------------
+OUT=$(jq -cn --arg f "$INST/scripts/spec_active.py" '{tool_input: {file_path: $f}}' \
+  | env CLAUDE_TEMPLATE_DIR="$FTPL" HOME="$WORK/no-home" bash "$HOOK" 2>/dev/null)
+[ "$(decision "$OUT")" = "deny" ] && ok "SC-039-10 a path-only payload (Bash delegation) is still denied" \
+                                  || { bad "SC-039-10 a payload with no bytes was allowed"; info "$OUT"; }
+
+# ---- SC-039-11: non-ASCII bytes -------------------------------------------------
+RULE_BYTES=$(cat "$FTPL/.claude/rules/feature-pipeline.md"; printf x); RULE_BYTES=${RULE_BYTES%x}
+OUT=$(run_tool Write "$(write_input "$INST/.claude/rules/feature-pipeline.md" "$RULE_BYTES")")
+[ -z "$OUT" ] && ok "SC-039-11 a non-ASCII rule equal to the template passes silently" \
+             || { bad "SC-039-11 non-ASCII identical content was judged"; info "$OUT"; }
+
+# ---- SC-039-12: Edit against a file that does not exist -------------------------
+rm -f "$INST/scripts/spec_active.py"
+EI=$(jq -cn --arg f "$INST/scripts/spec_active.py" '{file_path: $f, old_string: "", new_string: "a\nb\na\n"}')
+OUT=$(run_tool Edit "$EI")
+[ "$(decision "$OUT")" = "deny" ] && ok "SC-039-12 an Edit on a missing file is denied" \
+                                  || { bad "SC-039-12 an Edit with no current content was allowed"; info "$OUT"; }
 
 printf '\n%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

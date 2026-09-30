@@ -55,7 +55,7 @@ esac
 # allium-hook.sh already learned this and anchors on the structural signal
 # instead: a speckit artifact lives at a known path. Same anchor here, so the
 # two hooks agree about what a spec is.
-if ! echo "$FILE" | grep -qE '(\.specify/.+\.md$|specs/[^/]+/(spec|plan|tasks)\.md$)'; then
+if ! grep -qE '(\.specify/.+\.md$|specs/[^/]+/(spec|plan|tasks)\.md$)' <<< "$FILE"; then
   exit 0
 fi
 
@@ -68,7 +68,7 @@ CONTENT=$(cat "$FILE" 2>/dev/null)
 # do not count.
 INTERACTIVE_RE='(\bform\b|\binput\b|\bbutton\b|\bsubmit\b|click|\bmodal\b|drawer|dialog|approval|multi-?step|wizard|authenticate|sign[ -]?in|sign[ -]?up|login|logout|upload|drag[ -]?and[ -]?drop|search|filter|create.*edit.*delete|CRUD)'
 
-if ! echo "$CONTENT" | grep -qiE "$INTERACTIVE_RE"; then
+if ! grep -qiE "$INTERACTIVE_RE" <<< "$CONTENT"; then
   # Non-interactive spec — nothing to remind about
   exit 0
 fi
@@ -77,24 +77,24 @@ fi
 # If the spec text explicitly defers destructive tests to a different slice,
 # suppress the reminder. Look for phrases near "destructive" or "DT-".
 CARVED=0
-if echo "$CONTENT" | grep -qiE '(carved (out )?to|carved to|out[ -]of[ -]scope|deferred to|moved to|tracked in|covered (in|by)|see slice|in slice [0-9])'; then
+if grep -qiE '(carved (out )?to|carved to|out[ -]of[ -]scope|deferred to|moved to|tracked in|covered (in|by)|see slice|in slice [0-9])' <<< "$CONTENT"; then
   # Cross-check: the carve-out must be in proximity to destructive-test context.
   # Conservative: only suppress if BOTH a carve phrase AND a destructive-test
   # reference appear in the file.
-  if echo "$CONTENT" | grep -qiE '(destructive|DT-?[0-9]+|attack categor)'; then
+  if grep -qiE '(destructive|DT-?[0-9]+|attack categor)' <<< "$CONTENT"; then
     CARVED=1
   fi
 fi
 
 # --- Check (1): functional coverage section ---
 HAS_FUNCTIONAL=0
-if echo "$CONTENT" | grep -qiE '(functional coverage|coverage inventory|functions? (covered|under test)|test (matrix|inventory))'; then
+if grep -qiE '(functional coverage|coverage inventory|functions? (covered|under test)|test (matrix|inventory))' <<< "$CONTENT"; then
   HAS_FUNCTIONAL=1
 fi
 
 # --- Check (2): destructive tests ---
 HAS_DESTRUCTIVE=0
-if echo "$CONTENT" | grep -qiE '(destructive (test|scenario|sweep)|DT-?[0-9]+|attack categor|adversarial test|negative test)'; then
+if grep -qiE '(destructive (test|scenario|sweep)|DT-?[0-9]+|attack categor|adversarial test|negative test)' <<< "$CONTENT"; then
   HAS_DESTRUCTIVE=1
 fi
 

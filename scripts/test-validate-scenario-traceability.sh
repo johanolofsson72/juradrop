@@ -47,11 +47,13 @@
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SCRIPT="$REPO_ROOT/scripts/validate-scenario-traceability.sh"
 RUN_SABOTAGE=1
+SKIP_CORE_CENSUS=0   # a FLAG, never an environment variable: an exported one would switch case40 off invisibly
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --script) SCRIPT="$2"; shift 2 ;;
     --no-sabotage) RUN_SABOTAGE=0; shift ;;
+    --skip-core-census) SKIP_CORE_CENSUS=1; shift ;;   # internal: sab_run only, see there
     -h|--help) grep -E '^#( |$)' "$0" | sed -E 's/^# ?//'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -102,6 +104,14 @@ write_test() {
     printf 'test file %s\n' "$name"
     for n in "$@"; do printf 'it covers %s\n' "$(id "$n")"; done
   } > "$proj/tests/$name"
+}
+
+# anchor <project> — a second validated row, 902, and a test citing it. A fixture whose whole suite
+# names no id at all is what the zero-refs guard refuses (case41), so a case that proves one token is
+# NOT a reference needs one real reference beside it, or it would be testing the refusal instead.
+anchor() {
+  row 902 "$V" >> "$1/specs/SCENARIOS.md"
+  write_test "$1" "anchor.test.ts" 902
 }
 
 # Run the gate; capture output and exit code without tripping anything.
@@ -356,6 +366,7 @@ fi
 # not were inside such a report.
 proj=$(new_project)
 { map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+anchor "$proj"
 mkdir -p "$proj/tests/Unit/bin/Release/StrykerOutput/2026-07-01"
 printf 'a deleted test that used to cover %s\n' "$(id 901)" \
   > "$proj/tests/Unit/bin/Release/StrykerOutput/2026-07-01/mutation-report.json"
@@ -428,6 +439,7 @@ fi
 # not have and it must become dangling. Same project, one edit each way.
 proj=$(new_project)
 { map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+anchor "$proj"
 write_test "$proj" "a.test.ts" 901
 run_gate "$proj"
 _clean=$RC
@@ -518,6 +530,7 @@ fi
 # answer here: an unbacked coverage claim is the one thing this gate exists to refuse.
 proj=$(new_project)
 { map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+anchor "$proj"
 { printf 'test file a.test.ts\n'; printf 'a fixture named %sabc\n' "$(id 901)"; } > "$proj/tests/a.test.ts"
 run_gate "$proj"
 if [ "$RC" -eq 1 ] && grep -qE "^  $(id 901) " <<< "$OUT" && grep -q 'uncovered' <<< "$OUT"; then
@@ -670,6 +683,7 @@ fi
 # something that is not a live test is the one thing this gate exists to refuse.
 proj=$(new_project)
 { map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+anchor "$proj"
 run_gate "$proj"
 if [ "$RC" -eq 1 ] && grep -q "$(id 901)" <<< "$OUT" && grep -q 'uncovered' <<< "$OUT" \
    && ! grep -q 'roots: .*specs' <<< "$OUT"; then
@@ -677,6 +691,336 @@ if [ "$RC" -eq 1 ] && grep -q "$(id 901)" <<< "$OUT" && grep -q 'uncovered' <<< 
 else
   bad "case34-the-map-is-not-its-own-evidence" "expected the row uncovered and specs/ not a root, got $RC: $OUT"
 fi
+
+# case40 — NO CORE PRODUCTION SCRIPT NAMES A SCENARIO ID (row 012, found as consultpilot H7bp).
+#
+# The sync writes every CORE script into every project, unconditionally. A comment in one of them
+# naming an id is read as a REFERENCE by any gate whose roots include scripts/ — consultpilot's
+# accounting gate reads scripts/ by design, and a project may declare it. On the project the id came
+# from, that comment keeps a row covered after the test proving it is deleted: consultpilot's
+# validated "sweep over the self-tests" row was traced by nothing but a `Covers:` line in
+# validate-no-sigpipe-assertions.sh. On every other project the same id covers an unrelated row or
+# dangles where nobody can fix it.
+#
+# TEST files are not in the population: in a test, naming an id IS the proof (spec 012, R6).
+#
+# The check runs THIS GATE over copies of the scripts, rather than grepping with a copy of its
+# pattern: what counts as a reference is whatever the gate reads, so the two cannot drift apart.
+# The map holds one validated row. Clean means exactly: that row uncovered, nothing dangling,
+# nothing out-of-range. An id in a CORE comment shows up as one of the last two — or, if it happens
+# to be the row's own id, as the row going covered. All three directions are sabotaged below.
+AUTOSYNC="$REPO_ROOT/scripts/template-autosync.sh"
+
+core_prod_fixture() { # <project> [list-file] → copies CORE production scripts into <project>/core
+  mkdir -p "$1/core"
+  CORE_COPIED=0
+  CORE_COPY_FAILED=""
+  while IFS= read -r n; do
+    case "$n" in ''|test-*|test_*) continue ;; esac
+    # A name with no file is --unlisted's defect to report, not an id; skip it here.
+    [ -f "$REPO_ROOT/scripts/$n" ] || continue
+    # A failed copy is a file the census never read; count it as a failure, not as coverage.
+    cp "$REPO_ROOT/scripts/$n" "$1/core/$n" || { CORE_COPY_FAILED="$CORE_COPY_FAILED $n"; continue; }
+    CORE_COPIED=$((CORE_COPIED+1))
+  done < "$2"
+}
+
+core_id_census() { # <project> → 0 clean, 1 with CENSUS_WHY set
+  CENSUS_WHY=""
+  if [ -n "$CORE_COPY_FAILED" ]; then
+    CENSUS_WHY="could not copy, so could not read:$CORE_COPY_FAILED"
+    return 1
+  fi
+  if [ "$CORE_COPIED" -eq 0 ]; then
+    CENSUS_WHY="no CORE production script was found to read — an empty census is not a clean one"
+    return 1
+  fi
+  run_gate "$1" --roots core
+  found=$(grep -E "^  ${P}-[0-9]+[a-z]?\$" <<< "$OUT" || true)
+  grep -q 'coverage: 1 of 1' <<< "$OUT" && found="$found
+$(id 900)"
+  if [ -z "$(printf '%s' "$found" | tr -d '[:space:]')" ]; then
+    # Clean is the gate's zero-refs refusal, and it must say it read every copied file: "no id in
+    # any of N files" is the census's clean reading exactly, and the count is what tells it apart
+    # from a walk that read nothing (spec 044).
+    if [ "$RC" -eq 4 ] && grep -q 'no scenario id found' <<< "$OUT" \
+       && grep -q "core: $CORE_COPIED file(s)" <<< "$OUT"; then return 0; fi
+    CENSUS_WHY="the gate did not give the expected reading (exit $RC): $OUT"
+    return 1
+  fi
+  while IFS= read -r ref; do
+    ref=$(printf '%s' "$ref" | tr -d ' ')
+    [ -n "$ref" ] || continue
+    bare=$(printf '%s' "$ref" | tr -d '-')
+    files=$(grep -rlE -- "$ref|${bare}_" "$1/core" 2>/dev/null | sed "s#^$1/core/#scripts/#" | tr '\n' ' ')
+    CENSUS_WHY="$CENSUS_WHY $ref in: ${files:-?};"
+  done <<< "$found"
+  return 1
+}
+
+# run_gate assigns the global `proj`, so the fixture lives in its own variable.
+c40=$(new_project)
+{ map_header; row 900 "$V"; } > "$c40/specs/SCENARIOS.md"
+if [ "$SKIP_CORE_CENSUS" -eq 1 ]; then
+  :  # inside a sabotage arm — see sab_run
+elif bash "$AUTOSYNC" --list-core-scripts > "$c40/core.list" 2>/dev/null; then
+  core_prod_fixture "$c40" "$c40/core.list"
+  if core_id_census "$c40"; then
+    ok "case40a-core-production-scripts-name-no-scenario-id ($CORE_COPIED files)"
+  else
+    bad "case40a-core-production-scripts-name-no-scenario-id" "$CENSUS_WHY"
+  fi
+
+  # Sabotage, three directions, each on its own copy of the fixture. The file planted into is the
+  # first one copied, and it must be NAMED — a census that only says "something" hands the hunt back.
+  PLANT=$(find "$c40/core" -type f | sort | head -1)
+  PLANT_REL="scripts/${PLANT##*/}"
+  for arm in b c e; do
+    sp=$(new_project)
+    cp "$c40/specs/SCENARIOS.md" "$sp/specs/"
+    core_prod_fixture "$sp" "$c40/core.list"
+    case "$arm" in
+      b) printf '# Covers: %s\n' "$(id 4242)" >> "$sp/core/${PLANT##*/}" ;;   # dangling
+      c) printf '# Covers: %s\n' "$(id 900)"  >> "$sp/core/${PLANT##*/}" ;;   # covers the row
+      e) printf '# see Checkout_%s%s_Twice\n' "$P" 4242 >> "$sp/core/${PLANT##*/}" ;;   # underscore form
+    esac
+    if core_id_census "$sp"; then
+      bad "case40$arm-a-planted-id-is-caught" "an id planted in $PLANT_REL left the census green"
+    elif grep -qF "$PLANT_REL" <<< "$CENSUS_WHY"; then
+      ok "case40$arm-a-planted-id-is-caught and named ($PLANT_REL)"
+    else
+      bad "case40$arm-a-planted-id-is-caught" "red, but did not name $PLANT_REL: $CENSUS_WHY"
+    fi
+    rm -rf "$sp"
+  done
+
+  # An empty CORE list must not read as clean.
+  sp=$(new_project)
+  cp "$c40/specs/SCENARIOS.md" "$sp/specs/"
+  : > "$sp/empty.list"
+  core_prod_fixture "$sp" "$sp/empty.list"
+  if core_id_census "$sp"; then
+    bad "case40d-an-empty-census-is-not-clean" "zero files read, reported clean"
+  else
+    ok "case40d-an-empty-census-is-not-clean"
+  fi
+  rm -rf "$sp"
+else
+  bad "case40a-core-production-scripts-name-no-scenario-id" "template-autosync.sh --list-core-scripts failed — could not list CORE"
+fi
+rm -rf "$c40"
+
+# case41 — ZERO IDS FROM A SCAN THAT RAN is not coverage. Every root exists, the map claims a row,
+# and no file under the roots names any id. That renders as "every claimed scenario is uncovered",
+# the same catastrophic-looking report the missing-root guard refuses — fundit read 0 of 182 and
+# then 175 of 182 minutes later with nothing changed. Exit 4, never 1.
+proj=$(new_project)
+{ map_header; row 901 "$V"; row 902 "$T"; } > "$proj/specs/SCENARIOS.md"
+printf 'no ids in here\n' > "$proj/tests/a.test.ts"
+printf 'nor here\n' > "$proj/tests/b.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 4 ] && grep -q 'no scenario id' <<< "$OUT" && ! grep -q '^coverage:' <<< "$OUT"; then
+  ok "case41-zero-ids-with-claims-refuses"
+else
+  bad "case41-zero-ids-with-claims-refuses" "expected exit 4 and no coverage line, got $RC: $OUT"
+fi
+
+# case42 — ...and the refusal names every root with the number of files it read under it. A reader
+# told "the scan found nothing" needs to see whether it read 2 files or 2146.
+if grep -q 'tests: 2 file' <<< "$OUT"; then
+  ok "case42-refusal-names-roots-and-file-counts"
+else
+  bad "case42-refusal-names-roots-and-file-counts" "expected 'tests: 2 file(s)' in: $OUT"
+fi
+rm -rf "$proj"
+
+# case43 — ...but a map that CLAIMS NOTHING with nothing found stays a normal run. No claim goes
+# unbacked, so there is no catastrophic report to refuse, and an all-mapped roadmap is legitimate
+# (case5's argument).
+proj=$(new_project)
+{ map_header; row 901 "$M"; row 902 "$M"; } > "$proj/specs/SCENARIOS.md"
+printf 'no ids in here\n' > "$proj/tests/a.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 0 ]; then ok "case43-zero-ids-without-claims-is-a-normal-run"; else bad "case43-zero-ids-without-claims-is-a-normal-run" "expected exit 0, got $RC: $OUT"; fi
+rm -rf "$proj"
+
+# case44 — A PARTIAL READ NAMES WHAT IT DROPPED. The extractor names every refused row as file:line
+# on stderr; the gate captured that and printed "see above" over nothing (agentcrm F316: 31 rows
+# lost to one doubled pipe, and no way to find them).
+proj=$(new_project)
+{ map_header; row 901 "$V"; printf '| %s | happy | missing a column |\n' "$(id 902)"; } \
+  > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+run_gate "$proj"
+if [ "$RC" -eq 5 ] && grep -q 'SCENARIOS.md:10' <<< "$OUT" && grep -q '1 row(s) refused' <<< "$OUT"; then
+  ok "case44-partial-read-names-refused-rows"
+else
+  bad "case44-partial-read-names-refused-rows" "expected exit 5 naming SCENARIOS.md:10 and the count, got $RC: $OUT"
+fi
+rm -rf "$proj"
+
+# case45 — a clean read says nothing about "see above". The pointer is printed only when something
+# above it exists.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+run_gate "$proj"
+if [ "$RC" -eq 0 ] && ! grep -q 'see above' <<< "$OUT"; then
+  ok "case45-no-see-above-on-a-clean-read"
+else
+  bad "case45-no-see-above-on-a-clean-read" "expected exit 0 with no 'see above', got $RC: $OUT"
+fi
+rm -rf "$proj"
+
+# case46 — A CHAINED UNDERSCORE FORM NAMES EVERY ID IN IT, not just the first. A C# or Java method
+# cannot carry a hyphen, so a test covering two adjacent rows is written `SCNNN_SCNNN_WhatItDoes`
+# — and `grep -o` takes NON-OVERLAPPING matches, so the separator that opened the second id was
+# already eaten by the first. The second id was invisible, and the row it covers was reported
+# uncovered: a gate wrong in the direction that looks like diligence. Measured on one project
+# 2026-09-30: 8 of its 58 "uncovered" rows were this one shape, each with a passing test naming it.
+#
+# THE SINGLE FORM IS ASSERTED IN THE SAME CASE, as a known positive. Without it a pattern that had
+# stopped matching the underscore form altogether would pass this case by reporting both rows
+# uncovered for a different reason, which is how an enumeration lies about having looked.
+proj=$(new_project)
+{ map_header; row 901 "$V"; row 902 "$V"; row 903 "$V"; } > "$proj/specs/SCENARIOS.md"
+{
+  printf 'public async Task %s901_%s902_TwoAdjacentRowsInOneTest()\n' "$P" "$P"
+  printf 'public async Task %s903_TheSingleFormStillWorks()\n' "$P"
+} > "$proj/tests/Chained.cs"
+run_gate "$proj"
+if [ "$RC" -eq 0 ]; then
+  ok "case46-chained-underscore-ids-both-count"
+else
+  bad "case46-chained-underscore-ids-both-count" "expected exit 0, got $RC: $OUT"
+fi
+rm -rf "$proj"
+
+# case47 — A SPEC'S OWN CRITERION NUMBER IS NOT A SCENARIO ID (row 061). agentcrm spec 044 numbered
+# its success criteria SC-NNN-NN; `-` is not a word character, so `\b` fired after the first number
+# and the gate read a reference to SC-NNN — a row the map did not have, reported dangling.
+# Two directions, one case: the criterion must neither dangle (47a) nor cover the row whose number
+# it happens to share (47b). The plain row citation in 47a is the known positive, so a pattern that stopped reading
+# hyphenated ids altogether cannot pass 47a by finding nothing.
+proj=$(new_project)
+{ map_header; row 901 "$V"; } > "$proj/specs/SCENARIOS.md"
+printf '// %s-901 is the row; %s-944-01 and %s-944-02a are criteria\n' "$P" "$P" "$P" > "$proj/tests/a.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 0 ]; then
+  ok "case47a-a-criterion-number-does-not-dangle"
+else
+  bad "case47a-a-criterion-number-does-not-dangle" "expected exit 0, got $RC: $OUT"
+fi
+rm -rf "$proj"
+proj=$(new_project)
+{ map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+# 902 is cited for real so the scan finds an id: with none at all the zero-refs guard answers first.
+printf '// %s-902, and criterion %s-901-01\n' "$P" "$P" > "$proj/tests/a.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q "${P}-901" <<< "$OUT"; then
+  ok "case47b-a-criterion-number-does-not-cover-its-namesake"
+else
+  bad "case47b-a-criterion-number-does-not-cover-its-namesake" "expected the row reported uncovered, got $RC: $OUT"
+fi
+rm -rf "$proj"
+
+# case48 — A MAP THAT GREW PAST THREE DIGITS KEEPS ITS NAMESPACE LINE (row 048). The out-of-range
+# split tells a spec's criteria from scenario ids by digit width, and a grown map holds ids of two
+# widths. The width is the NARROWEST id's, so growth does not move the line. Measured from the widest
+# id instead, a three-digit citation of a scenario the map LACKS would be filed as a criterion and
+# never dangle (48b). The map starts at one on purpose: there the floor catches nothing, so only the
+# width rule can bucket the two-digit criterion (48a). Before this case nothing tested the width
+# rule at all.
+proj=$(new_project)
+{ map_header; row 001 "$V"; row 1001 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 001 1001
+printf 'and this spec own success criterion %s\n' "$(id 12)" >> "$proj/tests/a.test.ts"
+run_gate "$proj"
+if [ "$RC" -eq 0 ] && grep -q 'out-of-range' <<< "$OUT" && ! grep -q '^dangling' <<< "$OUT"; then
+  ok "case48a-mixed-width-map-keeps-the-width-line"
+else
+  bad "case48a-mixed-width-map-keeps-the-width-line" "expected both rows covered and the criterion out-of-range, got $RC: $OUT"
+fi
+rm -rf "$proj"
+# 48b: the other direction. A missing three-digit id above the floor is a scenario id the map lacks,
+# so it dangles on a grown map exactly as it would on a three-digit one.
+proj=$(new_project)
+{ map_header; row 001 "$V"; row 1001 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 001 1001 950
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q "$(id 950)" <<< "$OUT" && grep -q 'dangling' <<< "$OUT"; then
+  ok "case48b-mixed-width-map-still-dangles-three-digits"
+else
+  bad "case48b-mixed-width-map-still-dangles-three-digits" "expected $(id 950) under dangling, got $RC: $OUT"
+fi
+rm -rf "$proj"
+
+# case49 — A WALK THAT ERRORED IS NOT A COVERAGE RESULT (row 067). fundit read 141, 0 and 0 of 148 on
+# identical input while Playwright rewrote files under the roots. 044 made the zero case refuse; the
+# partial one still printed "141 of 148" over seven rows the walk never reached. chmod 000 stands in
+# for the vanished directory: find and grep report both the same way, and this one is deterministic.
+# Root reads through chmod 000, so the case cannot run as root and says so rather than passing.
+if [ "$(command id -u)" -eq 0 ]; then
+  skip "case49-errored-walk-refuses" "running as root; chmod 000 does not make a path unreadable"
+else
+  # (a) an unreadable directory: find cannot descend, and the id under it is lost.
+  proj=$(new_project)
+  { map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+  write_test "$proj" "a.test.ts" 901
+  mkdir -p "$proj/tests/sub"
+  write_test "$proj" "sub/b.test.ts" 902
+  chmod 000 "$proj/tests/sub"
+  run_gate "$proj"
+  chmod 755 "$proj/tests/sub"
+  if [ "$RC" -eq 4 ] && ! grep -q '^coverage:' <<< "$OUT" && grep -q 'sub' <<< "$OUT" \
+     && grep -qi 'denied' <<< "$OUT"; then
+    ok "case49a-unreadable-directory-refuses"
+  else
+    bad "case49a-unreadable-directory-refuses" "expected exit 4 quoting the error, no coverage line, got $RC: $OUT"
+  fi
+  # (c) ...and the refusal says how many files each root DID read.
+  if grep -q 'tests: 1 file' <<< "$OUT"; then
+    ok "case49c-errored-walk-names-file-counts"
+  else
+    bad "case49c-errored-walk-names-file-counts" "expected 'tests: 1 file(s)' in: $OUT"
+  fi
+  rm -rf "$proj"
+
+  # (b) an unreadable file: find lists it, grep cannot open it.
+  proj=$(new_project)
+  { map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+  write_test "$proj" "a.test.ts" 901
+  write_test "$proj" "b.test.ts" 902
+  chmod 000 "$proj/tests/b.test.ts"
+  run_gate "$proj"
+  chmod 644 "$proj/tests/b.test.ts"
+  if [ "$RC" -eq 4 ] && ! grep -q '^coverage:' <<< "$OUT" && grep -q 'b.test.ts' <<< "$OUT"; then
+    ok "case49b-unreadable-file-refuses"
+  else
+    bad "case49b-unreadable-file-refuses" "expected exit 4 naming b.test.ts, no coverage line, got $RC: $OUT"
+  fi
+  rm -rf "$proj"
+fi
+
+# case50 — PLAYWRIGHT'S OTHER OUTPUT IS BUILD OUTPUT TOO (row 067). test-results/ was already pruned;
+# blob-report/ is written by the same run, and allure-results/ and .nyc_output/ by the reporters
+# beside it. An id quoted in a report is neither coverage (the covering row stays uncovered) nor a
+# dangling reference (the id nobody wrote stays out of the list).
+proj=$(new_project)
+{ map_header; row 901 "$V"; row 902 "$V"; } > "$proj/specs/SCENARIOS.md"
+write_test "$proj" "a.test.ts" 901
+for dir in blob-report allure-results .nyc_output; do
+  mkdir -p "$proj/tests/$dir"
+  printf 'report quotes %s and %s\n' "$(id 902)" "$(id 907)" > "$proj/tests/$dir/report.json"
+done
+run_gate "$proj"
+if [ "$RC" -eq 1 ] && grep -q "uncovered" <<< "$OUT" && grep -q "$(id 902)" <<< "$OUT" \
+   && ! grep -q "$(id 907)" <<< "$OUT"; then
+  ok "case50-report-directories-are-pruned"
+else
+  bad "case50-report-directories-are-pruned" "expected $(id 902) uncovered and no $(id 907), got $RC: $OUT"
+fi
+rm -rf "$proj"
 
 # ------------------------------------------------------------- sabotage ----
 #
@@ -705,7 +1049,10 @@ replace_region() { # <src> <dst> <marker> <replacement-text>
 }
 
 sab_run() { # <sabotaged-script> → SAB_OUT
-  SAB_OUT=$(bash "$0" --script "$1" --no-sabotage 2>&1)
+  # --skip-core-census: case40 reads CORE scripts, not the gate's marked regions, so no arm here
+  # can turn it red — and at ~5 s a run, repeating it in all 13 arms would put this harness past the
+  # timeout it already sits close to (consultpilot H7bq).
+  SAB_OUT=$(bash "$0" --script "$1" --no-sabotage --skip-core-census 2>&1)
   return 0
 }
 
@@ -826,10 +1173,68 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   sab_run "$SABDIR/k.sh"
   expect_red "out-of-range-split-removed" "$SAB_OUT" case25-below-the-floor-is-not-dangling || SAB_FAIL=1
 
-  # (f) the missing-root guard removed — a typo'd root reports every scenario as uncovered.
+  # (p) the width measured from the WIDEST id — the natural "fix" once a map holds four-digit ids.
+  # (q) the width rule dropped, leaving only the floor. Both are one-token edits inside the
+  # out-of-range region, so they are sed on a copy, and a copy sed did not change is a failed arm.
+  sed 's/awk .{ print length(\$0) }. | sort -n | head -1)/awk '"'"'{ print length($0) }'"'"' | sort -n | tail -1)/' \
+    "$SCRIPT" > "$SABDIR/p.sh"
+  sed 's/-v width="\${MAP_WIDTH:-0}"/-v width=0/' "$SCRIPT" > "$SABDIR/q.sh"
+  for arm in p q; do
+    if cmp -s "$SCRIPT" "$SABDIR/$arm.sh"; then
+      echo "  FAIL  sabotage/$arm — the sed matched nothing; the width line has moved"
+      SAB_FAIL=1
+    fi
+  done
+  sab_run "$SABDIR/p.sh"
+  expect_red "width-from-widest-id" "$SAB_OUT" case48b-mixed-width-map-still-dangles-three-digits || SAB_FAIL=1
+  sab_run "$SABDIR/q.sh"
+  expect_red "width-rule-removed" "$SAB_OUT" case48a-mixed-width-map-keeps-the-width-line || SAB_FAIL=1
+
+  # (f) the missing-root guard removed. Since spec 044 a missing root has more than one defence: this
+  # guard, the zero-refs guard (the empty scan it causes, naming the root with its 0 files), and since
+  # row 067 the walk-error guard (find's own complaint about the path). So removing this one alone
+  # must leave case9 green, and only removing all three (o2) may turn it red.
   replace_region "$SCRIPT" "$SABDIR/f.sh" root-guard ':'
   sab_run "$SABDIR/f.sh"
-  expect_red "root-guard-removed" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
+  expect_green "root-guard-removed-zero-refs-intact" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
+
+  # (n) the zero-refs guard removed — a scan that found no id anywhere prints "0 of N" again.
+  replace_region "$SCRIPT" "$SABDIR/n.sh" zero-refs-guard ':'
+  sab_run "$SABDIR/n.sh"
+  expect_red "zero-refs-guard-removed" "$SAB_OUT" \
+    case41-zero-ids-with-claims-refuses case42-refusal-names-roots-and-file-counts || SAB_FAIL=1
+
+  # (r) the walk-error guard removed (row 067) — a walk that lost part of the tree prints a partial
+  # coverage number again. case49c goes too: the file counts are only printed by the refusal.
+  replace_region "$SCRIPT" "$SABDIR/r.sh" walk-error-guard ':'
+  sab_run "$SABDIR/r.sh"
+  if [ "$(command id -u)" -ne 0 ]; then
+    expect_red "walk-error-guard-removed" "$SAB_OUT" \
+      case49a-unreadable-directory-refuses case49b-unreadable-file-refuses \
+      case49c-errored-walk-names-file-counts || SAB_FAIL=1
+  fi
+
+  # (s) the report directories row 067 added to the prune dropped — their quoted ids count again.
+  sed 's/ -o -name blob-report -o -name allure-results -o -name .nyc_output//' "$SCRIPT" > "$SABDIR/s.sh"
+  if cmp -s "$SCRIPT" "$SABDIR/s.sh"; then
+    echo "  FAIL  sabotage/s — the sed matched nothing; the prune line has moved"
+    SAB_FAIL=1
+  fi
+  sab_run "$SABDIR/s.sh"
+  expect_red "report-dirs-unpruned" "$SAB_OUT" case50-report-directories-are-pruned || SAB_FAIL=1
+
+  # (o) Since row 067 a missing root has a THIRD defence: find reports the path it cannot walk, and
+  # the walk-error guard refuses. So removing root-guard and zero-refs together must still leave
+  # case9 green (o), and only removing all three (o2) may turn it red.
+  replace_region "$SCRIPT" "$SABDIR/o0.sh" root-guard ':'
+  replace_region "$SABDIR/o0.sh" "$SABDIR/o.sh" zero-refs-guard ':'
+  sab_run "$SABDIR/o.sh"
+  expect_green "root-guard-and-zero-refs-removed-walk-error-intact" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
+
+  # (o2) ALL THREE removed — a typo'd root reports every scenario as uncovered, and case9 must catch it.
+  replace_region "$SABDIR/o.sh" "$SABDIR/o2.sh" walk-error-guard ':'
+  sab_run "$SABDIR/o2.sh"
+  expect_red "root-guard-zero-refs-and-walk-error-removed" "$SAB_OUT" case9-missing-root || SAB_FAIL=1
 
   # (l) discovery replaced by the constant it grew out of. This is the shape the gate shipped with
   # for its whole life, and the reason it went unseen is worth stating: on a project whose tests all
@@ -862,7 +1267,7 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
 
   # The clean case must survive every surgical sabotage. If it broke, the sabotage was wholesale and
   # the reds above would be meaningless.
-  for s in a b c d e f g l m; do
+  for s in a b c d e f g l m n o; do
     sab_run "$SABDIR/$s.sh"
     if grep -q "FAIL  case1-clean" <<< "$SAB_OUT"; then
       echo "  FAIL  sabotage/$s — case1-clean also broke, so the sabotage was not surgical"
@@ -873,8 +1278,8 @@ if [ "$RUN_SABOTAGE" -eq 1 ] && [ "$FAIL" -eq 0 ]; then
   # tally in a message about thoroughness is the one number nobody re-reads when they add an arm.
   # `! -type l` excludes the two dependency SYMLINKS linked into this directory above, which a
   # plain *.sh count includes — it reported 12 arms for 10, which is how a derived number goes
-  # wrong in the same direction a hardcoded one does. c0.sh is an intermediate, not an arm.
-  SAB_COUNT=$(find "$SABDIR" -maxdepth 1 -name '*.sh' ! -type l ! -name 'c0.sh' | wc -l | tr -d ' ')
+  # wrong in the same direction a hardcoded one does. c0.sh and o0.sh are intermediates, not arms.
+  SAB_COUNT=$(find "$SABDIR" -maxdepth 1 -name '*.sh' ! -type l ! -name 'c0.sh' ! -name 'o0.sh' | wc -l | tr -d ' ')
   [ "$SAB_FAIL" -eq 0 ] && echo "  PASS  sabotage — every sabotage was surgical (case1-clean survived all $SAB_COUNT)"
 
   rm -rf "$SABDIR"

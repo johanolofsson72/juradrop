@@ -23,8 +23,8 @@
 #              approximate: a reference cannot say which of the two it proves.
 #   out-of-range
 #              a reference to an SC-id BELOW the lowest id the map owns. Almost always the OTHER
-#              SC- namespace: spec-kit's spec template numbers a spec's Success Criteria SC-001,
-#              SC-002, ... with the same prefix scenario ids use, so a test citing its own spec's
+#              SC- namespace: spec-kit's spec template numbers a spec's Success Criteria SC-NNN
+#              upward from one, with the same prefix scenario ids use, so a test citing its own spec's
 #              criteria looks exactly like a test citing a scenario that does not exist. Measured
 #              on one project: 387 of 458 spec.md files number criteria that way, and 41 of the
 #              gate's 44 "dangling" ids were that and nothing else. Reported in its own bucket
@@ -33,7 +33,7 @@
 #
 #              THE SEPARATION IS ARITHMETIC, NOT DESIGN. It holds only while no spec numbers a
 #              criterion up into the map's range, and on that same project one already had
-#              (SC-1165, in a spec whose map block starts at SC-1170) — so that one stays
+#              (a four-digit criterion ten below the spec's own map block) — so that one stays
 #              dangling, correctly, and is the standing evidence that the two namespaces need
 #              separating at the source rather than told apart by a floor.
 #
@@ -103,7 +103,10 @@
 #   2  usage error
 #   3  the map could not be read, the extractor refused entirely, or it yielded zero rows
 #   4  no reference root to read — either one the caller NAMED does not exist, or discovery found
-#      none of its candidates. Both are "I could not look", and neither is ever reported as clean.
+#      none of its candidates — or every root was read and not one file named any id while the
+#      map claims rows — or the walk reported an error (a path vanished or was unreadable), so
+#      what it read is partial. All four are "I could not look", and none is ever reported as
+#      coverage.
 #   5  checked, but part of the map was unreadable — never reported as clean
 #   7  NOT APPLICABLE — the project has no scenario map at all. Distinct from 3,
 #      which means a map exists and could not be read.
@@ -160,7 +163,7 @@ done
 HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 # scenario-map-rows.sh emits TAB-separated fields, and the tab is load-bearing: a scenario cell
-# may contain a pipe (SC-436 quotes a formula-injection payload), so splitting on "|" pushes
+# may contain a pipe (one agentcrm row quotes a formula-injection payload), so splitting on "|" pushes
 # status into expected and the row stops counting as validated without anything erroring. Read
 # that script's OUTPUT block before changing this.
 TAB=$(printf '\t')
@@ -242,8 +245,16 @@ IFS=$OLDIFS
 EXTRACT_RC=0
 "$HERE/scenario-map-rows.sh" --partial "$@" > "$TMP/rows" 2>"$TMP/rows.err" || EXTRACT_RC=$?
 
+# Whatever the extractor said, it says out loud. It names every row it refused as file:line and
+# every file it read as commentary; this gate captured all of it and then printed none, so a partial
+# read ended with "see above" over nothing (agentcrm F316: 31 rows lost to one doubled pipe, and no
+# way to find them). Printed on a clean read too, because a whole file read as commentary is rows
+# this gate cannot see either.
+if [ "$EXTRACT_RC" -eq 0 ] && [ -s "$TMP/rows.err" ]; then cat "$TMP/rows.err" >&2; fi
+
 PARTIAL_READ=0
 if [ "$EXTRACT_RC" -eq 4 ]; then
+  cat "$TMP/rows.err" >&2
   PARTIAL_READ=1
 elif [ "$EXTRACT_RC" -ne 0 ]; then
   echo "scenario-traceability: scenario-map-rows.sh refused the map" >&2
@@ -269,7 +280,7 @@ fi
 
 # ---------------------------------------------------------------------------------- classification
 # Defence 2 of 2. Shell `case` on the status cell, by CONTAINMENT rather than an enumerated list of
-# exact strings: `✓ *` is a validated row carrying a footnote (SC-155 today), not a third status, and
+# exact strings: `✓ *` is a validated row carrying a footnote (one consultpilot row), not a third status, and
 # an enumeration would need extending every time someone adds a marker — with silent exemption as the
 # cost of forgetting.
 #
@@ -447,6 +458,8 @@ fi
 # ------------------------------------------------------------------------------------- references
 # One tree walk emitting every id token, not one `grep -r` per id: 150 ids would be 150 walks.
 : > "$TMP/refs"
+: > "$TMP/scanned"
+: > "$TMP/scan.err"
 OLDIFS=$IFS
 IFS=,
 for root in $ROOTS; do
@@ -465,22 +478,29 @@ for root in $ROOTS; do
     exit 4
   fi
   # <<< root-guard
+  : > "$TMP/files"
   # Match ids of ANY length. The keep-filter below used to be [0-9]{3} — see there.
   #
   # \b ON THE LEFT, and it is not decoration. Without it the pattern matches INSIDE a longer
-  # identifier: a property reference "DESC-1" in a test reported a dangling SC-1 that no test ever
-  # wrote. That is the harmless direction. The other one is not — a fixture named "DESC-741" would
-  # have SILENTLY COVERED SC-741, and this gate exists to refuse exactly that kind of unbacked
-  # coverage claim. Validated against known positives and negatives before it was believed:
-  # SC-741, "SC-765" and "// SC-002." still match; DESC-1 and MISC-99 no longer do.
+  # identifier: a property reference "DESC-<n>" in a test reported a dangling SC-<n> that no test
+  # ever wrote. That is the harmless direction. The other one is not — a fixture named "DESC-<n>"
+  # would have SILENTLY COVERED row <n>, and this gate exists to refuse exactly that kind of unbacked
+  # coverage claim. Validated against known positives and negatives before it was believed: a bare
+  # id, a quoted id and "// <id>." still match; DESC-<n> and MISC-<n> no longer do.
+  #
+  # Ids in this file's comments are written as SHAPES (SC-NNN, SC-<n>), never as numbers. This file
+  # is CORE: the sync puts it in every project, and a number here is read as a reference by any gate
+  # whose roots include scripts/ — a comment covering a row whose test was deleted (row 012).
+  # test-validate-scenario-traceability.sh case40 runs this gate over every CORE production script.
   #
   # \b AND [a-z]? ON THE RIGHT, and that half was missing until a project found it. A map is free
-  # to insert a row between two allocated ids by suffixing a letter — SC-033b next to SC-033 — and
-  # the row extractor has always accepted that. This one did not, so it read "SC-033b" in a test as
-  # a reference to SC-033. Both directions are wrong at once, and they hide each other: SC-033b, a
-  # rehearsal gate named in six places across two files, reported as UNCOVERED, while SC-033 was
-  # reported covered on the evidence of a test that names a different scenario. The trailing \b is
-  # what stops "SC-033abc" being read as SC-033a; it matches nothing, which is the safe answer.
+  # to insert a row between two allocated ids by suffixing a letter — SC-NNNb next to SC-NNN — and
+  # the row extractor has always accepted that. This one did not, so it read "SC-NNNb" in a test as
+  # a reference to SC-NNN. Both directions are wrong at once, and they hide each other: the lettered
+  # row, a rehearsal gate named in six places across two files, reported as UNCOVERED, while its
+  # unlettered neighbour was reported covered on the evidence of a test that names a different
+  # scenario. The trailing \b is what stops "SC-NNNabc" being read as SC-NNNa; it matches nothing,
+  # which is the safe answer.
   # BUILD OUTPUT IS PRUNED, and not only because it is slow (21.2 s -> 1.3 s on one repo whose
   # tests/ tree is 4.5 GB of which almost all is bin/obj). It is pruned because counting it is
   # WRONG. Every one of the 25 ids that a full walk found there and a pruned walk did not was inside
@@ -496,7 +516,7 @@ for root in $ROOTS; do
   # create-agency.destructive.spec.ts carries a literal NUL inside its own hostile-input fixture
   # (`['a null byte', 'Agency\0name']`). Every scenario id cited only in that file was therefore
   # invisible to this gate, which reported them as claimed-but-uncovered — a gate wrong in the
-  # direction that looks like diligence, so nobody questions it. Found on row A1, when SC-878 was
+  # direction that looks like diligence, so nobody questions it. Found on row A1, when a row was
   # reported uncovered while the citation sat in plain sight on line 279 of that file.
   #
   # `-a` on its own is NOT the fix, and the first attempt at this proved it: with `-I` dropped and
@@ -509,16 +529,16 @@ for root in $ROOTS; do
   # or not it happens to contain a control byte.
   #
   # THE UNDERSCORE FORM IS A REFERENCE TOO, and leaving it out made this gate wrong about the very
-  # convention `.claude/rules/scenarios.md:113` prescribes: `Checkout_SC014_DoubleSubmit_...`. A C#
+  # convention `.claude/rules/scenarios.md` prescribes: `Checkout_SCNNN_DoubleSubmit_...`. A C#
   # or Java test method name CANNOT carry a hyphen, so a suite that embeds the id in the method name
-  # has no choice but to write `SC1700_ASecondReservationIsRefused...` — and this extractor read only
+  # has no choice but to write `SCNNNN_ASecondReservationIsRefused...` — and this extractor read only
   # the hyphenated form, so every such citation was invisible. Measured on agentcrm 2026-09-25, by
   # running the gate before and after: coverage 1716 → 1767 of 1824, so 51 of its 108 "uncovered"
   # rows — 47% of the gate's headline finding — were the gate failing to read its own house style.
   # Wrong in the direction that looks like diligence, which is why it stood for as long as it did.
   #
   # A hand-rolled census beforehand said 50, because it anchored on `\bSC[0-9]+_` and `_` IS a word
-  # character: the mid-name `Checkout_SC014_` shape has no word boundary to its left and was invisible
+  # character: the mid-name `Checkout_SCNNN_` shape has no word boundary to its left and was invisible
   # to the census exactly as it was to the gate. Prefer the before/after run to any count of your own.
   #
   # An earlier count of 59 came from a grep that did NOT prune build output; nine of those citations
@@ -530,26 +550,54 @@ for root in $ROOTS; do
   # directive) and every other SC-prefixed token would enter the reference set and silently cover a
   # row. With it, a match needs the id followed by the separator the naming convention itself uses.
   # The leading `[^A-Za-z0-9]` (or line start) does the job `\b` cannot: `_` IS a word character, so
-  # `\b` never fires between `Checkout_` and `SC014`, and both known shapes — `_SC014_` mid-name and
-  # `SC1700_` at the start of a method name — need it. Validated against known positives and
-  # negatives before it was believed: `SC1700_A...`, `Checkout_SC014_D...` and `SC-741` all match;
-  # `SC2086`, `DESC-741` and a bare `SC1700` do not.
+  # `\b` never fires between `Checkout_` and `SCNNN`, and both known shapes — `_SCNNN_` mid-name and
+  # `SCNNNN_` at the start of a method name — need it. Validated against known positives and
+  # negatives before it was believed: `SCNNNN_A...`, `Checkout_SCNNN_D...` and `SC-NNN` all match;
+  # `SC2086`, `DESC-NNN` and a bare `SCNNNN` do not.
+  #
+  # THE UNDERSCORE FORM CHAINS, and one `+` was the difference between reading a citation and losing
+  # it. A method covering two adjacent rows is written `SCNNN_SCNNN_WhatItDoes`, and `grep -o` takes
+  # NON-OVERLAPPING matches: the `_` that opens the second id is the same byte the first match ended
+  # on, already consumed, so `(^|[^A-Za-z0-9])` had nothing left to match against and the second id
+  # was invisible. Measured on one project 2026-09-30: 8 of its 58 "uncovered" rows were this shape,
+  # every one of them with a passing test naming it — the gate reporting a row unproven while its
+  # proof sat in the method name. Wrong in the direction that looks like diligence, again.
+  #
+  # The `+` makes the whole run ONE match and `tr` splits it back into one id per line, which is
+  # portable where a lookbehind is not: POSIX ERE has none, and `grep -P` is absent on BSD. The
+  # hyphenated alternative carries no `_`, so `tr` cannot touch it. case46 asserts both the chained
+  # and the single form in one run, so a pattern that stopped matching the underscore form at all
+  # cannot pass by reporting everything uncovered for a different reason.
   #
   # The `sed` normalises what grep returns — leading separator stripped, trailing `_` dropped, the
   # missing hyphen inserted — so everything downstream still sees exactly one id shape.
+  #
+  # A SECOND `-<digits>` MAKES IT A CRITERION, NOT A SCENARIO (row 061). A spec that numbers its own
+  # success criteria SC-NNN-NN hands `\b` a boundary after the first number, because `-` is not a
+  # word character, and the gate read SC-NNN: dangling when the map had no such row, and silently
+  # covering it when it did. The optional `(-[0-9]...)` group makes the whole criterion ONE match,
+  # and the id-length filter's `-x` below then drops it, so it is neither a reference nor a hole.
+  # Nothing is lost by it: no map writes a range as SC-NNNN-NNNN (checked on agentcrm, 2026-09-30),
+  # and `.claude/rules/scenarios.md` already tells criteria to use letters. case47 pins both halves.
   # >>> build-prune
   find "$rp" -type d \( -name bin -o -name obj -o -name node_modules -o -name TestResults \
        -o -name StrykerOutput -o -name playwright-report -o -name test-results -o -name dist \
+       -o -name blob-report -o -name allure-results -o -name .nyc_output \
        -o -name '*-snapshots' \) \
        -prune -o -type f \
        ! -name '*.png' ! -name '*.jpg' ! -name '*.jpeg' ! -name '*.gif' ! -name '*.webp' \
        ! -name '*.ico' ! -name '*.pdf' ! -name '*.zip' ! -name '*.webm' ! -name '*.mp4' \
        ! -name '*.woff' ! -name '*.woff2' ! -name '*.ttf' ! -name '*.otf' \
-       -print0 2>/dev/null \
-    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?\\b|(^|[^A-Za-z0-9])${PREFIX}[0-9]+[a-z]?_" 2>/dev/null \
+       -print0 2>>"$TMP/scan.err" \
+    | tee "$TMP/files" \
+    | xargs -0 grep -hoaE "\\b${PREFIX}-[0-9]+[a-z]?(-[0-9][0-9A-Za-z]*)?\\b|(^|[^A-Za-z0-9])(${PREFIX}[0-9]+[a-z]?_)+" 2>>"$TMP/scan.err" \
+      | tr '_' '\n' \
       | sed -e "s/^[^${PREFIX}]*//" -e 's/_$//' -e "s/^${PREFIX}\\([0-9]\\)/${PREFIX}-\\1/" \
       >> "$TMP/refs" || true
   # <<< build-prune
+  # Files read under this root, for the zero-ids refusal below. Counted from the list the walk
+  # already produced, so a reader told "no id anywhere" can see whether 2 files were read or 2146.
+  printf '%s: %s file(s)\n' "$root" "$(tr -cd '\000' < "$TMP/files" 2>/dev/null | wc -c | tr -d ' ')" >> "$TMP/scanned"
   IFS=,
 done
 IFS=$OLDIFS
@@ -564,6 +612,53 @@ IFS=$OLDIFS
 grep -xE "${PREFIX}-[0-9]+[a-z]?" "$TMP/refs" 2>/dev/null | sort -u > "$TMP/refs.u" || : > "$TMP/refs.u"
 # <<< id-length-filter
 
+# >>> walk-error-guard
+# A WALK THAT REPORTED AN ERROR READ PART OF THE TREE, and a part is not a coverage result (row 067).
+# fundit read 141, then 0, then 0 of 148 on identical input while a Playwright run rewrote files
+# under the roots. 044 made the zero reading refuse; the 141 still printed as seven uncovered rows,
+# which a reader acts on. A directory that vanished or went unreadable mid-walk costs find its
+# subtree, a file that went away between find and grep costs grep its contents, and both say so in
+# scan.err — which used to be read only when the scan found nothing at all.
+#
+# A vanished file is not excused on the grounds that it no longer cites anything. It proves the tree
+# changed during the walk, so the report describes no single moment, and the only honest answer is
+# to say that and ask for a rerun. Checked before the zero-refs guard, so that guard keeps its 044
+# meaning: a walk that ran cleanly and found nothing.
+if [ -s "$TMP/scan.err" ]; then
+  echo "scenario-traceability: the reference scan reported $(grep -c . "$TMP/scan.err") error(s); what it read is partial, not a coverage result" >&2
+  echo "  first 10:" >&2
+  head -10 "$TMP/scan.err" | sed 's/^/    /' >&2
+  echo "  Files read:" >&2
+  sed 's/^/    /' "$TMP/scanned" >&2
+  echo "  Rerun when nothing is writing under the roots (a test run rewriting its output is the usual" >&2
+  echo "  cause). If it persists, the paths above are unreadable: fix their permissions or prune them." >&2
+  exit 4
+fi
+# <<< walk-error-guard
+
+# >>> zero-refs-guard
+# ZERO IDS FROM A SCAN THAT RAN is the missing-root case arriving by another door. Every root exists
+# and the walk finished, yet not one file named any id — so every claimed row would print as
+# uncovered, the catastrophic-looking report with a trivial cause that the root-guard refuses. The
+# gate used to print it as `coverage: 0 of N` and exit 1. fundit read 0 of 182 that way, then 175
+# of 182 minutes later with nothing changed; the cause was never proven, and the scan's own errors
+# were going to /dev/null, so the report carried no handle on it. Those errors are the walk-error
+# guard's now (row 067), so this guard only ever sees a walk that finished cleanly.
+#
+# Only when the map CLAIMS something. A map of nothing but mapped and retired rows has no claim to
+# leave unbacked, and refusing it would turn every roadmap-only project red (case5's argument).
+# Any kept id counts, out-of-range ones included: an id found anywhere proves the scan read files.
+if [ ! -s "$TMP/refs.u" ] && [ -s "$TMP/claimed" ]; then
+  echo "scenario-traceability: no scenario id found in any file under the roots, while the map claims $(grep -c . "$TMP/claimed") row(s)" >&2
+  echo "  Zero ids anywhere is a broken or empty scan, not a coverage result. Files read:" >&2
+  sed 's/^/    /' "$TMP/scanned" >&2
+  echo "  Rerun first; a scan racing files that change under it has read 0 and then most. If it" >&2
+  echo "  persists, check the roots (--roots, or specs/traceability-roots). If the suite genuinely" >&2
+  echo "  cites no scenario id, every claimed row is unbacked, and that is the thing to fix." >&2
+  exit 4
+fi
+# <<< zero-refs-guard
+
 # --------------------------------------------------------------------------------- the two answers
 comm -23 "$TMP/claimed" "$TMP/refs.u" > "$TMP/uncovered"
 # >>> dangling
@@ -577,15 +672,15 @@ comm -13 "$TMP/allids"  "$TMP/refs.u" > "$TMP/dangling.all"
 MAP_MIN=$(sed "s/^${PREFIX}-//" "$TMP/allids" | sort -n | head -1)
 # The map's own DIGIT WIDTH, and it is the discriminator the floor could not be.
 #
-# A floor of "the map's lowest id" is useless on a map that starts at SC-001 — nothing can be
+# A floor of "the map's lowest id" is useless on a map whose first id is one — nothing can be
 # below 1 — and that is the ordinary case, not a corner: msroute, film-i-vast and consultpilot
-# all start there, and all three reported spec-kit Success Criteria (SC-01, SC-1, SC-02) as
+# all start there, and all three reported spec-kit Success Criteria (one- and two-digit SC- ids) as
 # dangling scenario ids. The two namespaces are not separated by magnitude; they are separated
 # by PADDING. This map's ids are zero-padded to a fixed width and spec-kit's criteria are not,
 # so a reference with FEWER digits than the map's narrowest id belongs to the other sequence.
 #
 # Derived from the map on every run, exactly like the floor, so there is no constant to go stale.
-# Both rules apply: width catches SC-01 against a 3-digit map, the floor still catches a genuinely
+# Both rules apply: width catches a two-digit criterion against a 3-digit map, the floor still catches a genuinely
 # low id on a map that starts high.
 MAP_WIDTH=$(sed "s/^${PREFIX}-//" "$TMP/allids" | sed 's/[^0-9].*$//' | awk '{ print length($0) }' | sort -n | head -1)
 if [ -n "$MAP_MIN" ]; then
@@ -690,7 +785,14 @@ if [ "$PARTIAL_READ" -eq 1 ]; then
   # "Clean over what I could read" reported as clean is the defect --partial exists to remove, so a
   # partial read gets its own code and can never be 0. It is reported AFTER the numbers, because the
   # numbers are still worth having — they are just not the whole map.
-  echo "scenario-traceability: part of the map was unreadable (see above) — this reading is partial" >&2
+  # The count comes from the extractor's own per-row lines, and "see above" only appears when those
+  # lines were printed. A pointer at nothing is the defect this line had.
+  N_REFUSED=$(grep -c ' columns, expected ' "$TMP/rows.err" || true)
+  if [ "$N_REFUSED" -gt 0 ]; then
+    echo "scenario-traceability: part of the map was unreadable — $N_REFUSED row(s) refused, each named above by file:line — this reading is partial" >&2
+  else
+    echo "scenario-traceability: part of the map was unreadable — the extractor reported skipped rows but named none — this reading is partial" >&2
+  fi
   exit 5
 fi
 # <<< partial-exit

@@ -22,26 +22,44 @@
 #   bash scripts/finding.sh --count           # how many are waiting
 #   bash scripts/finding.sh --resolve N "<what was decided>"
 #
+# Row proposals (row 077). During a freeze a new row exists only when the developer approved a
+# proposal for it, and a proposal has to show its need rather than assert it:
+#   bash scripts/finding.sh --add "<one line>" --propose-row --need "<who is hurt, where it was seen>"
+#   bash scripts/finding.sh --review [--proposals]   # open findings with overlap / citation checks
+#   bash scripts/finding.sh --approve N              # prints the id and the tag the new row carries
+#   bash scripts/finding.sh --decline N "<why>"
+#
 # Exit: 0 ok · 2 usage
 set -uo pipefail
 export LC_ALL=C
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT="$PWD"
 LEDGER="$ROOT/specs/FINDINGS.md"
 
-MODE=""; TEXT=""; SPEC=""; KIND="defect"; NUM=""
+MODE=""; TEXT=""; SPEC=""; KIND="defect"; NUM=""; PROPOSE=0; NEED=""; ONLY_PROPOSALS=""
+APPROVE=0; DECLINE=0   # never inherited from the environment
+KIND_GIVEN=0
+# A failed `shift` leaves $# unchanged, so an option missing its argument (`--approve` alone) spun
+# this loop forever. Every argument-taking option refuses instead.
+missing() { echo "finding.sh: $1 is missing its argument(s)" >&2; exit 2; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --add)     MODE=add; TEXT="${2:-}"; shift 2 ;;
+    --add)     MODE=add; TEXT="${2:-}"; shift 2 || missing "$1" ;;
     --list)    MODE=list; shift ;;
     --count)   MODE=count; shift ;;
-    --resolve) MODE=resolve; NUM="${2:-}"; TEXT="${3:-}"; shift 3 ;;
-    --spec)    SPEC="${2:-}"; shift 2 ;;
-    --kind)    KIND="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --resolve) MODE=resolve; NUM="${2:-}"; TEXT="${3:-}"; shift 3 || missing "$1" ;;
+    --spec)    SPEC="${2:-}"; shift 2 || missing "$1" ;;
+    --kind)    KIND="${2:-}"; KIND_GIVEN=1; shift 2 || missing "$1" ;;
+    --propose-row) PROPOSE=1; shift ;;
+    --need)    NEED="${2:-}"; shift 2 || missing "$1" ;;
+    --review)  MODE=review; shift ;;
+    --proposals) ONLY_PROPOSALS=--proposals; shift ;;
+    --approve) MODE=resolve; NUM="${2:-}"; APPROVE=1; shift 2 || missing "$1" ;;
+    --decline) MODE=resolve; NUM="${2:-}"; TEXT="${3:-}"; DECLINE=1; shift 3 || missing "$1" ;;
+    -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "finding.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
-[ -n "$MODE" ] || { sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ -n "$MODE" ] || { sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
 seed() {
   [ -f "$LEDGER" ] && return 0
@@ -64,17 +82,73 @@ Status: `[ ]` open · `[x]` decided (the decision is on the line)
 HDR
 }
 
+# One finding is one line. A newline in the text would write a second, forged ledger line -- for
+# instance one that reads as an approved finding to register_freeze.py.
+TEXT=$(printf '%s' "$TEXT" | tr '\r\n' '  '); NEED=$(printf '%s' "$NEED" | tr '\r\n' '  ')
+# `proposal` is reachable only through --propose-row, which requires --need; a free-form kind with a
+# space or an em-dash would also make the line invisible to --review.
+case "$KIND" in defect|gap|debt|idea) ;; *) echo "finding.sh: --kind must be defect, gap, debt or idea (a row proposal is --propose-row)" >&2; exit 2 ;; esac
+SPEC=$(printf '%s' "$SPEC" | tr '\r\n' '  ')
+[ -n "$NEED" ] && [ "$PROPOSE" -eq 0 ] && {
+  echo "finding.sh: --need belongs to a row proposal; add --propose-row, or put the evidence in the text" >&2; exit 2; }
+if [ "$PROPOSE" -eq 1 ]; then
+  [ "$KIND_GIVEN" -eq 1 ] && { echo "finding.sh: --propose-row sets the kind to proposal; drop --kind" >&2; exit 2; }
+  # A proposal without evidence is exactly what the freeze exists to stop: a row asserted, not shown.
+  [ -n "$(printf '%s' "$NEED" | tr -d '[:space:]')" ] || {
+    echo "finding.sh: a row proposal needs --need: who is hurt and where it was observed" >&2; exit 2; }
+  KIND=proposal
+fi
+if [ "$APPROVE" -eq 1 ]; then
+  TEXT="approved as a register row"
+fi
+if [ "$DECLINE" -eq 1 ]; then
+  [ -n "$(printf '%s' "$TEXT" | tr -d '[:space:]')" ] || {
+    echo "finding.sh: --decline needs a reason — a decline nobody can read back cannot be revisited" >&2; exit 2; }
+  TEXT="declined: $TEXT"
+fi
+
 case "$MODE" in
+  review)
+    command -v python3 >/dev/null 2>&1 || { echo "finding.sh: --review needs python3" >&2; exit 2; }
+    ENGINE="$(dirname "$0")/finding_review.py"
+    [ -f "$ENGINE" ] || { echo "finding.sh: scripts/finding_review.py is missing" >&2; exit 2; }
+    if [ -f "$ROOT/specs/INDEX.md" ]; then
+      FRZ=""
+      [ -f "$(dirname "$0")/register-convergence.sh" ] &&
+        FRZ=$(bash "$(dirname "$0")/register-convergence.sh" --dir "$ROOT" --freeze 2>/dev/null | head -1)
+      case "$FRZ" in
+        *" ON "*|*MALFORMED*|*ERROR*) printf '%s\n' "$FRZ" ;;
+        *) printf 'register: %s open · no freeze\n' "$(grep -cE '^- \[[ /!]\] ' "$ROOT/specs/INDEX.md")" ;;
+      esac
+    else
+      echo "register: no specs/INDEX.md — overlap with existing rows cannot be checked"
+    fi
+    ROOT="$ROOT" LEDGER="$LEDGER" REG="$ROOT/specs/INDEX.md" python3 "$ENGINE" $ONLY_PROPOSALS
+    ;;
   add)
     [ -n "$TEXT" ] || { echo "finding.sh: --add needs text" >&2; exit 2; }
     seed
     # `grep -c` PRINTS 0 and EXITS 1 when nothing matches, so `... || echo 0` emits "0\n0" and the
     # arithmetic dies. Capture, then normalise.
-    N=$(grep -cE '^- \[[ x]\]' "$LEDGER" 2>/dev/null); N=$(printf '%s' "$N" | head -1)
+    # A ledger saved without a final newline would glue this line onto the last one, hide it from
+    # the count, and hand the NEXT add a duplicate id.
+    [ -s "$LEDGER" ] && [ -n "$(tail -c1 "$LEDGER")" ] && printf '\n' >> "$LEDGER"
+    # THE HIGHEST ID, NEVER A COUNT, and read across every branch (row 054). Counting local rows
+    # handed two lanes the same F141–F143 on agentcrm, silently, because merge=union keeps both
+    # sides; and a deleted line freed its number for reuse. max-id-in-refs.sh reads the working
+    # tree plus every local and remote-tracking ref, so a pushed branch's ids are taken already.
+    N=$(bash "$(dirname "$0")/max-id-in-refs.sh" --dir "$ROOT" \
+          --regex '^- \[[ xX]\] F[0-9]+' -- 'specs/FINDINGS*.md' 2>/dev/null)
+    N=$(printf '%s' "$N" | sed 's/^0*//')
     case "$N" in ''|*[!0-9]*) N=0 ;; esac
     N=$((N + 1))
-    printf -- '- [ ] F%03d — %s — %s%s — %s\n' "$N" "$KIND" \
-      "$(date +%Y-%m-%d)" "$([ -n "$SPEC" ] && printf ' · from spec %s' "$SPEC")" "$TEXT" >> "$LEDGER"
+    printf -- '- [ ] F%03d — %s — %s%s — %s%s\n' "$N" "$KIND" \
+      "$(date +%Y-%m-%d)" "$([ -n "$SPEC" ] && printf ' · from spec %s' "$SPEC")" "$TEXT" \
+      "$([ "$PROPOSE" -eq 1 ] && printf ' — need: %s' "$NEED")" >> "$LEDGER"
+    if [ "$PROPOSE" -eq 1 ]; then
+      echo "recorded F$(printf '%03d' "$N") as a row PROPOSAL — it is presented for approve/decline at this spec's stop (finding.sh --review --proposals)."
+      exit 0
+    fi
     echo "recorded F$(printf '%03d' "$N") in specs/FINDINGS.md — not a register row, and it will be reviewed at the next 5-spec checkpoint."
     ;;
   list)
@@ -105,12 +179,20 @@ case "$MODE" in
     # appended the raw argument, producing "F000090 not found". The two halves
     # of one bug: silently wrong below 070, confusingly wrong above it. The
     # failing half is how the working half got noticed.
+    NUM=${NUM#[Ff]}   # --review prints F012; accept what people copy
     case "$NUM" in
       ''|*[!0-9]*) echo "finding.sh: --resolve takes a number, got '$NUM'" >&2; exit 2 ;;
     esac
     NUM=$(printf '%s' "$NUM" | sed 's/^0*//'); [ -n "$NUM" ] || NUM=0
     ID=$(printf 'F%03d' "$NUM")
-    grep -q -- "$ID " "$LEDGER" || { echo "finding.sh: $ID not found" >&2; exit 2; }
+    # Only an OPEN finding can be decided. A decided one used to print "decided" and exit 0 while the
+    # ledger stayed as it was -- an --approve on a declined finding then handed out a tag the freeze
+    # would reject.
+    if ! grep -q "^- \[ \] $ID " "$LEDGER"; then
+      if grep -q "^- \[x\] $ID " "$LEDGER"; then echo "finding.sh: $ID is already decided" >&2
+      else echo "finding.sh: $ID not found" >&2; fi
+      exit 2
+    fi
     python3 - "$LEDGER" "$ID" "$TEXT" <<'PY'
 import sys, pathlib
 p, fid, why = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
@@ -122,6 +204,12 @@ for l in p.read_text(encoding="utf-8").split("\n"):
 p.write_text("\n".join(out), encoding="utf-8")
 PY
     echo "$ID decided: $TEXT"
+    if [ "$APPROVE" -eq 1 ]; then
+      NEXT=""
+      [ -f "$ROOT/scripts/next-register-id.sh" ] && NEXT=$(cd "$ROOT" && bash scripts/next-register-id.sh 2>/dev/null)
+      echo "Add the row${NEXT:+ (next free id right now: $NEXT — re-run next-register-id.sh when you write it)} and end it with: — approved $ID"
+      echo "Without that tag, register-convergence.sh --freeze counts it as a row added during the freeze."
+    fi
     # DECIDING A FINDING *IS* THE REVIEW, so clear the due-state here rather than asking someone to
     # remember a second command. `maintenance-due.sh` has always had `--stamp findings`, and nothing
     # in the template ever called it: `project-maintenance.sh` stamps suite, secrets, mutation and

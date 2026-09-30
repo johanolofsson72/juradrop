@@ -32,7 +32,7 @@ REFS=$(grep -rhoE \
   | grep -oE '[A-Z_][A-Z0-9_]+' \
   | grep -vE '^(GET|POST|PUT|DELETE|HEAD|TRUE|FALSE|NULL|NONE)$' \
   | sort -u \
-  | head -80)
+  | sed -n 1,80p)
 
 [ -n "$REFS" ] || exit 0
 

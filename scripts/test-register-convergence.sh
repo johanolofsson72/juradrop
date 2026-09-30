@@ -88,5 +88,85 @@ if grep -qE '^\s*mapfile|readarray' "$SUT"; then  # portability-ok — this line
   echo "  FAIL  uses mapfile/readarray (bash 4+); macOS ships bash 3.2"; FAIL=$((FAIL+1))  # portability-ok
 else echo "  PASS  no bash-4-only builtins"; PASS=$((PASS+1)); fi
 
+# --freeze (row 077): the exit contract its three readers branch on. Deep cases live in test-finding.sh.
+fz() { # fz <label> <expected rc> <register body> [engine present: 1|0]
+  d="$TMP/fz-$RANDOM"; mkdir -p "$d/specs" "$d/scripts"; ( cd "$d" && git init -q . )
+  cp "$SUT" "$d/scripts/"; [ "${4:-1}" = 1 ] && cp "$SCRIPT_DIR/register_freeze.py" "$d/scripts/"
+  printf '%s\n' "$3" > "$d/specs/INDEX.md"
+  ( cd "$d" && bash scripts/register-convergence.sh --freeze >/dev/null 2>&1 ); rc=$?
+  if [ "$rc" = "$2" ]; then echo "  PASS  --freeze $1 -> rc$rc"; PASS=$((PASS+1))
+  else echo "  FAIL  --freeze $1 -> rc$rc (want $2)"; FAIL=$((FAIL+1)); fi
+}
+ROWS='- [ ] 001 — a — b
+- [ ] 002 — c — d'
+fz "no freeze line"        1 "$ROWS"
+fz "frozen, clean"         0 "Freeze: since 2026-09-29 · last row 002 · lifts below 1 open
+$ROWS"
+fz "unapproved row"        2 "Freeze: since 2026-09-29 · last row 001 · lifts below 1 open
+$ROWS"
+fz "below target"          3 "Freeze: since 2026-09-29 · last row 002 · lifts below 5 open
+$ROWS"
+fz "malformed line"        4 "Freeze: someday
+$ROWS"
+fz "engine missing"        5 "Freeze: since 2026-09-29 · last row 002 · lifts below 1 open
+$ROWS" 0
+
+# R2: the SessionStart banner. A freeze replaces the three-ways-out prompt; a malformed line does not.
+banner() { # banner <label> <want substring> <reject substring> <register body>
+  d="$TMP/bn-$RANDOM"; mkdir -p "$d/specs" "$d/scripts"; ( cd "$d" && git init -q . )
+  cp "$SUT" "$SCRIPT_DIR/register_freeze.py" "$d/scripts/"; chmod +x "$d/scripts/register-convergence.sh"
+  printf '%s\n' "$4" > "$d/specs/INDEX.md"
+  # The hook walks up from the WORKING DIRECTORY, not CLAUDE_PROJECT_DIR: run it from inside the
+  # fixture, or it reads whatever register encloses the caller (a false pass, measured 2026-09-29).
+  out=$(cd "$d" && printf '{"hook_event_name":"SessionStart","source":"startup"}' |
+        CLAUDE_PROJECT_DIR="$d" bash "$SCRIPT_DIR/spec-register-orientation-hook.sh" 2>/dev/null)
+  case "$out" in *"$d/specs/INDEX.md"*) ;; *) echo "  FAIL  banner $1 read a register other than its fixture"; FAIL=$((FAIL+1)); return ;; esac
+  case "$out" in *"$2"*) case "$out" in *"$3"*) echo "  FAIL  banner $1 carries '$3'"; FAIL=$((FAIL+1)) ;;
+                                      *) echo "  PASS  banner $1"; PASS=$((PASS+1)) ;; esac ;;
+    *) echo "  FAIL  banner $1 lacks '$2'"; FAIL=$((FAIL+1)) ;; esac
+}
+banner "frozen shows the freeze" "FREEZE (carve-budget.md" "three ways out" "# R
+
+Freeze: since 2026-09-29 · last row 002 · lifts below 1 open
+
+## Specs
+
+$ROWS"
+banner "malformed says fix it, not frozen" "fix the line" "FREEZE (carve-budget.md" "# R
+
+Freeze: someday
+
+## Specs
+
+$ROWS"
+
+# --carves (row 027): zero attributions is not "clean". The verdict and the exit code must say what
+# was measured, because project-maintenance.sh branches on the code and lane-catchup.sh on the words.
+cv() { # cv <label> <expected rc> <want substring> <reject substring> <register body>
+  d="$TMP/cv-$RANDOM"; mkdir -p "$d/specs" "$d/scripts"
+  cp "$SUT" "$SCRIPT_DIR/carve_audit.py" "$d/scripts/"
+  printf '%s\n' "$5" > "$d/specs/INDEX.md"
+  out=$(cd "$d" && bash scripts/register-convergence.sh --carves 2>&1); rc=$?
+  if [ "$rc" != "$2" ]; then echo "  FAIL  --carves $1 -> rc$rc (want $2)"; FAIL=$((FAIL+1)); return; fi
+  case "$out" in *"$3"*) ;; *) echo "  FAIL  --carves $1 lacks '$3'"; FAIL=$((FAIL+1)); return ;; esac
+  case "$out" in *"$4"*) echo "  FAIL  --carves $1 carries '$4'"; FAIL=$((FAIL+1)); return ;; esac
+  echo "  PASS  --carves $1 -> rc$rc"; PASS=$((PASS+1))
+}
+cvrows() { # cvrows <ticked> <open> -- unattributed rows 001.., ticked first
+  i=1; while [ "$i" -le "$(( $1 + $2 ))" ]; do
+    [ "$i" -le "$1" ] && m=x || m=' '
+    echo "- [$m] $(printf '%03d' $i) — s$i — spec-only — goal"; i=$((i+1)); done
+}
+cv "attributed, within limits" 0 "carve shape: clean — 1 attributed" "unmeasurable" "$(cvrows 12 0)
+- [ ] 013 — c — spec-only — goal — carved by 001"
+cv "over budget"               1 "[CARVE BUDGET]" "carve shape: clean" "$(cvrows 12 0)
+- [ ] 013 — a — carved by 001
+- [ ] 014 — b — carved by 001
+- [ ] 015 — c — carved by 001"
+cv "none attributed, 10+ ticked" 3 "carve shape: unmeasurable — 0 attributed row(s) of 12 (10 ticked)" "clean" "$(cvrows 10 2)"
+cv "none attributed, young"    0 "too young to measure" "clean" "$(cvrows 9 5)"
+cv "only unresolved, 10+ ticked" 3 "1 cite a row this register does not hold" "clean" "$(cvrows 10 0)
+- [ ] 011 — a — carved by 999"
+
 echo "register-convergence: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

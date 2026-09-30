@@ -78,6 +78,8 @@ open question         (unresolved design decision)
 | `Float` / `Double` | `Decimal` |
 | `[a, b]` list literals | `{a, b}` set literals, typed `Set<T>` |
 | `for each x in xs:` | `for x in xs:` |
+| `deferred X in "x.allium"` / `deferred X: "x.allium"` | `deferred X -- see: x.allium`. `in "…"` parses as a membership test and the colon form does not parse |
+| `deferred X` (bare) or `deferred X -- src/x.cs` | `deferred X -- see: <path or URL>`. The location-hint lint reads only `-- see:`, a quoted path or an `http(s)://` URL after the name. Any other comment is not a hint, even when it names a file |
 | Referencing a type you never declared (`Email.created(...)`) | Declare it, even as a stub `external entity Email { ... }` |
 
 ### Allium v3 language syntax
@@ -211,7 +213,7 @@ surface OrderDashboard {
     exposes: order.tracking_number
 }
 
-deferred Order.fraud_check
+deferred Order.fraud_check    -- see: fraud-check.allium
 open question "How should partial shipments work?"
 ```
 
@@ -303,6 +305,19 @@ This rule applies whether the skill was invoked manually (`/allium`, `/allium:el
 `severity: error`. When it blocks, fix the listed lines and write the file again. Warnings do not
 block. If the CLI is not installed the hook says so once and lets the write through: still write the
 file, but check it by hand against the INVALID SYNTAX table above, because nothing else will.
+
+**CLI floor: 3.3.0.** Older CLIs warn `allium.deferred.missingLocationHint` on every `deferred`,
+whatever follows it. The hook notices a pre-3.3 CLI and says so once per session. On 3.3.0 and
+later that warning is real: the line has no pointer, so add `-- see: <path>`.
+
+**Known false positive (allium-cli ≤ 3.6.1, measured 2026-09-30):**
+`allium.status.unreachableValue` ("Status 'x' in entity 'E' is never assigned by any rule ensures
+clause") fires when two entities declare a field with the **same name** (typically `status`) and
+the assigning rule binds the entity through an untyped trigger parameter (`when: SyncPush(item)`
+followed by `ensures: item.status = refused`). The checker cannot tell which entity `item` is, so
+it credits the assignment to neither. Fix it by giving the fields distinct names (`push_status`,
+`response_status`). That works on every version. Do not type the trigger parameter: the INVALID
+table forbids it.
 
 ## Auto-install Allium CLI
 

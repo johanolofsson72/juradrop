@@ -26,6 +26,7 @@
 set -u
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/hook-verdict.sh"   # spec 029: read verdicts the way the CLI does
 PRE="$SCRIPT_DIR/bash-write-guard-hook.sh"
 POST="$SCRIPT_DIR/bash-write-detect-hook.sh"
 for h in "$PRE" "$POST"; do
@@ -90,6 +91,7 @@ run_pre() {
 import json,sys
 try:
     h = json.load(sys.stdin).get("hookSpecificOutput", {})
+    if h and h.get("hookEventName") != "PreToolUse": print("DROPPED"); raise SystemExit  # spec 029: the CLI discards it
     r = " ".join(h.get("permissionDecisionReason","").split())
     print(h.get("permissionDecision","?").upper() + " " + r)
 except Exception:
@@ -108,6 +110,7 @@ run_pre_override() {
 import json,sys
 try:
     h = json.load(sys.stdin).get("hookSpecificOutput", {})
+    if h and h.get("hookEventName") != "PreToolUse": print("DROPPED"); raise SystemExit  # spec 029: the CLI discards it
     if not h.get("permissionDecision"):
         print("ALLOW"); raise SystemExit
     r = " ".join(h.get("permissionDecisionReason","").split())
@@ -518,6 +521,48 @@ PY")" "src/App.cs"
   # depends on it would be pinning luck.
   expect_allow "declared bound: a path assembled at runtime is still not seen" \
     "$(run_pre "$ROOT" "python3 -c \"open('src/App' + '.cs','a')\"")"
+fi
+
+# --------------------------------------------------------------- CWD (row 058)
+if want cwd; then
+  echo "FIXTURE cwd — a relative target is where the command's own cd put it, and a URL is not a file"
+  ROOT=$(make_fixture cwd)
+  ELSE="$WORK/elsewhere"; mkdir -p "$ELSE/src"
+
+  # The control: without a cd the relative write IS this project's file. If this allowed, every
+  # allow below would be the fixture failing rather than the resolver working.
+  expect_deny "control: a relative write with no cd" "$(run_pre "$ROOT" "echo x > src/App.cs")" "src/App.cs"
+
+  # The two shapes reproduced on 2026-09-25: a redirect and an interpreter heredoc, both after a cd
+  # into another tree, both refused as writes to this one.
+  expect_allow "a redirect after cd into another tree" \
+    "$(run_pre "$ROOT" "cd $ELSE && echo x > src/App.cs")"
+  expect_allow "an interpreter heredoc after cd into another tree" "$(run_pre "$ROOT" "cd $ELSE && python3 - <<'PY'
+open('src/App.cs','a').write('x')
+PY")"
+
+  # The resolver must also send a write BACK into the project when that is where the cd goes —
+  # otherwise "allow" above could be a resolver that simply stopped resolving.
+  expect_deny "a cd into the project's own subdirectory" \
+    "$(run_pre "$ROOT" "cd src && echo x > App.cs")" "src/App.cs"
+  expect_deny "a cd back into the project by absolute path" \
+    "$(run_pre "$ROOT" "cd $ELSE && cd $ROOT && echo x > src/App.cs")" "src/App.cs"
+
+  # A cd inside a subshell ends with it. Reading it as permanent would hand the pre-layer a one-token
+  # bypass: `(cd /tmp); sed -i … src/App.cs`.
+  expect_deny "a subshell's cd does not outlive the subshell" \
+    "$(run_pre "$ROOT" "(cd $ELSE && true); echo x > src/App.cs")" "src/App.cs"
+
+  # Declared bound, asserted: after cd to a runtime directory the cwd is unknown, so a relative
+  # target is not guessed at. The post-layer watches the filesystem and catches it if it lands here.
+  expect_allow "declared bound: a relative write after cd to a runtime directory" \
+    "$(run_pre "$ROOT" "cd \"\$T\" && echo x > src/App.cs")"
+  expect_deny "...while an absolute target after the same cd is still asked about" \
+    "$(run_pre "$ROOT" "cd \"\$T\" && echo x > $ROOT/src/App.cs")" "src/App.cs"
+
+  # Arm 2 (agentcrm F237): a URL ending in a source extension, inside an interpreter's program.
+  expect_allow "a URL is not a path" \
+    "$(run_pre "$ROOT" "bash -c \"git clone https://example.com/org/whisper.cs\"")"
 fi
 
 # --------------------------------------------------------------- ORDER (SC-926)

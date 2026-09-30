@@ -41,7 +41,7 @@ Output ONLY that one line. No preamble, no markdown.'
 
 RESULT=$(printf '%s' "$PROMPT" \
   | bash "$SCRIPT_DIR/local-llm-call.sh" "$SYSTEM" 48 2>/dev/null \
-  | head -n1)
+  | sed -n 1p)
 
 [ -n "$RESULT" ] || exit 0
 

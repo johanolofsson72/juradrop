@@ -23,7 +23,10 @@ set -u
 
 SELF_DIR=$(cd "$(dirname "$0")" && pwd)
 HOOK="$SELF_DIR/core-owed-tick-guard-hook.sh"
+# Spec 029: read the verdict the way the CLI does — a deny without hookEventName is "dropped".
+. "$SELF_DIR/hook-verdict.sh"
 SYNC="$SELF_DIR/template-autosync.sh"
+. "$SELF_DIR/drive-sync.sh"                    # the only way to the sync (spec 011)
 BASHGUARD="$SELF_DIR/bash-write-guard-hook.sh"
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS+1)); printf '  ok    %s\n' "$*"; }
@@ -102,7 +105,7 @@ run_hook() {          # $1 = file path, $2 = new_string ("" = none), rest = VAR=
   fi
 }
 
-decision() { printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null; }
+decision() { hook_verdict "$1"; }
 reason()   { printf '%s' "$1" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null; }
 context()  { printf '%s' "$1" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null; }
 
@@ -301,9 +304,12 @@ printf '\n[parity] the same verdict through the shell\n'
 # Row H7b: a guard wired only to Edit is silent on `sed -i`, and which tool you picked decides
 # whether the rule applies. The delegate list is what closes that; this asserts it is closed here
 # too, and states the bound — no bytes on this route, so it answers about the file.
+# The project is NAMED here too. bash-write-guard-hook.sh takes its root from CLAUDE_PROJECT_DIR
+# before anything else and stamps .claude/.bash-write-marker there; under a hook that is the real
+# repository, which is where this section left its marker until spec 010 measured it.
 if [ -f "$BASHGUARD" ]; then
   OUT=$(printf '{"tool_name":"Bash","tool_input":{"command":"sed -i %s s/x/y/ %s"}}' "''" "$DIRTY/specs/INDEX.md" \
-          | bash "$BASHGUARD" 2>/dev/null)
+          | CLAUDE_PROJECT_DIR="$DIRTY" bash "$BASHGUARD" 2>/dev/null)
   if [ "$(decision "$OUT")" = "deny" ]; then
     ok "a shell write to the register is denied on the same terms"
     case "$(reason "$OUT")" in *"core-owed-tick-guard-hook.sh"*)
@@ -314,8 +320,8 @@ if [ -f "$BASHGUARD" ]; then
   fi
 
   OUT=$(printf '{"tool_name":"Bash","tool_input":{"command":"sed -i %s s/x/y/ %s"}}' "''" "$CLEAN/specs/INDEX.md" \
-          | bash "$BASHGUARD" 2>/dev/null)
-  [ "$(decision "$OUT")" != "deny" ] && ok "  ...and stays quiet through the shell on a clean tree" \
+          | CLAUDE_PROJECT_DIR="$CLEAN" bash "$BASHGUARD" 2>/dev/null)
+  [ "$(decision "$OUT")" = "none" ] && ok "  ...and stays quiet through the shell on a clean tree" \
                                      || { bad "  the shell route denied on a clean tree"; info "$(reason "$OUT")"; }
 else
   info "bash-write-guard-hook.sh not present — shell-route parity not asserted"
@@ -324,7 +330,18 @@ fi
 # =============================================================== the detector alone
 printf '\n[detector] --owed and --unlisted answer for machines\n'
 
-rc_of() { ( cd "$1" && shift && bash "$SYNC" "$@" >/dev/null 2>&1 ); }
+# The project under test is NAMED, not stood in. `cd` alone does not choose it: template-autosync.sh
+# resolves ${CLAUDE_PROJECT_DIR:-$PWD}, and under a Claude Code hook the harness has already
+# exported that variable. Measured 2026-09-01: with it set, --check run from a directory that HAS
+# .claude/ answers "[skip] no .claude/" — i.e. about the other repository. These modes write
+# nothing, so the failure was never a damaged repo; it was four assertions below quietly answering
+# about the wrong one, which is the direction nobody notices. Spec 010 (consultpilot H7bm).
+# drive_sync owns the naming, the declaration, the cwd and the timeout, so this wrapper is now just
+# "which project, which sandbox" — $TO carries SECONDS rather than a command prefix, because
+# `timeout` no longer has to be pasted between the environment and `bash`. Spec 011.
+run_sync() { _p="$1"; shift
+  DRIVE_SYNC_SCRIPT="$SYNC" DRIVE_SYNC_TIMEOUT="${TO:-}" drive_sync "$_p" "$WORK" "$@"; }
+rc_of() { run_sync "$@" >/dev/null 2>&1; }
 
 rc_of "$CLEAN" --owed;     [ $? -eq 1 ] && ok "--owed exits 1 on a clean tree"     || bad "--owed did not exit 1 on a clean tree"
 rc_of "$DIRTY" --owed;     [ $? -eq 0 ] && ok "--owed exits 0 when a CORE file moved" || bad "--owed did not exit 0 on a divergent tree"
@@ -333,17 +350,19 @@ rc_of "$UNL"   --unlisted; [ $? -eq 0 ] && ok "--unlisted exits 0 on a CORE-shap
 
 # A finding must carry its referrer, or a reader cannot dismiss a false positive without going and
 # reading the script (FR-003).
-OUT=$( cd "$UNL" && bash "$SYNC" --unlisted 2>/dev/null )
+OUT=$( run_sync "$UNL" --unlisted 2>/dev/null )
 case "$OUT" in *"scenario-map-probe.sh"*"feature-pipeline.md"*)
     ok "  a finding names both the path and its referrer" ;;
   *) bad "  the finding does not carry its referrer"; info "$OUT" ;; esac
 
 # Neither query may touch the network: this runs in front of an Edit.
-if command -v timeout >/dev/null 2>&1; then
-  ( cd "$CLEAN" && timeout 5 bash "$SYNC" --unlisted >/dev/null 2>&1 ); RC=$?
+# The same test drive_sync makes: on a Mac with only coreutils' gtimeout the helper can still bound
+# the run, and a guard asking for `timeout` alone skipped both assertions without a word.
+if command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; then
+  ( TO=5; rc_of "$CLEAN" --unlisted ); RC=$?
   [ "$RC" -ne 124 ] && ok "--unlisted answers well inside 5 s (no template resolution)" \
                     || bad "--unlisted timed out — it is resolving the template"
-  ( cd "$CLEAN" && timeout 5 bash "$SYNC" --owed >/dev/null 2>&1 ); RC=$?
+  ( TO=5; rc_of "$CLEAN" --owed ); RC=$?
   [ "$RC" -ne 124 ] && ok "--owed answers well inside 5 s (no template resolution)" \
                     || bad "--owed timed out — it is resolving the template"
 fi

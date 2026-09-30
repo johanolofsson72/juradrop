@@ -172,7 +172,7 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
   # fresh session. A hook cannot run /clear (it is a harness built-in), so we
   # print a loud reminder per .claude/rules/spec-hardening.md.
   #
-  # MATCHED ON THE TRACK FIELD, NOT THE ROW'S TEXT (SC-1444). This used to lower-case
+  # MATCHED ON THE TRACK FIELD, NOT THE ROW'S TEXT (test-pipeline-hooks.sh). This used to lower-case
   # the WHOLE row and glob it, so the word "checkpoint" anywhere — in a slug, in the
   # one-line goal — did two wrong things at once: it fired this banner on a row that is
   # not full-track, and it silenced the every-5 integration-checkpoint alarm below,
@@ -205,7 +205,7 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
   esac
 
   # What this project OWES, and what made it owe it. The checkpoint cadence below has worked this
-  # way since spec-hardening.md was written -- DONE % 5 -- and it was the only recurring job with a
+  # way since spec-hardening.md was written -- see checkpoint-cadence.sh -- and it was the only recurring job with a
   # due state. maintenance-due.sh generalises it to the other four, so a stale mutation gate or an
   # unrun suite is surfaced here rather than depending on a nightly cron firing on a sleeping
   # laptop. Delegated, never recomputed: three readers, one engine.
@@ -216,19 +216,29 @@ Lane: @${LANE} (SPEC_OWNER). Rows tagged for the other developer are hidden from
 $MAINT_DUE"
   fi
 
-  # Cross-spec integration-hardening checkpoint cadence (every 5 completed specs).
-  # If DONE is a nonzero multiple of 5 and the next row is NOT already a checkpoint,
-  # flag that a checkpoint row is due before the next feature spec.
+  # Cross-spec integration-hardening checkpoint cadence (.claude/rules/spec-hardening.md).
+  # Delegated to checkpoint-cadence.sh, never recomputed here. This used to be `DONE % 5` over every
+  # ticked row, which counted H rows and carved rows as feature specs (fundit F211: "due" with four
+  # feature specs since H2) and went silent at 6 on a checkpoint that was never worked (spec 068).
+  # Nothing to flag when the next row already is the checkpoint.
   CHECKPOINT_DUE=""
   case "$NEXT_TRACK" in
-    *checkpoint*) : ;;  # already on a checkpoint row — nothing to flag
+    *checkpoint*) : ;;
     *)
-      if [ "$DONE" -gt 0 ] && [ $((DONE % 5)) -eq 0 ]; then
-        CHECKPOINT_DUE="
-⚠ INTEGRATION-HARDENING CHECKPOINT DUE — ${DONE} specs done (multiple of 5).
+      if [ -f "${_ORIENT_SCRIPT_DIR}/checkpoint-cadence.sh" ]; then
+        _CADENCE=$(bash "${_ORIENT_SCRIPT_DIR}/checkpoint-cadence.sh" --dir "$PROJECT_ROOT" 2>/dev/null)
+        case "$_CADENCE" in
+          *due=1)
+            _CP_COUNT=$(printf '%s' "$_CADENCE" | sed -n 's/.*count=\([0-9]*\).*/\1/p')
+            _CP_SINCE=$(printf '%s' "$_CADENCE" | sed -n 's/^since=\([^ ]*\).*/\1/p')
+            if [ "$_CP_SINCE" = "none" ]; then _CP_SINCE="the start of the register"; fi
+            CHECKPOINT_DUE="
+⚠ INTEGRATION-HARDENING CHECKPOINT DUE — ${_CP_COUNT} feature specs since ${_CP_SINCE}.
   Per .claude/rules/spec-hardening.md, insert + work an integration-hardening
   checkpoint row (full-system regression + security sweep + scenario reconciliation
   + mutation spot-check) BEFORE the next feature spec. Do not skip it silently."
+            ;;
+        esac
       fi
       ;;
   esac
@@ -245,7 +255,27 @@ $MAINT_DUE"
   [ -f "$SCEN_FILE" ] && { SCEN_BYTES=$(wc -c < "$SCEN_FILE" 2>/dev/null | tr -d ' ') || SCEN_BYTES=0; }
   IDX_BYTES=${IDX_BYTES:-0}; SCEN_BYTES=${SCEN_BYTES:-0}
   BLOATED=""
-  [ "$IDX_BYTES" -gt "$WARN_THRESH" ] && BLOATED="INDEX.md ($((IDX_BYTES/1024)) KB)"
+  # Row 017: the 300-byte row budget and this canary do not compose. msroute kept every row inside
+  # budget and still sat at 29 KB (ticked rows, nothing left to archive); agentcrm's 59 KB was
+  # prose inside ## Specs. Both were told to run the row archiver, which had nothing to do. So the
+  # register is measured by part, and the advice is whatever register-bytes.sh says moves the
+  # bytes. A register with no move is not "actionable": one info line, no attention mode.
+  # Helper missing or failing (a partial sync) -> IDX_MOVES stays empty and IDX_PARTS unset, and
+  # the old wording below is used. The canary must never go silent because a helper is absent.
+  IDX_PARTS=""; IDX_MOVES=""; SIZE_NOTE=""
+  if [ "$IDX_BYTES" -gt "$WARN_THRESH" ]; then
+    if IDX_RB=$(bash "${_ORIENT_SCRIPT_DIR}/register-bytes.sh" "$FOUND_REG" 2>/dev/null) && [ -n "$IDX_RB" ]; then
+      _rb() { printf '%s\n' "$IDX_RB" | sed -n "s/^$1=\([0-9]*\) share=\([0-9]*\).*/\\$2/p"; }
+      IDX_PARTS="rows $(( $(_rb rows 1) / 1024 )) KB ($(_rb rows 2)%), prose $(( $(_rb prose 1) / 1024 )) KB ($(_rb prose 2)%), history $(( $(_rb history 1) / 1024 )) KB ($(_rb history 2)%)"
+      IDX_MOVES=$(printf '%s\n' "$IDX_RB" | sed -n 's/^move=\([a-z]*\) \(.*\)/  · \1: \2/p')
+    fi
+    if [ -n "$IDX_PARTS" ] && [ -z "$IDX_MOVES" ]; then
+      SIZE_NOTE="
+· INDEX.md $((IDX_BYTES/1024)) KB (${IDX_PARTS}) — every part complies; nothing archives it further. Read it targeted."
+    else
+      BLOATED="INDEX.md ($((IDX_BYTES/1024)) KB)"
+    fi
+  fi
   if [ "$SCEN_BYTES" -gt "$WARN_THRESH" ]; then
     [ -n "$BLOATED" ] && BLOATED="$BLOATED, SCENARIOS.md ($((SCEN_BYTES/1024)) KB)" || BLOATED="SCENARIOS.md ($((SCEN_BYTES/1024)) KB)"
   fi
@@ -272,15 +302,36 @@ $MAINT_DUE"
     done
   fi
   if [ -n "$BLOATED" ]; then
+    # Row 008: the archivers below shrink INDEX.md and history sections, never an SC row. Sent at
+    # a 121 KB map they return a few hundred bytes and the same warning, which is how 17 maps sat
+    # over this line unheeded. A map gets its own remedy, and the maintenance pass records it.
+    MAP_REMEDY=""
+    case "$BLOATED" in
+      *SCENARIOS.md*|*scenarios/*) MAP_REMEDY="
+  Scenario map: the archivers do not shrink it — split the map (or the feature
+  file) per 'Keep the map lean' in .claude/rules/scenarios.md.
+  scripts/project-maintenance.sh records each one in specs/FINDINGS.md." ;;
+    esac
+    # Row 017: when the register was measured, name its parts and only the moves that exist.
+    IDX_REMEDY=""
+    case "$BLOATED" in
+      *INDEX.md*)
+        if [ -n "$IDX_MOVES" ]; then
+          IDX_REMEDY="
+  INDEX.md is ${IDX_PARTS}. What shrinks it, largest part first:
+${IDX_MOVES}"
+        else
+          IDX_REMEDY="
+  INDEX.md: run scripts/archive-completed-rows.sh (archives completed rows to
+  *.completed.md, reports rows over the 300-byte budget) or
+  scripts/archive-spec-history.sh (moves old history to *.history.md)."
+        fi ;;
+    esac
     SIZE_WARN="
 ⚠ CONTEXT-COST CANARY — large per-spec files: ${BLOATED}.
-  These are read every spec. Trim before continuing: run
-  scripts/archive-completed-rows.sh (INDEX.md — archives completed rows to
-  *.completed.md and reports rows over the 300-byte budget; the ROWS are where
-  the bytes are, measured 91.4% in spec 007ce) or scripts/archive-spec-history.sh
-  (moves old history to *.history.md), and read these files TARGETED (only the
-  next row / the current feature's SC rows), never whole. See 'Keep the register
-  lean' / 'Keep the map lean' in .claude/rules/."
+  These are read every spec. Trim before continuing, and read these files
+  TARGETED (only the next row / the current feature's SC rows), never whole.
+  See 'Keep the register lean' / 'Keep the map lean' in .claude/rules/.${IDX_REMEDY}${MAP_REMEDY}"
   fi
 
   # Failure memory for a resumed spec: when a row is mid-flight ("- [/]"), show
@@ -357,7 +408,26 @@ ${TAIL_LINES}"
     CONV_RAW=$(cd "$PROJECT_ROOT" && bash scripts/register-convergence.sh --quiet 2>/dev/null)
     CONV_RC=$?
     CONV_LINE=$(printf '%s\n' "$CONV_RAW" | head -1)
-    if [ "$CONV_RC" = "2" ] && [ -n "$CONV_LINE" ]; then
+    # A developer who already answered the stop with a freeze (row 077) should not be asked again
+    # every session. The freeze line replaces the three-ways-out banner and says what it permits.
+    FREEZE_LINE=$(cd "$PROJECT_ROOT" && bash scripts/register-convergence.sh --freeze 2>/dev/null)
+    FREEZE_RC=$?
+    FREEZE_LINE=$(printf '%s\n' "$FREEZE_LINE" | head -1)
+    # Only 0/2/3 are a freeze. 4 (malformed line) is surfaced on its own and does NOT silence the
+    # convergence stop; 5/127 (cannot evaluate: partial sync, no python3) fall through to it.
+    FREEZE_BAD=""
+    [ "$FREEZE_RC" = "4" ] && FREEZE_BAD="
+⚠ ${FREEZE_LINE} — fix the line; until then the freeze is not in force."
+    if [ "$FREEZE_RC" = "0" ] || [ "$FREEZE_RC" = "2" ] || [ "$FREEZE_RC" = "3" ]; then
+      CONVERGE_WARN="
+${CONV_LINE:+· ${CONV_LINE}
+}⚠ ${FREEZE_LINE}
+  FREEZE (carve-budget.md §6): no new rows. A finding goes to scripts/finding.sh --add; a row
+  someone needs is a proposal (--propose-row --need \"<evidence>\"), presented for approve/decline
+  at this spec's stop (finding.sh --review --proposals). An approved row carries \"approved F<nnn>\"."
+      [ "$FREEZE_RC" = "2" ] && CONVERGE_WARN="${CONVERGE_WARN}
+  Rows above were added without an approved proposal: surface them to the developer (approve or cut)."
+    elif [ "$CONV_RC" = "2" ] && [ -n "$CONV_LINE" ]; then
       CONVERGE_WARN="
 ⚠ ${CONV_LINE}
   Per .claude/rules/carve-budget.md this is a CONVERGENCE STOP. Work the current row,
@@ -370,16 +440,16 @@ ${TAIL_LINES}"
     fi
   fi
 
-  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}${MAINT_DUE}"
+  ACTIONABLE="${CHECKPOINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${MAINT_DUE}"
   if [ -z "$ACTIONABLE" ] && [ "$BLOCK" -eq 0 ] && [ "$PROG" -eq 0 ]; then
-    MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)"
+    MSG="Register: ${DONE}/${TOTAL} done${LANE:+ · lane @${LANE}} · next: ${NEXT_LINE} · (.claude/rules/spec-register.md — one spec end-to-end, then stop)${SIZE_NOTE}"
     notice_model SessionStart "$MSG"
     exit 0
   fi
 
   MSG="Spec register: ${FOUND_REG}
 Totals — Total: ${TOTAL} | Done: ${DONE} | In-progress: ${PROG} | Blocked: ${BLOCK} | Todo: ${TODO}
-Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${RUNLOG_TAIL}
+Next: ${NEXT_LINE}${LANE_NOTE}${DUP_WARN}${CONVERGE_WARN}${FREEZE_BAD:-}${CHECKPOINT_DUE}${MAINT_DUE}${CLEAR_BANNER}${SIZE_WARN}${SIZE_NOTE}${RUNLOG_TAIL}
 
 Per .claude/rules/spec-register.md: work this row end-to-end through the pipeline, commit and push to the working branch directly (that rule and .claude/rules/project-workflow.md are solo/direct-push — no feature branch, no PR, no merge step, unless this project's own workflow memory says otherwise), tick the register, then stop with the status summary. No mid-spec stops except real ambiguity, hard blocker, Allium/TLA+ findings, or a register-rewrite proposal."
   notice_model SessionStart "$MSG"

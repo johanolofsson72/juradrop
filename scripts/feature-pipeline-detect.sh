@@ -21,24 +21,24 @@ PROMPT=$(echo "$INPUT" | jq -r '.prompt // empty' 2>/dev/null)
 LP=$(printf '%s' "$PROMPT" | tr '[:upper:]' '[:lower:]')
 
 # 1) Already on the pipeline — let the existing hook handle it
-if echo "$LP" | grep -qE '(/specify|/clarify\b|/plan\b|/tasks\b|/implement\b|/allium|/tla\b|speckit[.:_-])'; then
+if grep -qE '(/specify|/clarify\b|/plan\b|/tasks\b|/implement\b|/allium|/tla\b|speckit[.:_-])' <<< "$LP"; then
   exit 0
 fi
 
 # 2) Read-only / Q&A / status / exploration prompts
-if echo "$LP" | grep -qE '(\bexplain\b|\bförklara\b|\breview\b|\bgranska\b|what (does|is|are)|hur fungerar|how does|where (is|are)|var (finns|ligger)|find me|hitta|git (status|log|diff|show|blame)|\bvisa\b|\bshow me\b|list (the |all )?|\blista\b)'; then
+if grep -qE '(\bexplain\b|\bförklara\b|\breview\b|\bgranska\b|what (does|is|are)|hur fungerar|how does|where (is|are)|var (finns|ligger)|find me|hitta|git (status|log|diff|show|blame)|\bvisa\b|\bshow me\b|list (the |all )?|\blista\b)' <<< "$LP"; then
   exit 0
 fi
 
 # 3) Explicit-trivial markers — bypass the pipeline
-if echo "$LP" | grep -qE '(trivial fix|one-?line|typo|just (a )?(typo|format|whitespace)|format only|whitespace only|rename (a |the )?(single |local )?variable|revert (the )?last commit)'; then
+if grep -qE '(trivial fix|one-?line|typo|just (a )?(typo|format|whitespace)|format only|whitespace only|rename (a |the )?(single |local )?variable|revert (the )?last commit)' <<< "$LP"; then
   exit 0
 fi
 
 # 4) Feature-build trigger words (English + Swedish)
 TRIGGER='(\bbuild\b|\bbygg(a|er)?\b|\bimplement(era|ation|s)?\b|\badd (a |the |new )?(feature|module|endpoint|page|api|component|screen|view|flow|integration|model|table|column|field|button|form|route|test|hook|skill|rule|agent)|\blägg till\b|\bskapa\b|\bcreate (a |the |new )?(feature|module|endpoint|page|api|component|screen|view|flow|model|table|column|field|button|form|route|integration)|\bnew (feature|module|endpoint|page|api|component|screen|view|flow|integration|model|table|column|field|button|form|route)\b|\bny[a-z]* (feature|modul|endpoint|sida|api|komponent|skärm|vy|flöde|modell|tabell|kolumn|fält|knapp|formulär|rutt|integration)\b|\brefactor\b|\brefaktor\b|\bändra\b|\brestructure\b|\brestrukturer\b|\bmigrate\b|\bmigrera\b|\bfix(a)?\b|\bbugfix\b|\bdoesn'\''t work\b|\bbroken\b|\bgår sönder\b|\bfungerar inte\b)'
 
-if echo "$LP" | grep -qE "$TRIGGER"; then
+if grep -qE "$TRIGGER" <<< "$LP"; then
   MESSAGE='MANDATORY FEATURE PIPELINE — this prompt looks like non-trivial feature/refactor/fix work. Per .claude/rules/feature-pipeline.md you MUST run the full pipeline end-to-end as ONE task, without asking permission between phases:
 
 0. If specs/INDEX.md exists (spec register), READ IT FIRST. Pick the next unchecked row and work that spec instead of spinning up a new ad-hoc spec. If the prompt is genuinely outside the register, treat it as a register-rewrite proposal per .claude/rules/spec-register.md, not as silent scope expansion.

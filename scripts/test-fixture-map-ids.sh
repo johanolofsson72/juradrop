@@ -450,6 +450,41 @@ else
   bad 'a shellcheck code is not a scenario id' "rc=$RC [$OUT]"
 fi
 
+# --- C16: a FIVE-DIGIT owned id is an id (row 048) ------------------------------------------------
+# The gate counted an id only at three or four digits, so a map past the four-digit space would own
+# ids that R1 could never see. Nothing about the lower bound changes: it is what keeps criteria out.
+# A second sandbox map, because the shared one owns only four-digit ids.
+MAP_SHARED="$MAP"
+MAP="$TMP/SCENARIOS-wide.md"
+{ printf '| ID | Type | Scenario | Expected outcome | Status |\n'
+  printf '|----|------|----------|------------------|--------|\n'
+  printf '| %s | happy | a wide scenario | a wide outcome | ✓ |\n' "$WIDE"
+} > "$MAP"
+R=$(fresh_root c16)
+{ printf '#!/bin/sh\n'
+  printf '| %s | happy | probe | probe outcome | ✓ |\n' "$WIDE"
+} > "$R/test-thing.sh"
+run_gate "$R"
+if [ "$RC" -eq 1 ] && contains "$OUT" "test-thing.sh:2"; then
+  ok 'a fixture row spelling an owned five-digit id is refused'
+else
+  bad 'a fixture row spelling an owned five-digit id is refused' "rc=$RC [$OUT]"
+fi
+MAP="$MAP_SHARED"
+
+# --- C16b: R3 reads a five-digit id shown as map syntax --------------------------------------------
+R=$(fresh_root c16b)
+{ printf '#!/bin/sh\n'
+  printf '# a bolded wide id: **%s**\n' "$WIDE"
+  printf 'true\n'
+} > "$R/test-thing.sh"
+run_gate "$R"
+if [ "$RC" -eq 1 ] && contains "$OUT" "$WIDE" && contains "$OUT" "map syntax in a comment"; then
+  ok 'a decorated five-digit id in a comment is refused'
+else
+  bad 'a decorated five-digit id in a comment is refused' "rc=$RC [$OUT]"
+fi
+
 printf '\n'
 if [ "$FAILED" -eq 0 ]; then
   printf 'fixture-map-ids: all cases pass\n'

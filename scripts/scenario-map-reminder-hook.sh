@@ -28,7 +28,7 @@ case "$FILE" in
   *.md) ;;
   *) exit 0 ;;
 esac
-if ! echo "$FILE" | grep -qiE '(spec|tasks|plan)'; then
+if ! grep -qiE '(spec|tasks|plan)' <<< "$FILE"; then
   exit 0
 fi
 
@@ -63,7 +63,7 @@ fi
 CONTENT=$(cat "$FILE" 2>/dev/null)
 [ -z "$CONTENT" ] && exit 0
 INTERACTIVE_RE='(\bform\b|\binput\b|\bbutton\b|\bsubmit\b|click|tap|\bmodal\b|drawer|dialog|multi-?step|wizard|authenticate|sign[ -]?in|sign[ -]?up|login|logout|upload|drag[ -]?and[ -]?drop|search|filter|create.*edit.*delete|CRUD|checkout|payment)'
-if ! echo "$CONTENT" | grep -qiE "$INTERACTIVE_RE"; then
+if ! grep -qiE "$INTERACTIVE_RE" <<< "$CONTENT"; then
   exit 0
 fi
 

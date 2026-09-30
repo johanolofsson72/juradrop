@@ -63,6 +63,12 @@ set -u
 
 command -v jq >/dev/null 2>&1 || exit 0
 
+# Spec 031: the abort pattern lives in one place. A sibling of $0, like template-sync-verify.sh's
+# detector — the helper is CORE and ships with this hook. Missing, the abort check is skipped
+# rather than breaking a Bash call.
+RUN_VERDICT_LIB="$(dirname "$0")/run-verdict.sh"
+[ -f "$RUN_VERDICT_LIB" ] && . "$RUN_VERDICT_LIB"
+
 INPUT=$(cat 2>/dev/null || true)
 [ -z "$INPUT" ] && exit 0
 
@@ -154,9 +160,13 @@ if [ "$RESP_TYPE" = "object" ] && [ "$INTERRUPTED" != "true" ] && [ "$FIELDS" -g
   # Failure is evaluated FIRST and short-circuits: a `dotnet test` run prints
   # "Build succeeded." / "0 Error(s)" from the build and "Failed: 3" from the
   # tests, and reading that as a success would rebuild this hook's own defect.
-  if printf '%s' "$TAIL" | grep -qE 'Exit code: [1-9]'; then
+  if grep -qE 'Exit code: [1-9]' <<< "$TAIL"; then
     VERDICT=failed
-  elif printf '%s' "$TAIL" | grep -qE '(Build FAILED|error [A-Z]+[0-9]+:|Failed! *-|Failed: *[1-9]|npm ERR!|Test Run Failed|FAILED \(failures|[0-9]+ (test|spec)s? failed|=+ [0-9]+ failed|[1-9][0-9]* failed|test result: FAILED|error TS[0-9]+|panic:|FAIL[[:space:]]|Compilation failed|BUILD FAILURE)'; then
+  elif type run_aborted >/dev/null 2>&1 && run_aborted "$TAIL"; then
+    # Spec 031. A crashed test host prints `Passed!` for the part that ran, between two abort
+    # lines — rocky, 45% of the suite unrun. `Passed! *-` below would RESET a live counter.
+    VERDICT=failed
+  elif grep -qE '(Build FAILED|error [A-Z]+[0-9]+:|Failed! *-|Failed: *[1-9]|npm ERR!|Test Run Failed|FAILED \(failures|[0-9]+ (test|spec)s? failed|=+ [0-9]+ failed|[1-9][0-9]* failed|test result: FAILED|error TS[0-9]+|panic:|FAIL[[:space:]]|Compilation failed|BUILD FAILURE)' <<< "$TAIL"; then
     # `[1-9][0-9]* failed` and `test result: FAILED` were added with the positive
     # set, not before it: pytest -q prints "3 failed, 41 passed in 1.20s", which
     # the positive pattern `[0-9]+ passed in ` matches. Without a failure pattern
@@ -171,7 +181,7 @@ if [ "$RESP_TYPE" = "object" ] && [ "$INTERRUPTED" != "true" ] && [ "$FIELDS" -g
     # may be read as success, and it is safe only because the payload was
     # confirmed readable above.
     VERDICT=passed
-  elif printf '%s' "$TAIL" | grep -qE '(Exit code: 0([^0-9]|$)|Build succeeded|^ *0 Error\(s\)|Passed! *-|Test Run Successful|Tests: +[0-9]+ passed|Test Suites: +[0-9]+ passed|Test Files +[0-9]+ passed|[0-9]+ passed \(|[0-9]+ passed in |[0-9]+ passed,? +[0-9]+ total|All checks passed!|Success: no issues found|test result: ok|^ *Finished |^ok[[:space:]]|^PASS([[:space:]]|$)|No issues found!|All tests passed!|BUILD SUCCESSFUL|BUILD SUCCESS)'; then
+  elif grep -qE '(Exit code: 0([^0-9]|$)|Build succeeded|^ *0 Error\(s\)|Passed! *-|Test Run Successful|Tests: +[0-9]+ passed|Test Suites: +[0-9]+ passed|Test Files +[0-9]+ passed|[0-9]+ passed \(|[0-9]+ passed in |[0-9]+ passed,? +[0-9]+ total|All checks passed!|Success: no issues found|test result: ok|^ *Finished |^ok[[:space:]]|^PASS([[:space:]]|$)|No issues found!|All tests passed!|BUILD SUCCESSFUL|BUILD SUCCESS)' <<< "$TAIL"; then
     VERDICT=passed
   fi
 fi

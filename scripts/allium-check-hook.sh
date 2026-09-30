@@ -8,7 +8,10 @@
 #
 # Decisions:
 # - Blocks on severity == "error" only, never on the CLI's exit code. The CLI exits 1 on
-#   warnings, and the deferred location-hint lint warns on nearly every spec (template row 050).
+#   warnings, and warnings are advice.
+# - A CLI older than 3.3.0 gets one model note per session (template row 050). Before 3.3.0 the
+#   deferred location-hint lint read the parsed path, which drops comments, so every `deferred`
+#   warned whatever it said. A version that does not parse gets no note: advice, not a verdict.
 # - A report it cannot read (crash, non-JSON, unexpected shape, timeout) blocks. An unreadable
 #   report is not a clean one.
 # - No CLI on PATH passes, with a once-per-session notice, so a missing tool never reads as a
@@ -34,6 +37,19 @@ if ! command -v "$ALLIUM_BIN" >/dev/null 2>&1; then
   notice_once PostToolUse "$SID" "allium-cli-missing" \
 "allium CLI not installed — .allium files are NOT being validated. Install it (brew tap juxt/allium && brew install allium) or check the file by hand against the allium skill's grammar."
   exit 0
+fi
+
+ALLIUM_MIN_MAJOR=3
+ALLIUM_MIN_MINOR=3
+OLD_NOTE=""
+VER=$(perl -e 'alarm shift; exec @ARGV' 5 "$ALLIUM_BIN" --version 2>/dev/null \
+  | sed -n '1s/^[^0-9]*\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
+if [ -n "$VER" ]; then
+  IFS=. read -r VMAJ VMIN _ <<< "$VER"
+  if [ "$VMAJ" -lt "$ALLIUM_MIN_MAJOR" ] \
+     || { [ "$VMAJ" -eq "$ALLIUM_MIN_MAJOR" ] && [ "$VMIN" -lt "$ALLIUM_MIN_MINOR" ]; }; then
+    OLD_NOTE="allium $VER is older than $ALLIUM_MIN_MAJOR.$ALLIUM_MIN_MINOR.0. On this CLI the deferred location-hint lint cannot be satisfied: every \`deferred\` warns, even the documented \`deferred X -- see: path.allium\`. Treat allium.deferred.missingLocationHint as noise here (every other warning still means something), keep writing the -- see: form, and tell the developer to upgrade: brew upgrade juxt/allium/allium, or cargo install allium-cli --force."
+  fi
 fi
 
 # macOS has no timeout(1); perl's alarm kills the child after TIMEOUT seconds (exit 142).
@@ -72,6 +88,17 @@ PY=$?
 # The reader itself failing must never read as a clean file.
 if [ "$PY" -ne 0 ]; then
   REASON="allium-check-hook could not read the allium check report for $FILE (reader exit $PY) - the file could not be validated."
+fi
+
+if [ -n "$OLD_NOTE" ]; then
+  # One JSON object on stdout: a block carries the note, a pass says it once per session.
+  if [ -n "$REASON" ]; then
+    REASON="$REASON
+
+$OLD_NOTE"
+  else
+    notice_once PostToolUse "$SID" "allium-cli-old" "$OLD_NOTE"
+  fi
 fi
 
 [ -z "$REASON" ] && exit 0

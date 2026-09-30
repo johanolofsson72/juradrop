@@ -167,7 +167,7 @@ if [ "${LOCAL_LLM_TELEMETRY_DISABLE:-0}" != "1" ]; then
   # interact badly with later steps.
   set +o pipefail
   HOOK_NAME=$(ps -o args= -p "$PPID" 2>/dev/null \
-    | grep -oE 'local-llm-[a-z0-9-]+-hook' | head -1 || true)
+    | grep -oE 'local-llm-[a-z0-9-]+-hook' | sed -n 1p || true)
   set -o pipefail
   HOOK_NAME=${HOOK_NAME:-unknown}
   TELEMETRY_LOG="${LOCAL_LLM_TELEMETRY_LOG:-$LOCAL_LLM_LOG_DIR/local-llm-fire.log}"

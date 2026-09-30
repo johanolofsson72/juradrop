@@ -29,7 +29,7 @@ DIFF_STAT=$(git -C "$REPO_ROOT" diff --cached --stat 2>/dev/null)
 # success/timeout distribution. Override with LOCAL_LLM_COMMIT_DIFF_BYTES.
 DIFF_CAP="${LOCAL_LLM_COMMIT_DIFF_BYTES:-10000}"
 DIFF_FULL=$(git -C "$REPO_ROOT" diff --cached -U1 --no-color 2>/dev/null \
-  | head -c "$DIFF_CAP")
+  | { head -c "$DIFF_CAP"; cat >/dev/null; })
 
 # Bigger per-hook timeout to absorb tail latency on the model side
 # without blocking the user's shell session for too long.

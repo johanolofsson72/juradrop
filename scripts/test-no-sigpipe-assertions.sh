@@ -28,7 +28,7 @@
 # Exit:   0 all arms pass · 1 at least one arm failed
 #
 # Covers: SC-1731 SC-1732 SC-1733 SC-1734 SC-1735 SC-1746 SC-1747 SC-1748 SC-1749 SC-1750 SC-1751
-#         SC-1752
+#         SC-1752 SC-1753 SC-1754 SC-1755
 
 set -uo pipefail
 
@@ -506,6 +506,71 @@ if [ "$N" -eq 3 ]; then
 else
   bad "the population line is printed on the clean, failing and --list branches alike" \
       "only $N of 3 branches carried it"
+fi
+
+# --- ARM 19 — --all reports a production pipeline as backlog, --strict fails on it (SC-1753) -----------
+# Row 024. Row 015 added both flags and no arm ever drove them, so the backlog they report could grow or
+# vanish without anyone seeing it. A production script's pipeline is backlog, not a verdict, until
+# --strict makes it one; rewriting it as a here-string clears it.
+D="$SANDBOX_ROOT/arm19"; build_tree "$D" template
+printf '#!/usr/bin/env bash\nset -uo pipefail\n' > "$D/scripts/test-clean.sh"
+cat > "$D/scripts/tool.sh" <<'EOF'
+#!/usr/bin/env bash
+Y="$(seq 1 5)"
+if printf '%s\n' "$Y" | grep -qx 3; then echo three; fi
+EOF
+ALL_OUT="$(SCAN_ROOT="$D" AUTOSYNC="$D/scripts/template-autosync.sh" bash "$GATE" --all 2>&1)"; ALL_RC=$?
+STRICT_OUT="$(SCAN_ROOT="$D" AUTOSYNC="$D/scripts/template-autosync.sh" bash "$GATE" --all --strict 2>&1)"; STRICT_RC=$?
+if [ "$ALL_RC" -eq 0 ] && grep -q '^\[backlog\] 1 pipeline' <<< "$ALL_OUT" \
+   && [ "$STRICT_RC" -eq 1 ] && grep -q 'scripts/tool.sh:3' <<< "$STRICT_OUT"; then
+  ok "--all reports a production pipeline as backlog; --strict fails on it, by file and line"
+else
+  bad "--all reports a production pipeline as backlog; --strict fails on it, by file and line" \
+      "all rc=$ALL_RC strict rc=$STRICT_RC — $(tail -2 <<< "$STRICT_OUT")"
+fi
+printf '#!/usr/bin/env bash\nY="$(seq 1 5)"\nif grep -qx 3 <<< "$Y"; then echo three; fi\n' > "$D/scripts/tool.sh"
+STRICT_OUT="$(SCAN_ROOT="$D" AUTOSYNC="$D/scripts/template-autosync.sh" bash "$GATE" --all --strict 2>&1)"; STRICT_RC=$?
+if [ "$STRICT_RC" -eq 0 ] && grep -q 'clean — 3 script(s)' <<< "$STRICT_OUT"; then
+  ok "…and the same line as a here-string passes --strict, counted as scripts"
+else
+  bad "…and the same line as a here-string passes --strict, counted as scripts" \
+      "rc=$STRICT_RC — $(tail -2 <<< "$STRICT_OUT")"
+fi
+
+# --- ARM 20 — why a diagnostic is not free: SIGPIPE ignored by the parent (SC-1754) --------------------
+# msroute F008. .NET ignores SIGPIPE and its children inherit that, so the writer gets EPIPE instead of
+# the signal and bash reports it on stderr. A pipeline whose status nobody reads still breaks a caller
+# that asserts silent stderr. The tail after the match is 168 KB, past the 64 KiB pipe buffer, which the
+# gate's header measured as certain (30/30), so the red half does not depend on scheduling.
+M="$SANDBOX_ROOT/arm20.sh"
+cat > "$M" <<'EOF'
+L="$(seq 1 30000)"
+if [ "$1" = piped ]; then printf '%s\n' "$L" | grep -qx 1; else grep -qx 1 <<< "$L"; fi
+EOF
+PIPED_ERR="$(bash -c "trap '' PIPE; bash '$M' piped" 2>&1 >/dev/null)"
+HERE_ERR="$(bash -c "trap '' PIPE; bash '$M' here" 2>&1 >/dev/null)"
+if grep -q 'Broken pipe' <<< "$PIPED_ERR" && [ -z "$HERE_ERR" ]; then
+  ok "with SIGPIPE ignored the piped form writes 'Broken pipe' to stderr and the here-string form nothing"
+else
+  bad "with SIGPIPE ignored the piped form writes 'Broken pipe' to stderr and the here-string form nothing" \
+      "piped stderr=[$PIPED_ERR] here-string stderr=[$HERE_ERR]"
+fi
+
+# --- ARM 21 — in the template, every script passes --strict (SC-1755) ----------------------------------
+# Row 024 cleared the template's 66-line backlog. The template owns every scripts/*.sh, so a new one is
+# fixable where it lands. Downstream the population includes the project's own scripts, which are not
+# this gate's to judge by default, so the arm says it did not run instead of passing.
+REAL_STRICT="$(bash "$GATE" --all --strict 2>&1)"; REAL_STRICT_RC=$?
+if grep -q '^mode: template' <<< "$REAL_STRICT"; then
+  if [ "$REAL_STRICT_RC" -eq 0 ]; then
+    ok "the template's own scripts pass --all --strict"
+  else
+    bad "the template's own scripts pass --all --strict" \
+        "rc=$REAL_STRICT_RC — $(grep -E '^scripts/[^ ]+:[0-9]+' <<< "$REAL_STRICT" | sed -n 1,5p | tr '\n' ' ')"
+  fi
+else
+  printf '  SKIP  --all --strict on the real tree: not the template (%s)\n' \
+    "$(grep '^mode:' <<< "$REAL_STRICT")"
 fi
 
 # --- ARM 13 — the real repo is clean (SC-1731) ---------------------------------------------------------

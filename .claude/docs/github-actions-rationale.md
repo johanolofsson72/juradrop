@@ -66,6 +66,13 @@ timer.
 or a desktop that stays awake. It is **opt-in and not the default**, and if you do wire it, use
 `--if-due` so a night with no work costs a second instead of a full pass.
 
+Install it from a shell where dotnet, node and docker already work. Cron's own PATH has none of
+them, so the installer saves the current PATH to `~/.claude/nightly/<project>.path` and the job reads
+it from there. Re-run the installer after you add a toolchain. Every run writes a
+`claude-nightly: start` line and a `claude-nightly: end exit=N` line to the log, so a run that
+failed can't be mistaken for one that never happened. Lines installed before row 065 have no PATH
+and fail every night; `--list` marks them `STALE`.
+
 When a spec says "add a CI gate", the correct implementation is a local script, a Claude Code hook, or a step inside the existing deploy workflow's validation gate. Not a new workflow file. If a spec explicitly demands a new workflow, that is a register-rewrite conversation per `.claude/rules/spec-register.md`, not a silent `mkdir .github/workflows`.
 
 Dependabot config (`.github/dependabot.yml`) is allowed — Dependabot PRs consume no Actions minutes by themselves. But remember: every Dependabot PR triggers any push/PR-triggered workflows that exist. One more reason the allowed set excludes them.

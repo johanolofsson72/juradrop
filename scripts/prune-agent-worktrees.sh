@@ -112,7 +112,7 @@ for d in .claude/worktrees/agent-*; do
   # side-by-side). Memory edits are the normal end state of an agent run; if they
   # counted as "still working", these worktrees could never be reclaimed at all.
   OTHER=$(git -C "$d" status --porcelain 2>/dev/null | grep -vE '^\?\?' \
-          | awk '{print $2}' | grep -v '^\.claude/agent-memory/' | head -3)
+          | awk '{print $2}' | grep -v '^\.claude/agent-memory/' | sed -n 1,3p)
   if [ -n "$OTHER" ]; then
     echo "  KEEP $d — modified outside agent-memory: $(printf '%s' "$OTHER" | tr '\n' ' ')"
     KEPT=$((KEPT + 1)); continue

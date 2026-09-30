@@ -82,9 +82,8 @@
 #
 # Exit: always 0. The verdict is the JSON on stdout, per the PostToolUse contract.
 #
-# Covers: SC-1438 SC-1439 SC-1440 SC-1441 SC-1442
-#         SC-920 SC-921 SC-922 SC-923 SC-924 SC-926 (row S5)
-#         SC-927 SC-928 SC-929 SC-930 SC-931 SC-932 SC-933 (row S6)
+# Scenario ids: named by scripts/test-bash-write-guard.sh, which is the proof. Not listed here: a
+# CORE file's comment is read as a reference by any gate whose roots include scripts/ (row 012).
 
 set -u
 

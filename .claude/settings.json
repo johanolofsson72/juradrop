@@ -82,6 +82,11 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/bash-write-guard-hook.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/stryker-guard-hook.sh\"",
+            "timeout": 10
           }
         ]
       },

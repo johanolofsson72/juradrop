@@ -15,7 +15,7 @@ CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
 # Match `git checkout -b <name>` or `git switch -c <name>`.
 BRANCH_NAME=""
-if BRANCH_NAME=$(echo "$CMD" | sed -nE 's/.*git[[:space:]]+checkout[[:space:]]+-b[[:space:]]+([A-Za-z0-9._\/-]+).*/\1/p' | head -1); then
+if BRANCH_NAME=$(sed -nE 's/.*git[[:space:]]+checkout[[:space:]]+-b[[:space:]]+([A-Za-z0-9._\/-]+).*/\1/p' <<< "$CMD" | sed -n 1p); then
   :
 fi
 if [ -z "$BRANCH_NAME" ]; then
@@ -34,7 +34,7 @@ case "$LEAF_LOWER" in
     ;;
   *)
     # Also flag very short names (≤3 chars) and pure-numeric.
-    if [ ${#LEAF} -gt 3 ] && ! echo "$LEAF" | grep -qE '^[0-9]+$'; then
+    if [ ${#LEAF} -gt 3 ] && ! grep -qE '^[0-9]+$' <<< "$LEAF"; then
       exit 0
     fi
     ;;

@@ -28,6 +28,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 SCRIPT="${EOL_TEST_SCRIPT:-$PWD/scripts/template-autosync.sh}"
 [ -f "$SCRIPT" ] || { echo "FAIL: template-autosync.sh not found at $SCRIPT"; exit 1; }
+. "$PWD/scripts/drive-sync.sh"                 # the only way to the sync (spec 011)
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -104,7 +105,12 @@ build() {
   git -C "$P" add -A; git -C "$P" commit -qm "project init"
 }
 
-sync() { CLAUDE_TEMPLATE_DIR="$T" CLAUDE_PROJECT_DIR="$P" bash "$SCRIPT" "$@" 2>&1; }
+# The sandbox is DECLARED as well as named, and drive_sync does both: template-autosync.sh refuses
+# to write outside the declaration, whatever its project root resolved to. Spec 010 — a sibling test
+# that named neither drove the real repository from the Stop hook and pushed 54 commits to
+# origin/main. Spec 011 made the declaration one call instead of a prefix to remember.
+# $EOL_TEST_SCRIPT still selects which sync is under test; it rides through as DRIVE_SYNC_SCRIPT.
+sync() { CLAUDE_TEMPLATE_DIR="$T" DRIVE_SYNC_SCRIPT="$SCRIPT" drive_sync "$P" "$TMP" "$@" 2>&1; }
 
 # Just the [eol] block. The negative assertions below are about what the NOTE names, and a whole-run
 # capture also contains the `[changed] add ...` listing — which names every file the sync wrote,
@@ -217,8 +223,8 @@ echo
 echo "=== F. a failed materialisation falls back, it does not drop the file ==="
 build h
 # Sabotage: make mktemp -d land somewhere checkout-index cannot write into.
-OUT=$(CLAUDE_TEMPLATE_DIR="$T" CLAUDE_PROJECT_DIR="$P" TMPDIR=/nonexistent-eol-probe \
-      bash "$SCRIPT" --quiet 2>&1)
+OUT=$(CLAUDE_TEMPLATE_DIR="$T" TMPDIR=/nonexistent-eol-probe DRIVE_SYNC_SCRIPT="$SCRIPT" \
+      drive_sync "$P" "$TMP" --quiet 2>&1)
 if [ -f "$P/$DEMO" ]; then ok "AC-14a file still copied (from the worktree)"
 else bad "AC-14a file was DROPPED from the copy loop"; fi
 hasnt "AC-14b not announced as a retracted orphan" "$OUT" "orphaned"
@@ -235,7 +241,12 @@ HOOK="${EOL_TEST_HOOK:-$PWD/scripts/template-autosync-hook.sh}"
 if [ -f "$HOOK" ]; then
   build i
   sync --quiet >/dev/null 2>&1          # first run copies; second is the 0/0 steady state
-  OUT=$(CLAUDE_PROJECT_DIR="$P" CLAUDE_TEMPLATE_DIR="$T" CLAUDE_TEMPLATE_AUTOSYNC_ALWAYS=1 \
+  # The one hand-spelled declaration left in this file, and it belongs here: what is driven below is
+  # the HOOK, not the sync. drive_sync exists to be the single way to template-autosync.sh; the hook
+  # is a different program that runs the sync itself, and this declaration is what keeps that
+  # nested run inside $TMP. Routing a hook through a sync helper would be the helper growing a second
+  # job. test-validate-sync-sandbox-declarations.sh's census pins this at exactly one.
+  OUT=$(CLAUDE_PROJECT_DIR="$P" CLAUDE_TEMPLATE_DIR="$T" CLAUDE_TEMPLATE_SYNC_SANDBOX="$TMP" CLAUDE_TEMPLATE_AUTOSYNC_ALWAYS=1 \
         bash "$HOOK" 2>&1)
   has "AC-18a hook forwards the note at all"     "$OUT" "[eol]"
   has "AC-18b hook names the divergent path"     "$OUT" "$DEMO"

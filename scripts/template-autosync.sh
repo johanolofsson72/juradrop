@@ -91,10 +91,33 @@
 #                     2 = cannot answer. Writes nothing, resolves no template and
 #                     makes no network call, so a PreToolUse hook can afford it
 #                     before every edit.
+#     --owed          print the CORE paths whose bytes differ from the manifest, one
+#                     per line. 0 = findings, 1 = none, 2 = cannot answer. CORE
+#                     only: a locally edited doc or skill is not owed — it is kept,
+#                     not overwritten — and is named by [manual] on a syncing run
+#                     instead. "Nothing owed" is not "nothing differs" (spec 021).
+#     --unlisted      print scripts a CORE file depends on that the list shipping
+#                     CORE does not name. Same exit codes as --owed.
+#
+# Environment:
+#   CLAUDE_PROJECT_DIR  the project to act on. Beats $PWD — a `cd` alone does NOT
+#                       choose the target, which is how a self-test came to sync
+#                       the real repository (spec 010, consultpilot H7bm).
+#   CLAUDE_TEMPLATE_SYNC_SANDBOX
+#                       optional. Declares the ONLY directory this run may write
+#                       inside. When set, the resolved project root is verified
+#                       against it before anything is written, staged, committed
+#                       or pushed, and a run that would land outside refuses with
+#                       exit 1 naming both paths. Unset (the production case) is
+#                       byte-for-byte the behaviour that existed before it.
 #
 # Exit codes: 0 = up to date / synced / not applicable, 1 = hard error.
 # Fails open by design: this runs from a SessionStart hook and must never
-# block a session from starting.
+# block a session from starting. ONE exception, and it is deliberate: the
+# sandbox interlock below fails CLOSED, because continuing when the script
+# cannot tell which repository it is about to rewrite is not a degraded sync —
+# it is the 2026-08-30 incident. The exception is bounded to runs that declared
+# a sandbox, so no production path gains a refusal.
 
 set -u
 
@@ -113,6 +136,9 @@ MODE_UNLISTED=0; UNLISTED=""; MODE_OWED=0
 # because `set -u` is on and the report block runs on --check and --dry-run too, which never reach
 # the gate at all.
 IGNORE_IN_PROGRESS=0; DEFERRED=0; IN_PROGRESS_OP=""
+# Spec 040. Set by the .gitignore block after the copy loop and read by report_tracked, which also
+# runs at the `[ok]` early exit that never reaches that block.
+GITIGNORE_NOTE=""
 ORIG_ARGS="$*"   # kept for the self-update re-exec below (flags contain no spaces)
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -171,7 +197,8 @@ warn() { printf '%s\n' "$*" >&2; }
 # files whose drift silently disables a gate — exactly what bit cv.
 CORE_SCRIPTS="pipeline-trigger-match.sh pipeline-trigger-match.py emit-pipeline-reminder.sh
 emit-clarify-reminder.sh emit-analyze-reminder.sh feature-pipeline-detect.sh
-spec_active.py resolve-active-spec.sh test-active-spec-resolution.sh
+spec_active.py resolve-active-spec.sh test-active-spec-resolution.sh test-spec-dir-absent.sh
+test-pipeline-state-merge.sh
 spec-register-guard-hook.sh spec-register-orientation-hook.sh pipeline-state-guard-hook.sh
 spec-interview-guard-hook.sh spec-md-coverage-reminder-hook.sh scenario-map-reminder-hook.sh
 sync-feature-json-hook.sh
@@ -188,15 +215,17 @@ speckit-extension-policy.sh
 archive-spec-history.sh test-archive-spec-history.sh
 archive-completed-rows.sh test-archive-completed-rows.sh
 register-convergence.sh test-register-convergence.sh
-install-nightly-maintenance.sh
+checkpoint-cadence.sh test-checkpoint-cadence.sh
+install-nightly-maintenance.sh test-install-nightly-maintenance.sh
 install-lane-merge-drivers.sh test-lane-merge-drivers.sh
 register-similarity.sh register_similarity.py test-register-similarity.sh
 lane-catchup.sh test-sync-prompt-core-parity.sh
 next-register-id.sh test-next-register-id.sh
-maintenance-due.sh test-maintenance-due.sh carve_audit.py
+max-id-in-refs.sh test-max-id-in-refs.sh next-scenario-id.sh test-next-scenario-id.sh
+maintenance-due.sh test-maintenance-due.sh carve_audit.py maintenance_ledger.py test-maintenance-ledger.sh register_freeze.py finding_review.py
 validate-portability.sh portability_audit.py
 finding.sh test-finding.sh
-skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh
+skill-audit.sh test-pipeline-hooks.sh tlc-cleanup.sh test-tlc-cleanup.sh
 test-template-clone-refresh.sh test-sync-count-honesty.sh
 core-machinery-guard-hook.sh test-core-machinery-guard.sh
 core-owed-tick-guard-hook.sh test-core-owed-tick-guard.sh
@@ -208,16 +237,25 @@ validate-scenario-traceability.sh test-validate-scenario-traceability.sh
 scenario-probe-ids.sh test-scenario-probe-ids.sh
 validate-fixture-map-ids.sh test-fixture-map-ids.sh
 project-maintenance.sh project-freshness.sh test-project-freshness.sh test-project-maintenance.sh
+stryker_guard.py stryker-guard-hook.sh test-stryker-guard.sh
 sync-core-hooks.py sync-local-llm-hooks.py sync-graphify-wiring.py fix-hook-paths.py
 template-autosync.sh template-autosync-hook.sh
 template-sync-verify.sh template-sync-verify-hook.sh
 test-template-autosync-owed.sh test-template-autosync-stranded.sh test-template-autosync-eol.sh
-test-template-autosync-unlisted.sh
+test-template-autosync-unlisted.sh test-template-autosync-arms.sh
+validate-sync-sandbox-declarations.sh test-validate-sync-sandbox-declarations.sh
+drive-sync.sh test-drive-sync.sh
 test-sync-prompt-bootstrap.sh
-hook-notice.sh harness-state-gc.sh test-hook-channels.sh
+hook-notice.sh hook-verdict.sh harness-state-gc.sh test-hook-channels.sh probe-live-deny.sh
+run-verdict.sh test-run-verdict.sh test-template-sync-verify.sh
 allium-check-hook.sh test-allium-check-hook.sh allium-census.sh test-allium-census.sh
 speckit-sync.sh speckit-version test-speckit-sync.sh
-test-portability-audit.sh test-sync-prompt-zsh.sh"
+test-portability-audit.sh test-sync-prompt-zsh.sh
+skill-reachable.sh test-skill-reachable.sh
+core-gates.sh test-core-gates.sh
+register-bytes.sh test-register-bytes.sh
+harness-gitignore.sh test-harness-gitignore.sh
+validate-rule-citations.sh test-validate-rule-citations.sh"
 
 # Deliberately NOT shipped, and the reason differs by line. Without this list the [unlisted] block
 # (spec 007ca) reports twelve files at every session start in the template, forever — which is the
@@ -251,7 +289,9 @@ test-portability-audit.sh test-sync-prompt-zsh.sh"
 #   Template-authoring tools. update-template.sh drives THIS repository's own refresh and
 #   verify-local-llm-hooks.sh checks the template's local-LLM wiring. A project has no use for
 #   either; both are already present in older projects only because a long-ago prose sync copied
-#   them, which is not a reason to keep shipping them.
+#   them, which is not a reason to keep shipping them. test-doc-dotnet-playwright-apis.sh (spec
+#   071) and test-doc-secrets-guidance.sh (spec 072) check the template's own docs; projects get
+#   the fixed docs through sync, not the check.
 #
 # A name here is a claim that somebody looked. Moving a name OUT of this list and into CORE_SCRIPTS
 # is the fix when the claim turns out to be wrong.
@@ -259,12 +299,13 @@ TEMPLATE_ONLY_SCRIPTS="after-specify-hook.sh allium-hook.sh tla-hook.sh ui-desig
 sqlite-nfs-safety-hook.sh test-coverage-hook.sh
 run-mutation-gate.sh
 update-template.sh verify-local-llm-hooks.sh
-bench-hooks.sh install-global-skills.sh test-install-global-skills.sh test-on-linux.sh"
+bench-hooks.sh install-global-skills.sh test-install-global-skills.sh test-on-linux.sh
+test-doc-dotnet-playwright-apis.sh test-doc-secrets-guidance.sh"
 
 CORE_RULES="feature-pipeline.md continuous-execution.md validation-followup.md
 spec-register.md spec-interview.md spec-hardening.md scenarios.md specs.md tests.md
 security.md project-workflow.md github-actions.md allium.md lane-handoff.md
-carve-budget.md"
+carve-budget.md mutation-timeouts.md"
 
 # Answered from the sets above and nothing else: no clone, no network, no stamp.
 # A caller in a project asks the template what CORE is; it does not keep a copy.
@@ -308,8 +349,8 @@ RULE_DOCS="supply-chain.md carve-budget-rationale.md continuous-execution-ration
 
 is_core() {
   case "$2" in
-    scripts) printf '%s\n' $CORE_SCRIPTS | grep -qx "$1" ;;
-    rules)   printf '%s\n' $CORE_RULES   | grep -qx "$1" ;;
+    scripts) grep -qx "$1" <<< "$(printf '%s\n' $CORE_SCRIPTS)" ;;
+    rules)   grep -qx "$1" <<< "$(printf '%s\n' $CORE_RULES)" ;;
     *) return 1 ;;
   esac
 }
@@ -679,6 +720,90 @@ while [ "$DIR" != "/" ] && [ -n "$DIR" ]; do
   DIR=$(dirname "$DIR")
 done
 [ -n "$PROJECT_ROOT" ] || { say "[skip] not inside a git repository"; exit 0; }
+
+# ------------------------------------------------------- sandbox interlock (spec 010)
+# The loop above resolves WHERE this run is about to write. Nothing until now asked whether that
+# is where the caller meant.
+#
+# On 2026-08-30 consultpilot's test-template-autosync-stranded.sh drove this script against sandbox
+# templates it built under mktemp, selecting the target with `cd` alone. `cd` does not select the
+# target: the resolution above reads CLAUDE_PROJECT_DIR FIRST, and the Claude Code harness exports
+# it. Fired from the Stop hook, the gate synced the real repository against a three-file sandbox
+# template — 54 `chore(sync)` commits made and pushed to origin/main, and 505 lines deleted in the
+# working tree, including 61 of the 62 lines of .claude/rules/continuous-execution.md.
+#
+# So a caller that means to run in a sandbox may SAY so, and this refuses to write anywhere else.
+# The check is positive on purpose. Two absence checks were tried and refused by measurement:
+# "CLAUDE_PROJECT_DIR disagreeing with cwd's git root is an error" breaks
+# test-template-autosync-owed.sh, which sets them to different directories deliberately; and "a
+# template under a temp directory is suspicious" breaks every real sync, because resolve/clone
+# below puts the template in `mktemp -d` on every run.
+#
+# THIS ONE PATH FAILS CLOSED, in a file whose header promises to fail open. That promise exists so
+# a broken sync cannot stop a session from starting, and it is right for every other failure here.
+# It is wrong for this one: continuing when the script cannot tell which repository it is about to
+# rewrite is not a degraded sync, it is the incident. The exception is bounded to runs that
+# declared a sandbox — a production run declares nothing and reaches none of this.
+#
+# Inlined rather than shared, because this file is CORE: sourcing a project-local helper would make
+# that helper an [unlisted] dependency by this script's own detector.
+_phys() {  # physical path, or empty if it does not exist. Callers discriminate on empty OUTPUT,
+           # not on status. /var/folders vs /private/var/folders on macOS is the whole reason this
+           # is not a string comparison: mktemp -d hands out the first spelling and `pwd -P`
+           # reports the second, and a naive compare would refuse every legitimate sandbox run.
+  # CDPATH cleared and `--` given: with an ambient CDPATH a relative name would cd to the CDPATH
+  # match and print it, so the path checked would not be the path written (adversarial review, 010).
+  [ -d "$1" ] && ( CDPATH='' cd -P -- "$1" >/dev/null 2>&1 && pwd -P )
+}
+_within() {  # is $1 inside (or equal to) $2? Segments, not characters — otherwise /tmp/sandbox-evil
+             # reads as inside /tmp/sandbox, which is the silent direction to be wrong in.
+             # $2 is never "/" here: the caller refuses that before asking (see below).
+  case "$1/" in "$2/"*) return 0 ;; *) return 1 ;; esac
+}
+# SET BUT EMPTY is a refusal, not "undeclared". consultpilot's copy read it as undeclared, and the
+# adversarial review of 010 named the cost: a driver writing CLAUDE_TEMPLATE_SYNC_SANDBOX="$TMP" whose
+# mktemp failed passes the gate (the assignment is there) and runs with no interlock at all. Nothing
+# in production sets the variable, so only a caller that meant to declare can reach this.
+if [ "${CLAUDE_TEMPLATE_SYNC_SANDBOX+set}" = set ]; then
+  if [ -z "$CLAUDE_TEMPLATE_SYNC_SANDBOX" ]; then
+    tell "[refused] CLAUDE_TEMPLATE_SYNC_SANDBOX is set but empty. Nothing was written."
+    tell "          An empty value usually means the variable it was built from is empty — a"
+    tell "          failed mktemp, say. Declare the sandbox directory, or unset the variable."
+    exit 1
+  fi
+  _sbx=$(_phys "$CLAUDE_TEMPLATE_SYNC_SANDBOX")
+  if [ -z "$_sbx" ]; then
+    tell "[refused] CLAUDE_TEMPLATE_SYNC_SANDBOX names no existing directory:"
+    tell "          declared: $CLAUDE_TEMPLATE_SYNC_SANDBOX"
+    tell "          A caller that cannot say where its sandbox is has already lost track of it."
+    exit 1
+  fi
+  # The filesystem root is not a sandbox. Every path is inside it, so declaring it would satisfy
+  # the check while permitting exactly what the check exists to prevent — the same shape as the
+  # empty declaration above, one level up. consultpilot's first implementation accepted it; the
+  # adversarial review caught it, and it is the one line that alone reopens the incident.
+  if [ "$_sbx" = "/" ]; then
+    tell "[refused] CLAUDE_TEMPLATE_SYNC_SANDBOX is the filesystem root."
+    tell "          Every path is inside /, so this declares nothing and protects nothing."
+    tell "          Name the directory the run may actually write in, or unset the variable."
+    exit 1
+  fi
+  _root=$(_phys "$PROJECT_ROOT")   # only needed once the declaration itself is known usable
+  if ! _within "$_root" "$_sbx"; then
+    tell "[refused] this run would write OUTSIDE the sandbox it declared. Nothing was written."
+    tell "          declared sandbox: $_sbx"
+    tell "          resolved project: $_root"
+    tell "          The project root comes from \${CLAUDE_PROJECT_DIR:-\$PWD} — a \`cd\` alone does"
+    tell "          not choose it. Pass CLAUDE_PROJECT_DIR explicitly (spec 010)."
+    exit 1
+  fi
+  # The root is inside the sandbox; now make sure git writes there too. Git exports GIT_DIR,
+  # GIT_WORK_TREE and GIT_INDEX_FILE to its hooks, and every one of them beats `git -C`: a declared
+  # run started from a pre-commit gate would stage and commit into the repository that fired the
+  # hook, with the root check satisfied. A declared run has no business inheriting them.
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY
+fi
+
 [ -d "$PROJECT_ROOT/.claude" ] || { say "[skip] no .claude/ — not a Claude Code project"; exit 0; }
 
 STAMP="$PROJECT_ROOT/.claude/.template-sync"
@@ -1016,7 +1141,7 @@ resolve_local_template() {
       # One `git status --porcelain` for two consumers (spec 007bi): the -dirty- test and the
       # subtraction inside eol_divergent_paths. The `| head -1` it used to carry was an efficiency
       # that stopped being available the moment a second consumer needed the whole list — and the
-      # alternative, a second call, is the added cost SC-06 caps at one process.
+      # alternative, a second call, is the added cost spec 007bi's success criteria cap at one process.
       _st=$(git -C "$cand" status --porcelain 2>/dev/null)
       if [ -n "$_st" ]; then
         TEMPLATE_SHA="$TEMPLATE_SHA-dirty-$(date -u '+%Y%m%d%H%M%S')"
@@ -1389,6 +1514,53 @@ report_stranded() {
   tell "           mentions them. \`git add -- <path>\` when your tree is in a state to take them."
 }
 
+# ------------------------------------------- machine-local files already tracked (spec 040)
+# The .gitignore block below stops the NEXT attempt counter from being committed. It does nothing
+# for the 109 hetznerradar had already committed: git ignores an ignore rule for a tracked file. A
+# sync that said "block added" over them would be reporting a success nothing earned.
+#
+# Reported, never fixed. `git rm --cached` changes what the next commit records, and doing that
+# unattended at a session start, possibly on the other developer's lane, is not the sync's call.
+#
+# At every exit that reports, the `[ok]` early exit included, because this is a standing condition
+# and `[ok]` is where most session starts land. Silent when nothing is tracked, for the reason
+# report_owed is: this text is forwarded verbatim into every session start.
+#
+# The template's copy of the helper when there is one, else the project's: on the `[ok]` path the
+# template may not have been resolved, and on a first sync the project has no copy yet.
+harness_gitignore_script() {
+  if [ -n "${TEMPLATE_DIR:-}" ] && [ -f "$TEMPLATE_DIR/scripts/harness-gitignore.sh" ]; then
+    printf '%s\n' "$TEMPLATE_DIR/scripts/harness-gitignore.sh"
+  elif [ -f "$PROJECT_ROOT/scripts/harness-gitignore.sh" ]; then
+    printf '%s\n' "$PROJECT_ROOT/scripts/harness-gitignore.sh"
+  fi
+}
+
+report_tracked() {
+  if [ -n "$GITIGNORE_NOTE" ]; then
+    tell "[gitignore] the harness block in .gitignore was not written: $GITIGNORE_NOTE"
+  fi
+  _hg=$(harness_gitignore_script)
+  [ -n "$_hg" ] || return 0
+  _tr=$(bash "$_hg" --tracked "$PROJECT_ROOT" 2>/dev/null)
+  [ -n "$_tr" ] || return 0
+  _n=$(printf '%s\n' "$_tr" | grep -c .)
+  tell "[tracked] $_n path(s) the harness writes machine-local are committed in this repository:"
+  printf '%s\n' "$_tr" | sed -n '1,10p' | while IFS= read -r _p; do tell "            $_p"; done
+  [ "$_n" -gt 10 ] && tell "            … and $((_n - 10)) more"
+  tell "          An ignore rule changes nothing for a tracked file. To stop tracking them (they stay"
+  tell "          on disk), then commit:"
+  # The literal line only when it is short and every path is one word; otherwise the pipeline, which
+  # hands git one path per line and needs no quoting.
+  if [ "$_n" -le 10 ] && case "$_tr" in *' '*) false ;; *) true ;; esac; then
+    tell "            git rm -r --cached -- $(printf '%s\n' "$_tr" | tr '\n' ' ' | sed 's/ $//')"
+  else
+    # --pathspec-from-file rather than xargs: one line per path, no quoting, no GNU-only flag.
+    tell "            bash scripts/harness-gitignore.sh --tracked . | git rm -r --cached --pathspec-from-file=-"
+  fi
+  return 0
+}
+
 # --------------------------------------------------------------- --owed (spec 007ca)
 # The other half of what a project can owe the template, machine-readable: the CORE paths whose
 # bytes no longer match the manifest, one per line, and nothing else.
@@ -1426,7 +1598,7 @@ report_speckit_pin() {
   [ -f "$PROJECT_ROOT/scripts/speckit-version" ] && [ -f "$PROJECT_ROOT/.specify/init-options.json" ] || return 0
   _pin=$(grep -v '^[[:space:]]*#' "$PROJECT_ROOT/scripts/speckit-version" | tr -d '[:space:]')
   _have=$(sed -n 's/.*"speckit_version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-          "$PROJECT_ROOT/.specify/init-options.json" | head -1)
+          "$PROJECT_ROOT/.specify/init-options.json" | sed -n 1p)
   if [ -n "$_pin" ] && [ "${_have:-none}" != "${_pin#v}" ]; then
     tell "[speckit] project .specify/ is at ${_have:-unknown}, the template pins $_pin — run: bash scripts/speckit-sync.sh"
   fi
@@ -1436,7 +1608,7 @@ report_speckit_pin() {
 if ! resolve_local_template; then
   resolve_remote_template
   RC=$?
-  if [ "$RC" -eq 2 ]; then say "[ok] already at template $TEMPLATE_SHA"; report_speckit_pin; exit 0; fi
+  if [ "$RC" -eq 2 ]; then say "[ok] already at template $TEMPLATE_SHA"; report_speckit_pin; report_tracked; exit 0; fi
   if [ "$RC" -ne 0 ]; then
     # A sync that cannot reach the template does nothing and says so quietly; it runs
     # from a SessionStart hook and must never make offline look like breakage. An
@@ -1467,6 +1639,7 @@ if [ "$TEMPLATE_SHA" = "$STAMP_SHA" ] && [ "$FORCE" -eq 0 ]; then
   # names the new template, so every run lands here and says `[ok]` over files the repository has
   # never seen. After [owed] because [owed] asks for a decision and this asks for a command.
   report_stranded "$(stranded_writes)"
+  report_tracked
   exit 0
 fi
 
@@ -1876,7 +2049,7 @@ $SRCREL
     # predates the skill. Skills are add-if-missing yet manifest-protected on
     # update (they are not in the CORE set), so a customized skill is still safe.
     is_core "$BASE" "$CLASS" || [ "$CLASS" = "skills" ] \
-      || { [ "$CLASS" = "docs" ] && printf '%s\n' $RULE_DOCS | grep -qx "$BASE"; } || return 0
+      || { [ "$CLASS" = "docs" ] && grep -qx "$BASE" <<< "$(printf '%s\n' $RULE_DOCS)"; } || return 0
     [ "$MODE_CHECK" -eq 1 ] || { mkdir -p "$(dirname "$DEST")"; atomic_copy "$SRC" "$DEST"; }
     ADDED="$ADDED $REL"
   fi
@@ -2057,6 +2230,32 @@ if [ -f "$STAMP" ]; then
 "
   done
 fi
+# ------------------------------------------- the harness's .gitignore block (spec 040)
+# .gitignore is not in the synced set, and still is not: the project owns the file. What the sync
+# owns is the span between two marker lines inside it, which scripts/harness-gitignore.sh appends
+# once and rewrites in place afterwards, leaving every byte outside the markers alone. The list of
+# paths lives in that script and nowhere else.
+#
+# Here, after the copy loop and before the check block, so --dry-run lists .gitignore beside the
+# files it would write and --check / --dry-run / a deferred run write nothing (the helper's --check
+# answers without writing). The template's copy of the helper, because a first sync has not placed
+# the project's yet; a template too old to carry one is skipped, silently, like any other offline
+# shortfall.
+_hg="$TEMPLATE_DIR/scripts/harness-gitignore.sh"
+if [ -f "$_hg" ]; then
+  if [ "$MODE_CHECK" -eq 1 ]; then _hg_mode=--check; else _hg_mode=--apply; fi
+  HG_OUT=$(bash "$_hg" "$_hg_mode" "$PROJECT_ROOT" 2>&1)
+  if [ $? -eq 0 ]; then
+    case "$HG_OUT" in
+      added)   record_add .gitignore ;;
+      updated) record_write .gitignore ;;
+    esac
+  else
+    # Malformed markers (exit 3) or a failed write. The helper wrote nothing; report_tracked says so.
+    GITIGNORE_NOTE=$(printf '%s\n' "$HG_OUT" | sed -n 1p | sed 's/^harness-gitignore: //')
+  fi
+fi
+
 N_ORPHAN_NEW=$(echo "$ORPHAN_NEW" | tr ' ' '\n' | grep -c .)
 N_ORPHAN_STANDING=$(echo "$ORPHAN_STANDING" | tr ' ' '\n' | grep -c .)
 
@@ -2152,6 +2351,7 @@ if [ "$MODE_CHECK" -eq 1 ]; then
   # here), so a sync deferred mid-rebase in an already-stranded project reports both — which is the
   # right pair of sentences for that developer to read together.
   report_stranded "$(stranded_writes)"
+  report_tracked
   exit 0
 fi
 
@@ -2326,7 +2526,7 @@ fold_helper_writes() {
   # than an awk call, and only once there is something to sum, so the no-summary case never
   # reaches the sum at all.
   _counts=$(printf '%s\n' "$_out" \
-    | sed -n 's/^scripts: copied \([0-9][0-9]*\), deleted \([0-9][0-9]*\)$/\1 \2/p' | head -1)
+    | sed -n 's/^scripts: copied \([0-9][0-9]*\), deleted \([0-9][0-9]*\)$/\1 \2/p' | sed -n 1p)
   if [ -n "$_counts" ]; then
     _claimed=$(( ${_counts%% *} + ${_counts##* } ))
     if [ "$_claimed" -ne "$_n" ]; then
@@ -3126,7 +3326,7 @@ if [ -n "$SYNC_COMMIT" ] || [ "$IN_PROGRESS_ARM" -eq 1 ]; then
   N_HELD=$(printf '%s\n' "$HELD" | grep -c .)
   if [ "$N_HELD" -gt 0 ]; then
     tell "[held] $N_HELD path(s) were already staged and are not this sync's — left staged, untouched:"
-    printf '%s\n' "$HELD" | head -n "$NAME_LIMIT" | while IFS= read -r _h; do
+    awk -v n="$NAME_LIMIT" 'NR<=n' <<< "$HELD" | while IFS= read -r _h; do
       tell "       $_h"
     done
     # Counted from the rendered list and naming the cap, for the reason the [changed] block records:
@@ -3200,7 +3400,7 @@ if [ -n "$SYNC_COMMIT" ]; then
   # has just rewritten is dropped rather than carried forward as a failure nobody can
   # reproduce.
   PREV_COMMITS=""
-  [ -r "$VERIFY_MARKER" ] && PREV_COMMITS=$(sed -n 's/^commits=//p' "$VERIFY_MARKER" 2>/dev/null | head -1)
+  [ -r "$VERIFY_MARKER" ] && PREV_COMMITS=$(sed -n 's/^commits=//p' "$VERIFY_MARKER" 2>/dev/null | sed -n 1p)
   ALL_COMMITS="$SYNC_COMMIT"
   for _c in $PREV_COMMITS; do
     case " $ALL_COMMITS " in *" $_c "*) ;; *) ALL_COMMITS="$ALL_COMMITS $_c" ;; esac
@@ -3234,7 +3434,7 @@ if [ -n "$SYNC_COMMIT" ]; then
   VERIFY_CMD=""
   VERIFY_DECL="$PROJECT_ROOT/.claude/.template-sync-verify"
   [ -r "$VERIFY_DECL" ] && VERIFY_CMD=$(grep -v '^[[:space:]]*#' "$VERIFY_DECL" 2>/dev/null \
-    | grep -v '^[[:space:]]*$' | head -1)
+    | grep -v '^[[:space:]]*$' | sed -n 1p)
 
   tell "[verify] $SYNC_COMMIT is unverified — nothing has checked this project since."
   if [ -n "$VERIFY_CMD" ]; then
@@ -3264,7 +3464,7 @@ if [ -n "$SYNC_COMMIT" ]; then
     else
       VERIFY_CANDIDATES=""
       [ -f "$PROJECT_ROOT/scripts/detect-verify-command.sh" ] && VERIFY_CANDIDATES=$(bash \
-        "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" --candidates 2>/dev/null | head -5)
+        "$PROJECT_ROOT/scripts/detect-verify-command.sh" "$PROJECT_ROOT" --candidates 2>/dev/null | sed -n 1,5p)
       if [ -n "$VERIFY_CANDIDATES" ]; then
         tell "         no declaration, and more than one thing this could mean:"
         printf '%s\n' "$VERIFY_CANDIDATES" | while IFS= read -r _c; do
@@ -3343,7 +3543,7 @@ if [ "$NAME_LIMIT" -gt 0 ]; then
   MOVED_N=$(printf '%s\n' "$MOVED" | grep -c .)
   if [ "$MOVED_N" -gt 0 ]; then
     tell "[changed] files this sync wrote, enforcement first:"
-    printf '%s\n' "$MOVED" | head -n "$NAME_LIMIT" | while IFS= read -r _line; do
+    awk -v n="$NAME_LIMIT" 'NR<=n' <<< "$MOVED" | while IFS= read -r _line; do
       tell "          $_line"
     done
     # The remainder is counted from the RENDERED list, never from N_WROTE + N_ADDED:
@@ -3539,4 +3739,7 @@ fi
 # stranded the files is the run that says so — instead of the developer learning it never, or once,
 # from 007av's [stage] block scrolling past in a session they were not reading.
 report_stranded "$(stranded_writes)"
+# Spec 040. After [stranded], for the same reason [stranded] is after the commit: on a healthy sync
+# this re-reads the index the commit just wrote.
+report_tracked
 exit 0

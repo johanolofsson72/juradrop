@@ -303,9 +303,11 @@ After TLC finishes (success, failure, OR timeout), **always verify no TLC/Java p
 bash scripts/tlc-cleanup.sh
 ```
 
-**Why a separate call.** `pkill -f` matches against every process's full command line, including the shell the Bash tool started. A single call that both runs `… tla2tools.jar …` and then `pkill -f tla2tools` kills its own shell (exit 143/144) and the output of the run can be lost with it — the same self-kill register row 069 records for the hook that calls `tlc-cleanup.sh`. Keeping the cleanup in its own call keeps the pattern out of the shell it runs in.
+**What it kills.** Only `java` processes running TLC that are older than the 300 s bound (320 s with grace). A run that old has escaped its `timeout` and is the runaway this cleanup exists for. A younger run is live, possibly another agent's, and is left alone. So are shells, editors and greps that merely mention the jar. The same script runs from the Stop, SubagentStop, SessionEnd and PostToolUse(Bash) hooks, which is why it must never kill a live run (register row 069: the old `pkill -f tla2tools` killed a subagent's run whenever another agent stopped, and killed its own hook shell with exit 144). `--all` kills every TLC run whatever its age; use it only when you know no other agent is running TLC. `--dry-run` shows what would be killed.
 
-If `scripts/tlc-cleanup.sh` is not present, run this instead (also as its own call). The bracket in each pattern is deliberate: `tla2tool[s]` still matches `tla2tools` in a java command line but does not match the text `tla2tool[s]` in this shell's own command line, so the cleanup cannot kill the shell running it.
+**Why a separate call.** It keeps the TLC output out of the cleanup's way: if the cleanup fails or reports, the run's result is already printed.
+
+If `scripts/tlc-cleanup.sh` is not present, run this instead (also as its own call). It kills **every** TLC run on the machine, live or not, so run it only when no other agent is model checking. The bracket in each pattern is deliberate: `tla2tool[s]` still matches `tla2tools` in a java command line but does not match the text `tla2tool[s]` in this shell's own command line, so the cleanup cannot kill the shell running it.
 
 ```bash
 pkill -f "tla2tool[s]" 2>/dev/null
